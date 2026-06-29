@@ -1,0 +1,27 @@
+;; hive-mcp project configuration
+;; See: https://github.com/BuddhiLW/hive-mcp
+;;
+;; vtranslate-engine — JVM Clojure translation engine (pure library / core).
+;; Pipeline: demux (ffmpeg) -> ASR (whisper) -> MT -> subtitle mux.
+;; Knows nothing about argv/stdout. DIP: engine = core, CLI = driving adapter.
+
+{:project-id "vtranslate-engine"
+
+ ;; Hierarchical scope: child of the vtranslate umbrella.
+ ;; Knowledge Graph inherits via parent: child sees parent knowledge.
+ :parent-id "vtranslate"
+
+ ;; Legacy field (deprecated - use :parent-id)
+ :parent "vtranslate"
+
+ ;; Detected project type — JVM Clojure (deps.edn)
+ :project-type :clojure-cli
+
+ ;; Watch directories for hot-reload
+ :watch-dirs ["src" "test" "dev"]
+
+ ;; Hot-reload on: long-lived JVM nREPL for REPL-driven dev.
+ :hot-reload true
+
+ ;; Project-local presets directory
+ :presets-path ".hive/presets"}

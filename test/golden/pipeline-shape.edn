@@ -1,0 +1,7 @@
+{:ok? true,
+ :job-state "completed",
+ :transcript-id "j1-tx",
+ :subtitle-id "j1-sub",
+ :seg-indices [1 2],
+ :cue-lines [["hello-pt"] ["world-pt"]],
+ :rendered "1\nhello-pt\n\n2\nworld-pt"}

@@ -1,0 +1,15 @@
+{:mono-wav
+ {:container "wav",
+  :duration-ms 5000,
+  :has-audio? true,
+  :audio-codec "pcm_s16le"},
+ :silent
+ {:container "mp4",
+  :duration-ms 1000,
+  :has-audio? false,
+  :audio-codec nil},
+ :stereo-video
+ {:container "mp4",
+  :duration-ms 121858,
+  :has-audio? true,
+  :audio-codec "aac"}}

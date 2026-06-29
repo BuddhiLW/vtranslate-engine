@@ -1,0 +1,9 @@
+{:tiled-clamped
+ [{:start-ms 0, :end-ms 5000}
+  {:start-ms 5000, :end-ms 10000}
+  {:start-ms 10000, :end-ms 12000}],
+ :exact-fit
+ [{:start-ms 0, :end-ms 5000} {:start-ms 5000, :end-ms 10000}],
+ :single-short [{:start-ms 0, :end-ms 3000}],
+ :zero-duration [],
+ :zero-window []}

@@ -1,0 +1,17 @@
+# Clojure / tooling caches & build output
+/.cpcache/
+/.lsp/
+/.clj-kondo/
+/target/
+*.jar
+*.class
+
+# REPL / editor
+.nrepl-port
+.DS_Store
+
+# bb-depsolve machine-local dep overrides (:local/root) — never commit
+local.deps.edn
+
+# scratch
+/ms.edn
