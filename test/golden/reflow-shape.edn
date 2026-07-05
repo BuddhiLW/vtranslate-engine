@@ -1,0 +1,17 @@
+{:merge
+ [{:index 1, :start-ms 0, :end-ms 1500, :lines ["a" "b"]}
+  {:index 2, :start-ms 2000, :end-ms 3000, :lines ["c"]}],
+ :music
+ [{:index 1, :start-ms 2000, :end-ms 3000, :lines ["Real speech."]}],
+ :wrap
+ [{:index 1,
+   :start-ms 0,
+   :end-ms 5000,
+   :lines ["the quick brown fox" "jumps over the lazy" "dog"]}],
+ :split
+ [{:index 1, :start-ms 0, :end-ms 361, :lines ["the quick brown"]}
+  {:index 2, :start-ms 361, :end-ms 694, :lines ["fox jumps over"]}
+  {:index 3, :start-ms 694, :end-ms 1000, :lines ["the lazy dog!"]}],
+ :timing
+ [{:index 1, :start-ms 0, :end-ms 880, :lines ["x"]}
+  {:index 2, :start-ms 1000, :end-ms 3000, :lines ["y"]}]}

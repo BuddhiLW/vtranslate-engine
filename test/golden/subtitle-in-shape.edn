@@ -1,0 +1,7 @@
+{:ok? true,
+ :indices [1 2 3],
+ :lines [["Hello"] ["World" "second line"] ["Third"]],
+ :language "en",
+ :source-id "tc",
+ :extension "srt",
+ :status :track/rendered}
