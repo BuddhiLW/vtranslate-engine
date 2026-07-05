@@ -4,7 +4,8 @@
    facts the Collect layer fills in. Pure domain; no bytedeco/ffmpeg type ever
    crosses in here (those stay in engine.collect, behind the boundary).
    DDD: a job references a MediaAsset BY ID (:id), never embeds it."
-  (:require [hive-dsl.adt :refer [defadt adt-case]]
+  (:require [clojure.string :as str]
+            [hive-dsl.adt :refer [defadt adt-case]]
             [hive-dsl.result :as r]
             [vtranslate.engine.shared :as shared]))
 
@@ -80,3 +81,19 @@
     :media/video    :ingress/demux-asr
     :media/audio    :ingress/asr
     :media/subtitle :ingress/parse))
+
+;; --- kind inference (boundary hint; make-media-asset validates the result) ----
+
+(def ^:private subtitle-extensions
+  "Filename extensions that select the parse (no-ASR) ingress."
+  #{"srt" "vtt" "ass"})
+
+(defn infer-kind
+  "Infer a source's MediaKind from its filename extension: a subtitle extension
+   selects :media/subtitle (parse ingress), anything else defaults to
+   :media/video (demux + ASR). A plain keyword — make-media-asset validates it."
+  [source-uri]
+  (let [ext (some-> source-uri (str/split #"\.") last str/lower-case)]
+    (if (contains? subtitle-extensions ext)
+      :media/subtitle
+      :media/video)))

@@ -5,6 +5,7 @@
   (:require [clojure.edn :as edn]
             [hive-dsl.result :as r]
             [vtranslate.engine.api :as api]
+            [vtranslate.engine.domain.ingestion :as ing]
             [vtranslate.engine.wiring :as wiring])
   (:gen-class))
 
@@ -22,8 +23,16 @@
   (doseq [ns '[vtranslate.engine.collect.port
                vtranslate.engine.adapters.segmenter.stub
                vtranslate.engine.adapters.translator.identity
-               vtranslate.engine.adapters.translator.llm]]
+               vtranslate.engine.adapters.translator.llm
+               vtranslate.engine.adapters.source.file
+               vtranslate.engine.adapters.codec.dispatch]]
     (try (require ns) (catch Throwable _ nil))))
+
+(defn- ingress-kind
+  "MediaKind for a spec: an explicit :asset-kind, else inferred from the source
+   extension. Chooses which port set + api ingress the boundary dispatches to."
+  [spec]
+  (or (:asset-kind spec) (ing/infer-kind (:source spec))))
 
 (defn run
   "Boundary: load adapters -> parse spec -> wire ports -> run-job. Returns a
@@ -35,9 +44,13 @@
   (r/guard Throwable (r/err :error/uncaught {:phase :run})
     (do
       (register-adapters!)
-      (r/let-ok [spec  (r/ok (read-spec args))
-                 ports (wiring/default-ports (:config spec))]
-        (api/run-job ports spec)))))
+      (r/let-ok [spec (r/ok (read-spec args))]
+        (let [config (:config spec)]
+          (if (= :media/subtitle (ingress-kind spec))
+            (r/let-ok [ports (wiring/parse-ports config)]   ; Ingress B — no ASR
+              (api/run-subtitle-job ports spec))
+            (r/let-ok [ports (wiring/default-ports config)] ; Ingress A — demux + ASR
+              (api/run-job ports spec))))))))
 
 (defn -main [& args]
   (let [result (run args)]

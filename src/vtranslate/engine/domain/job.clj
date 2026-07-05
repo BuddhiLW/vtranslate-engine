@@ -82,6 +82,14 @@
       (r/ok (assoc job :state (job-state (nth forward-path (inc idx)))))
       (r/err :error/illegal-transition {:from variant}))))
 
+(defn complete
+  "Move a job directly to the terminal happy state :job/completed. Used by an
+   ingress that does not traverse every intermediate phase — the no-ASR subtitle
+   path has no transcribing step — so it cannot reach :job/completed by repeated
+   `advance`. Forward-only still holds: :job/completed is a happy terminus."
+  [job]
+  (assoc job :state (job-state :job/completed)))
+
 (defn link-transcript
   "Record the produced Transcript on the job BY ID (DDD: reference, never embed)."
   [job transcript-id]

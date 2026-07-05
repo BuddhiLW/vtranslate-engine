@@ -18,9 +18,10 @@
          {:port port-key :note "real adapters land at M3"}))
 
 (defn default-ports
-  "Assemble {:media :segmenter :transcriber :translator :renderer} from `config`.
-   At M2 this returns an err until M3 adapters register build-port methods.
-   :segmenter is served by the grid stub adapter (cutting phase A)."
+  "Assemble the ASR ingress port set {:media :segmenter :transcriber :translator
+   :renderer} from `config`. :media/:segmenter come from the ffmpeg + grid-stub
+   adapters (loaded only on the :ffmpeg classpath); :transcriber fails loud until
+   a real ASR adapter lands."
   [config]
   (r/let-ok [media       (build-port :media config)
              segmenter   (build-port :segmenter config)
@@ -29,6 +30,20 @@
              renderer    (build-port :renderer config)]
     (r/ok {:media media :segmenter segmenter :transcriber transcriber
            :translator translator :renderer renderer})))
+
+(defn parse-ports
+  "Assemble the no-ASR (subtitle parse) ingress port set {:source :parser
+   :translator :renderer} from `config`. The file-source + codec-dispatch adapters
+   register :source / :subtitle-parser / :renderer; the translator resolves via
+   the provider router (may degrade to the :identity passthrough). Unlike
+   `default-ports`, every port here loads WITHOUT bytedeco — this is the first
+   fully-runnable pipeline."
+  [config]
+  (r/let-ok [source     (build-port :source config)
+             parser     (build-port :subtitle-parser config)
+             translator (build-port :translator config)
+             renderer   (build-port :renderer config)]
+    (r/ok {:source source :parser parser :translator translator :renderer renderer})))
 
 (defmethod build-port :translator
   ;; Same seam; MT may degrade to the :identity passthrough terminus.
