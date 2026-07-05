@@ -1,0 +1,38 @@
+;; Example ~/.config/vtranslate/config.edn (XDG: $XDG_CONFIG_HOME/vtranslate/config.edn).
+;; Provider ROUTING selects WHICH adapter is active; per-adapter opts live under
+;; :transcriber-opts / :translator-opts. Precedence: job-spec :config > env
+;; (VT_TRANSCRIBER / VT_TRANSLATOR) > this file > built-in default.
+{:providers
+ {;; --- ASR (speech -> timestamped text) ---------------------------------
+  ;; :transcriber has NO default — absent => the router fails LOUD (ASR never
+  ;; falls back to a fake transcript). Pick ONE:
+  ;;   :stub            deterministic placeholder segments — NO model, dev only,
+  ;;                    makes the whole video->SRT pipeline runnable end to end.
+  ;;   :groq            hosted whisper-large-v3, needs GROQ_API_KEY. Fastest real.
+  ;;   :openai-whisper  OpenAI /audio/transcriptions, needs OPENAI_API_KEY.
+  ;;   :whisper-server  local whisper.cpp / faster-whisper-server (keyless).
+  ;;   :whisper-local   in-process whisper.cpp via JNI (needs :whisper-jni alias + model).
+  ;;   :sherpa-onnx     sherpa-onnx over ONNX Runtime (needs :sherpa alias + model).
+  ;;   :onnx-bytedeco   raw ONNX Runtime via bytedeco (needs :onnx alias + model).
+  ;;   :whisper-ffm     Panama FFM binding to libwhisper.so (needs -Dvtranslate.whisper.lib).
+  :transcriber :groq
+
+  ;; --- MT (translate) --- may degrade to :identity passthrough -----------
+  ;;   :openrouter  OpenAI-compatible, key via `pass openrouter/keys/hive-mcp` or OPENROUTER_API_KEY.
+  ;;   :venice      OpenAI-compatible, VENICE_API_KEY.
+  ;;   :identity    passthrough (no translation) — the always-available terminus.
+  :translator :openrouter}
+
+ ;; --- adapter opts ------------------------------------------------------
+ :transcriber-opts
+ {;; :model      "whisper-large-v3"          ; override the provider's default model
+  ;; :secret-pass "groq/keys/main"           ; `pass` path wins over the env key
+  ;; :model-path "models/ggml-large-v3.bin"  ; :whisper-local (whisper-jni)
+  ;; :model-dir  "models/sherpa-whisper"     ; :sherpa-onnx / :onnx-bytedeco
+  ;; :lib-path   "/opt/whisper/libwhisper.so" ; :whisper-ffm (or -Dvtranslate.whisper.lib)
+  ;; :window-ms  5000                         ; :stub tile size
+  }
+
+ :translator-opts
+ {;; :model "z-ai/glm-5.2"                    ; override OpenRouter/Venice model
+  }}

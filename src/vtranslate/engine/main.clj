@@ -25,7 +25,18 @@
                vtranslate.engine.adapters.translator.identity
                vtranslate.engine.adapters.translator.llm
                vtranslate.engine.adapters.source.file
-               vtranslate.engine.adapters.codec.dispatch]]
+               vtranslate.engine.adapters.codec.dispatch
+               ;; ASR (ITranscriber) adapters. stub + openai-compatible have no
+               ;; native deps and load unconditionally; whisper-jni / sherpa-onnx
+               ;; / onnx-bytedeco / whisper-ffm lazy-probe their optional backend
+               ;; and a missing dep is swallowed (they resolve to
+               ;; :error/transcriber-unavailable rather than failing to load).
+               vtranslate.engine.adapters.transcriber.stub
+               vtranslate.engine.adapters.transcriber.openai-compatible
+               vtranslate.engine.adapters.transcriber.whisper-jni
+               vtranslate.engine.adapters.transcriber.sherpa-onnx
+               vtranslate.engine.adapters.transcriber.onnx-bytedeco
+               vtranslate.engine.adapters.transcriber.whisper-ffm]]
     (try (require ns) (catch Throwable _ nil))))
 
 (defn- ingress-kind

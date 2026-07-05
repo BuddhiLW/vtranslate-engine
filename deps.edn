@@ -60,5 +60,25 @@
                         org.bytedeco/ffmpeg$linux-x86_64   {:mvn/version "6.1.1-1.5.10"}
                         org.bytedeco/javacpp$linux-x86_64  {:mvn/version "1.5.10"}}}
 
+  ;; --- Optional ASR (ITranscriber) native backends ------------------------
+  ;; The engine core loads WITHOUT any of these; each adapter lazy-probes its
+  ;; backend and resolves to :error/transcriber-unavailable when absent. Activate
+  ;; a backend by adding its alias. The :openai-whisper / :groq / :whisper-server
+  ;; providers need NO alias (java.net.http + cheshire are already on the core cp).
+
+  ;; Path 1 — whisper.cpp via JNI. CPU natives ship in the jar; for the RTX 4070
+  ;; build libwhisper.so with -DGGML_CUDA=1 and point
+  ;; -Dio.github.givimad.whisperjni.libdir=<dir> at it.
+  :whisper-jni {:extra-deps {io.github.givimad/whisper-jni {:mvn/version "1.7.1"}}}
+
+  ;; Path 2 — sherpa-onnx (k2-fsa): Whisper + many ASR models over ONNX Runtime.
+  :sherpa {:extra-deps {com.k2fsa.sherpa.onnx/sherpa-onnx {:mvn/version "1.10.30"}}}
+
+  ;; Path 3 — ONNX Runtime via bytedeco (same native-loading machinery as JavaCV).
+  :onnx {:extra-deps {org.bytedeco/onnxruntime-platform {:mvn/version "1.18.0-1.5.10"}}}
+
+  ;; Path 4 — Panama FFM binds libwhisper.so directly; no dependency, JDK 22+
+  ;; foreign API. Point -Dvtranslate.whisper.lib=<libwhisper.so> at your build.
+
   ;; Subprocess entrypoint the CLI shells out to.
   :run  {:main-opts ["-m" "vtranslate.engine.main"]}}}
