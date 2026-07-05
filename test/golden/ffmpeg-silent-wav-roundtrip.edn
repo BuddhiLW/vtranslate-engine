@@ -1,0 +1,7 @@
+{:probe
+ {:container "wav",
+  :duration-ms 1000,
+  :has-audio? true,
+  :audio-codec "pcm_s16le"},
+ :extract-ok? true,
+ :wav-nonempty? true}

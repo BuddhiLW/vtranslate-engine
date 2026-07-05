@@ -1,0 +1,3 @@
+{:missing-source :error/source-unreadable,
+ :probe-throws :error/probe-failed,
+ :extract-throws :error/audio-extract-failed}

@@ -1,0 +1,7 @@
+#kaocha/v1
+;; Native (:ffmpeg) integration suite — opt-in, isolated from the unit run.
+;; Run: clojure -M:test:itest:ffmpeg
+{:tests [{:id          :integration
+          :test-paths  ["test-int"]
+          :ns-patterns ["-test$"]}]
+ :reporter kaocha.report/documentation}
