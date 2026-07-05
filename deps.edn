@@ -16,7 +16,23 @@
         ;; bound — each ffmpeg grabber is stateful + holds native memory, so the
         ;; bound is what protects file handles / off-heap allocation. (Already a
         ;; transitive dep of hive-system; pinned explicitly because we use it.)
-        io.github.hive-agi/hive-weave  {:git/tag "v0.2.3" :git/sha "c9510b7"}}
+        io.github.hive-agi/hive-weave  {:git/tag "v0.2.3" :git/sha "c9510b7"}
+
+        ;; Config DI — typed EDN/env config resolution (provider routing). The
+        ;; engine reads ~/.config/vtranslate/config.edn ITSELF (standalone, like
+        ;; hive-mcp's env_config), so providers swap by config with no code edit.
+        ;; We require hive-di.source + hive-di.resolve DIRECTLY (never hive-di.core)
+        ;; so defconfig's Malli schema generation never drags Malli onto the engine
+        ;; classpath. Local working copy; re-pin to a git/sha once hive-di tags a
+        ;; release. Pinned to the v0.3.1 release here; the live working copy is
+        ;; wired for engine-coupled dev via local.deps.edn (:local/root, gitignored)
+        ;; so the LSP sidecar + CI resolve from git without host paths.
+        io.github.hive-agi/hive-di     {:git/tag "v0.3.1" :git/sha "ab63fd0"}
+
+        ;; JSON for the LLM translator adapters (OpenAI-compatible chat APIs —
+        ;; OpenRouter / Venice / OpenAI / ...). java.net.http handles the transport
+        ;; (JDK built-in, no dep); cheshire encodes the request + parses the reply.
+        cheshire/cheshire {:mvn/version "5.13.0"}}
 
  :aliases
  {:dev  {:extra-paths ["dev"]
@@ -26,10 +42,11 @@
   :test {:extra-paths ["test"]
          :extra-deps {lambdaisland/kaocha     {:mvn/version "1.91.1392"}
                       org.clojure/test.check  {:mvn/version "1.1.1"}
-                      ;; Local working copy: the published v0.2.1 predates the
-                      ;; golden / mutation / trifecta macros this suite uses.
-                      ;; Re-pin to a git/sha once those land in a tagged release.
-                      io.github.hive-agi/hive-test {:local/root "/home/leibniz/PP/hive/hive-test"}}
+                      ;; Published v0.2.1 predates the golden/mutation/trifecta
+                      ;; macros this suite uses, so the live working copy (which
+                      ;; has them) is wired via local.deps.edn (:local/root).
+                      ;; Re-pin the sha here once a hive-test release ships them.
+                      io.github.hive-agi/hive-test {:git/tag "v0.2.1" :git/sha "48b480f"}}
          :main-opts ["-m" "kaocha.runner"]}
 
   ;; M5 — ffmpeg via bytedeco JavaCV (in-process, no system ffmpeg). Only the

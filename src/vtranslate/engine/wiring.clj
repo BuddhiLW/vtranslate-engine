@@ -3,7 +3,9 @@
    needs. Real adapters arrive at M3 (whisper / translator / subtitle / JavaCV);
    until then the seam is explicit. `build-port` is an OPEN defmulti so a new
    provider is added by a new method, not by editing this ns (OCP)."
-  (:require [hive-dsl.result :as r]))
+  (:require [hive-dsl.result :as r]
+            [vtranslate.engine.providers.config :as cfg]
+            [vtranslate.engine.providers.router :as router]))
 
 (defmulti build-port
   "Build a port impl for a port key. Extension point: adapters register methods
@@ -27,3 +29,15 @@
              renderer    (build-port :renderer config)]
     (r/ok {:media media :segmenter segmenter :transcriber transcriber
            :translator translator :renderer renderer})))
+
+(defmethod build-port :translator
+  ;; Same seam; MT may degrade to the :identity passthrough terminus.
+  [_ config]
+  (r/let-ok [routing (cfg/resolve-routing config)]
+    (router/resolve-active-translator routing config)))
+
+(defmethod build-port :transcriber
+  ;; L2 resolve-routing picks the provider key; L4 router builds it (fail-loud).
+  [_ config]
+  (r/let-ok [routing (cfg/resolve-routing config)]
+    (router/resolve-active-transcriber routing config)))

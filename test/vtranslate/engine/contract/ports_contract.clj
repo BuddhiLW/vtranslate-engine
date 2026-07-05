@@ -51,24 +51,34 @@
             "spans are ordered and non-overlapping")))))
 
 (defn check-transcriber
-  "ITranscriber: transcribe returns a Result; ok segments have start<=end + string text."
+  "ITranscriber: transcribe returns a Result. An ok carries :segments that are
+   ordered, non-overlapping, each start<=end with string text. An err carries the
+   contract's :error/asr-failed tag (fail-loud — never a silent/fake transcript)."
   [impl audio language]
   (let [res (p.asr/transcribe impl audio language {})]
     (is (or (r/ok? res) (r/err? res)) "transcribe returns a Result")
-    (when (r/ok? res)
+    (if (r/ok? res)
       (let [segs (:segments (:ok res))]
         (is (sequential? segs) "ok carries a :segments sequence")
         (is (every? (fn [s] (and (<= (:start-ms s) (:end-ms s)) (string? (:text s)))) segs)
-            "every segment has start<=end and string text")))))
+            "every segment has start<=end and string text")
+        (is (->> segs (partition 2 1) (every? (fn [[a b]] (<= (:end-ms a) (:start-ms b)))))
+            "segments are ordered and non-overlapping"))
+      (is (= :error/asr-failed (:error res)) "err carries the :error/asr-failed tag"))))
 
 (defn check-translator
-  "ITranslator: translate-batch returns a Result; ok preserves count + order."
+  "ITranslator: translate-batch returns a Result. An ok preserves count + order
+   (positional alignment, 1:1 with inputs). An err carries the contract's
+   :error/translation-failed tag."
   [impl texts source-language target-language]
   (let [res (p.tr/translate-batch impl texts source-language target-language {})]
     (is (or (r/ok? res) (r/err? res)) "translate-batch returns a Result")
-    (when (r/ok? res)
-      (is (= (count texts) (count (:ok res))) "translation count == input count")
-      (is (every? string? (:ok res)) "all translations are strings"))))
+    (if (r/ok? res)
+      (do
+        (is (= (count texts) (count (:ok res))) "translation count == input count")
+        (is (every? string? (:ok res)) "all translations are strings"))
+      (is (= :error/translation-failed (:error res))
+          "err carries the :error/translation-failed tag"))))
 
 (defn check-renderer
   "ISubtitleRenderer: render-bytes returns a Result<string>."
