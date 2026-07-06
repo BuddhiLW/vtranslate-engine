@@ -15,13 +15,14 @@
 (defn register-adapters!
   "Best-effort require of adapter nses so their wiring/build-port + provider
    registry defmethods register (OCP plugin discovery). collect.port and the
-   composer.hardsub adapter pull bytedeco and resolve only under the :ffmpeg alias;
-   a missing optional dep is swallowed so the core stays loadable + runnable without
-   it. The provider adapters (translator identity + LLM) have no native deps and
-   load unconditionally. Call BEFORE wiring/default-ports."
+   composer adapters (hardsub/softmux) pull bytedeco and resolve only under the
+   :ffmpeg alias; a missing optional dep is swallowed so the core stays loadable +
+   runnable without it. The provider adapters (translator identity + LLM) have no
+   native deps and load unconditionally. Call BEFORE wiring/default-ports."
   []
   (doseq [ns '[vtranslate.engine.collect.port
                vtranslate.engine.adapters.composer.hardsub
+               vtranslate.engine.adapters.composer.softmux
                vtranslate.engine.adapters.segmenter.stub
                vtranslate.engine.adapters.segmenter.silero-vad
                vtranslate.engine.adapters.translator.identity

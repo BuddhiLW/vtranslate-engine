@@ -31,7 +31,7 @@
 
   ;; --- video compositing (attach translated subs back to the VIDEO) ------
   ;;   :none  sidecar subtitle file only (default) — no video written.
-  ;;   :soft  embed a selectable subtitle track (stream copy) — NOT YET in-process.
+  ;;   :soft  embed a selectable subtitle track (in-process mov_text stream copy).
   ;;   :hard  burn subtitles into the picture (in-process JavaCV H.264 re-encode).
   :composer :none}
 

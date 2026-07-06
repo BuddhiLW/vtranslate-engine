@@ -19,10 +19,16 @@
    - Loaded only with the :ffmpeg deps alias. Requiring it without that alias on
      the classpath throws at import — by design, the boundary requires it lazily."
   (:require [vtranslate.engine.collect.protocols :as p]
-            [vtranslate.engine.collect.units :as units])
+            [vtranslate.engine.collect.units :as units]
+            [clojure.string :as string])
   (:import [org.bytedeco.javacv FFmpegFrameGrabber FFmpegFrameRecorder Frame
             Java2DFrameConverter]
-           [org.bytedeco.ffmpeg.global avcodec]
+           [org.bytedeco.ffmpeg.global avcodec avformat avutil]
+           [org.bytedeco.ffmpeg.avformat AVFormatContext AVStream AVIOContext
+            AVInputFormat AVOutputFormat]
+           [org.bytedeco.ffmpeg.avcodec AVPacket AVCodecParameters AVCodec]
+           [org.bytedeco.ffmpeg.avutil AVRational AVDictionary]
+           [org.bytedeco.javacpp Pointer BytePointer PointerPointer]
            [java.awt Color Font Graphics2D RenderingHints]
            [java.awt.image BufferedImage]))
 
@@ -132,3 +138,96 @@
             (recur)))
         (.stop rec))
       out-path)))
+
+(defn- mov-text-sample
+  "tx3g/mov_text sample bytes for `text`: uint16 big-endian length prefix + UTF-8."
+  ^bytes [^String text]
+  (let [tb  (.getBytes text "UTF-8")
+        n   (alength tb)
+        out (byte-array (+ 2 n))]
+    (aset-byte out 0 (unchecked-byte (bit-shift-right n 8)))
+    (aset-byte out 1 (unchecked-byte (bit-and n 0xff)))
+    (System/arraycopy tb 0 out 2 n)
+    out))
+
+(defn soft-mux
+  "Embed subtitle `cues` (seq of {:start-ms :end-ms :lines}) into `source-uri` as a
+   selectable mov_text subtitle stream, stream-copying audio+video (no re-encode),
+   writing an mp4 to `out-path`. `lang` is an ISO/BCP-47 tag for the track (nil to
+   skip). => out-path.
+
+   In-process raw avformat (bundled bytedeco native): each cue becomes a tx3g
+   mov_text sample dts-interleaved into the A/V copy loop. Soft subs need no libass
+   — they are a container stream, not burned pixels. The typed-nil locals pin the
+   overloaded avformat methods to one signature (nil is otherwise ambiguous)."
+  [^String source-uri ^String out-path cues ^String lang]
+  (let [^AVInputFormat  no-ifmt  nil
+        ^AVOutputFormat no-ofmt  nil
+        ^AVCodec        no-codec nil
+        ^PointerPointer no-opts  nil
+        ictx (AVFormatContext. (Pointer.))]
+    (avformat/avformat_open_input ictx source-uri no-ifmt no-opts)
+    (avformat/avformat_find_stream_info ictx no-opts)
+    (let [octx (AVFormatContext. (Pointer.))]
+      (avformat/avformat_alloc_output_context2 octx no-ofmt "mp4" out-path)
+      (dotimes [i (.nb_streams ictx)]
+        (let [in-st  (.streams ictx i)
+              out-st (avformat/avformat_new_stream octx no-codec)]
+          (avcodec/avcodec_parameters_copy (.codecpar out-st) (.codecpar in-st))
+          (.codec_tag (.codecpar out-st) 0)))
+      (let [sub-st  (avformat/avformat_new_stream octx no-codec)
+            sub-idx (dec (.nb_streams octx))
+            sp      (.codecpar sub-st)]
+        (.codec_id sp avcodec/AV_CODEC_ID_MOV_TEXT)
+        (.codec_type sp avutil/AVMEDIA_TYPE_SUBTITLE)
+        (.num (.time_base sub-st) 1)
+        (.den (.time_base sub-st) 1000)
+        (when (seq lang)
+          (try
+            (let [meta (AVDictionary. (Pointer.))]
+              (avutil/av_dict_set meta "language" lang 0)
+              (.metadata sub-st meta))
+            (catch Throwable _ nil)))
+        (let [pb (AVIOContext. (Pointer.))]
+          (avformat/avio_open pb out-path avformat/AVIO_FLAG_WRITE)
+          (.pb octx pb)
+          (avformat/avformat_write_header octx no-opts)
+          (let [ms      (doto (AVRational.) (.num 1) (.den 1000))
+                sub-tb  (.time_base sub-st)
+                pending (atom (vec (sort-by :start-ms cues)))
+                pkt     (avcodec/av_packet_alloc)
+                emit!   (fn [{:keys [start-ms end-ms lines]}]
+                          (let [payload (mov-text-sample (string/join "\n" lines))
+                                spkt    (avcodec/av_packet_alloc)]
+                            (avcodec/av_new_packet spkt (alength payload))
+                            (.put (.data spkt) payload)
+                            (.stream_index spkt sub-idx)
+                            (.pts spkt (avutil/av_rescale_q start-ms ms sub-tb))
+                            (.dts spkt (avutil/av_rescale_q start-ms ms sub-tb))
+                            (.duration spkt (avutil/av_rescale_q (- end-ms start-ms) ms sub-tb))
+                            (avformat/av_interleaved_write_frame octx spkt)
+                            (avcodec/av_packet_free spkt)))
+                drain!  (fn [upto]
+                          (loop []
+                            (when-let [c (first @pending)]
+                              (when (<= (:start-ms c) upto)
+                                (emit! c) (swap! pending rest) (recur)))))]
+            (loop []
+              (when (>= (avformat/av_read_frame ictx pkt) 0)
+                (let [i      (.stream_index pkt)
+                      in-st  (.streams ictx i)
+                      out-st (.streams octx i)
+                      pts-ms (if (= (.pts pkt) avutil/AV_NOPTS_VALUE)
+                               0
+                               (avutil/av_rescale_q (.pts pkt) (.time_base in-st) ms))]
+                  (drain! pts-ms)
+                  (avcodec/av_packet_rescale_ts pkt (.time_base in-st) (.time_base out-st))
+                  (avformat/av_interleaved_write_frame octx pkt)
+                  (avcodec/av_packet_unref pkt)
+                  (recur))))
+            (drain! Long/MAX_VALUE)
+            (avcodec/av_packet_free pkt)
+            (avformat/av_write_trailer octx)
+            (avformat/avio_closep (.pb octx))
+            (avformat/avformat_close_input ictx)
+            out-path))))))
