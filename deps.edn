@@ -77,6 +77,11 @@
   ;; Path 3 — ONNX Runtime via bytedeco (same native-loading machinery as JavaCV).
   :onnx {:extra-deps {org.bytedeco/onnxruntime-platform {:mvn/version "1.18.0-1.5.10"}}}
 
+  ;; VAD — Silero VAD Java/ONNX Runtime adapter. Activate with
+  ;; VTRANSLATE_ENGINE_ALIASES=":ffmpeg:whisper-jni:silero-vad:run" and
+  ;; VT_SEGMENTER=silero-vad (plus models/silero_vad.onnx).
+  :silero-vad {:extra-deps {com.microsoft.onnxruntime/onnxruntime {:mvn/version "1.23.1"}}}
+
   ;; Path 4 — Panama FFM binds libwhisper.so directly; no dependency, JDK 22+
   ;; foreign API. Point -Dvtranslate.whisper.lib=<libwhisper.so> at your build.
 

@@ -22,6 +22,7 @@
   []
   (doseq [ns '[vtranslate.engine.collect.port
                vtranslate.engine.adapters.segmenter.stub
+               vtranslate.engine.adapters.segmenter.silero-vad
                vtranslate.engine.adapters.translator.identity
                vtranslate.engine.adapters.translator.llm
                vtranslate.engine.adapters.source.file

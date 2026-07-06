@@ -1,11 +1,14 @@
 (ns vtranslate.engine.adapters.segmenter.stub
   "Reference ISegmenter adapter — a deterministic fixed-window grid cutter. Tiles
    [0, duration-ms) into :window-ms spans (final span clamped to duration-ms). No
-   VAD/ML; it is the conformant stub the engine wires until a real VAD adapter
-   lands, and the substitutable impl the port contract runs against (Liskov).
+   media IO, so it is the test double / fallback implementation behind the
+   segmenter port. Also owns segmenter selection for the :segmenter wiring seam:
+   default :grid, :none disables cutting, :silero-vad delegates to the optional
+   Silero adapter without importing its ONNX classes.
    Registers itself under wiring/build-port :segmenter (OCP)."
   (:require [hive-dsl.result :as r]
             [vtranslate.engine.port.segmenter :as p.seg]
+            [vtranslate.engine.providers.config :as cfg]
             [vtranslate.engine.wiring :as wiring]))
 
 (defn grid-spans
@@ -31,4 +34,20 @@
 
 (defmethod wiring/build-port :segmenter
   [_ config]
-  (r/ok (make-segmenter (get config :segment-window-ms 5000))))
+  (r/let-ok [routing (cfg/resolve-routing config)]
+    (case (:segmenter routing)
+      :grid
+      (r/ok (make-segmenter (get config :segment-window-ms 5000)))
+
+      :none
+      (r/ok nil)
+
+      :silero-vad
+      (if-let [make-silero (requiring-resolve
+                            (quote vtranslate.engine.adapters.segmenter.silero-vad/make-segmenter))]
+        (make-silero (merge config routing))
+        (r/err :error/segmentation-failed
+               {:reason "silero-vad segmenter namespace is not loadable"}))
+
+      (r/err :error/segmentation-failed
+             {:reason (str "unknown segmenter provider: " (:segmenter routing))}))))

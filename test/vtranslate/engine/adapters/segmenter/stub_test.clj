@@ -77,3 +77,10 @@
   (let [res (wiring/build-port :segmenter {:segment-window-ms 4000})]
     (is (r/ok? res))
     (is (= 4000 (:window-ms (:ok res))))))
+
+
+(deftest build-port-registers-grid-explicitly
+  (let [res (wiring/build-port :segmenter {:segmenter :grid
+                                           :segment-window-ms 4000})]
+    (is (r/ok? res))
+    (is (= 4000 (:window-ms (:ok res))))))
