@@ -90,3 +90,28 @@
                                 :source-language "en" :target-language "pt-BR"})]
     (is (r/ok? res))
     (is (nil? @seen) "no segmenter => :spans nil (ASR-native timestamps)")))
+
+(deftest segment-language-routes-translation-batches
+  (let [calls (atom [])
+        ports (assoc mock-ports
+                     :transcriber (reify p.asr/ITranscriber
+                                    (transcribe [_ _ _ _]
+                                      (r/ok {:segments [{:start-ms 0 :end-ms 500 :text "eins" :confidence 0.9 :language "de"}
+                                                        {:start-ms 500 :end-ms 1000 :text "dos" :confidence 0.9 :language "es"}
+                                                        {:start-ms 1000 :end-ms 1500 :text "drei" :confidence 0.9 :language "de"}]})))
+                     :translator (reify p.tr/ITranslator
+                                   (translate-batch [_ texts source-language _target-language opts]
+                                     (swap! calls conj {:source-language source-language
+                                                        :texts (vec texts)
+                                                        :indices (:segment-indices opts)})
+                                     (r/ok (mapv #(str source-language ":" %) texts)))))
+        res (api/run-job ports {:job-id "j-lang" :source "/v.mp4"
+                                :source-language "auto" :target-language "pt-BR"})]
+    (is (r/ok? res))
+    (is (= [{:source-language "de" :texts ["eins" "drei"] :indices [0 2]}
+            {:source-language "es" :texts ["dos"] :indices [1]}]
+           (sort-by (juxt :source-language :indices) @calls)))
+    (is (= ["de:eins" "es:dos" "de:drei"]
+           (mapv :target-text (get-in res [:ok :translated :units]))))
+    (is (= ["de" "es" "de"]
+           (mapv :source-language (get-in res [:ok :translated :units]))))))
