@@ -76,19 +76,16 @@
           ^WhisperFullParams params (WhisperFullParams.)
           lang (lang-code language)]
       (when lang (set! (.-language params) lang))
-      ;; Surface results as DATA, not stdout noise — silence whisper's console.
       (set! (.-printProgress params) false)
       (set! (.-printRealtime params) false)
       (set! (.-printTimestamps params) false)
-      ;; Serialize decode on THIS context (default-state full is non-reentrant).
       (locking ctx
-        (let [rc (.full w ctx samples (alength samples))]
+        (let [rc (.full w ctx params samples (alength samples))]
           (when-not (zero? rc)
             (throw (ex-info "whisper full() returned non-zero"
                             {:rc rc :model-path model-path})))
           (let [n (.fullNSegments w ctx)]
             (mapv (fn [i]
-                    ;; centiseconds -> ms
                     {:start-ms (* 10 (.fullGetSegmentTimestamp0 w ctx i))
                      :end-ms   (* 10 (.fullGetSegmentTimestamp1 w ctx i))
                      :text     (.fullGetSegmentText w ctx i)})

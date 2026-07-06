@@ -51,21 +51,63 @@
 (defn- model-present? [model-path]
   (boolean (and model-path (.exists (java.io.File. ^String model-path)))))
 
-(defrecord WhisperLocalTranscriber [model-path use-gpu?]
+(defn- sample-range [sample-rate total-samples pad-ms {:keys [start-ms end-ms]}]
+  (let [start-ms (max 0 (- (or start-ms 0) pad-ms))
+        end-ms   (+ (or end-ms 0) pad-ms)
+        start    (long (Math/floor (* sample-rate (/ (double start-ms) 1000.0))))
+        end      (long (Math/ceil (* sample-rate (/ (double end-ms) 1000.0))))
+        start    (max 0 (min total-samples start))
+        end      (max start (min total-samples end))]
+    [start end]))
+
+(defn- slice-samples [samples start end]
+  (let [n (max 0 (- end start))
+        out (float-array n)]
+    (when (pos? n)
+      (System/arraycopy ^floats samples start out 0 n))
+    out))
+
+(defn- offset-segments [offset-ms raw]
+  (mapv (fn [seg]
+          (cond-> seg
+            (contains? seg :start-ms) (update :start-ms + offset-ms)
+            (contains? seg :end-ms)   (update :end-ms + offset-ms)
+            (contains? seg :start)    (update :start + offset-ms)
+            (contains? seg :end)      (update :end + offset-ms)))
+        raw))
+
+(defn- samples->ms [sample sample-rate]
+  (long (Math/round (* 1000.0 (/ (double sample) sample-rate)))))
+
+(defn- transcribe-with-spans
+  [transcribe-samples model-path use-gpu? samples sample-rate language spans span-pad-ms]
+  (if (seq spans)
+    (reduce
+     (fn [acc-res span]
+       (r/let-ok [acc acc-res]
+         (let [[start end] (sample-range sample-rate (alength ^floats samples) span-pad-ms span)]
+           (if (= start end)
+             (r/ok acc)
+             (r/let-ok [raw (transcribe-samples model-path use-gpu?
+                                                (slice-samples samples start end)
+                                                language)]
+               (r/ok (into acc (offset-segments (samples->ms start sample-rate) raw))))))))
+     (r/ok [])
+     spans)
+    (transcribe-samples model-path use-gpu? samples language)))
+
+(defrecord WhisperLocalTranscriber [model-path use-gpu? span-pad-ms]
   p.asr/ITranscriber
-  (transcribe [_ audio-source language _opts]
+  (transcribe [_ audio-source language opts]
     (if-let [path (sup/audio->path audio-source)]
-      ;; read-wav-mono-floats gives whisper the exact shape it wants — a mono
-      ;; float[] (the Collect boundary already guarantees 16 kHz mono PCM). The
-      ;; native call is reached ONLY here, lazily, so the import stays off the
-      ;; core cp; r/guard turns any native load/link failure into a loud
-      ;; :error/asr-failed instead of a raw Throwable escaping the port.
-      (r/let-ok [{:keys [samples]} (sup/read-wav-mono-floats path)
+      (r/let-ok [{:keys [samples sample-rate]} (sup/read-wav-mono-floats path)
                  raw (r/guard Throwable
                               (r/err :error/asr-failed
                                      {:reason "whisper-jni native backend failed to load"})
                        (let [transcribe-samples @(requiring-resolve native-transcribe-sym)]
-                         (transcribe-samples model-path use-gpu? samples language)))]
+                         (transcribe-with-spans transcribe-samples model-path use-gpu?
+                                                samples sample-rate language (:spans opts)
+                                                span-pad-ms)))]
         (r/ok {:segments (sup/normalize-segments raw {:unit :ms})}))
       (r/err :error/asr-failed {:reason "audio-source carries no path"}))))
 
@@ -73,8 +115,9 @@
 
 (defmethod reg/resolve-transcriber :whisper-local
   [_ config]
-  (let [model-path (model-path-for config)
-        use-gpu?   (boolean (get-in config [:transcriber-opts :use-gpu?] false))]
+  (let [model-path  (model-path-for config)
+        use-gpu?    (boolean (get-in config [:transcriber-opts :use-gpu?] false))
+        span-pad-ms (long (get-in config [:transcriber-opts :span-pad-ms] 500))]
     (cond
       ;; Two distinct unavailability causes, each with its own actionable hint,
       ;; so an operator sees WHICH half is missing (the jar or the weights).
@@ -91,4 +134,4 @@
                                " — download one or set config [:transcriber-opts :model-path]")})
 
       :else
-      (r/ok (->WhisperLocalTranscriber model-path use-gpu?)))))
+      (r/ok (->WhisperLocalTranscriber model-path use-gpu? span-pad-ms)))))
