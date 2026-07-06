@@ -27,7 +27,13 @@
   ;;   :openrouter  OpenAI-compatible, key via `pass openrouter/keys/hive-mcp` or OPENROUTER_API_KEY.
   ;;   :venice      OpenAI-compatible, key via `pass Venice/api-key` or VENICE_API_KEY.
   ;;   :identity    passthrough (no translation) — the always-available terminus.
-  :translator :venice}
+  :translator :venice
+
+  ;; --- video compositing (attach translated subs back to the VIDEO) ------
+  ;;   :none  sidecar subtitle file only (default) — no video written.
+  ;;   :soft  embed a selectable subtitle track (stream copy) — NOT YET in-process.
+  ;;   :hard  burn subtitles into the picture (in-process JavaCV H.264 re-encode).
+  :composer :none}
 
  ;; --- adapter opts ------------------------------------------------------
  :segmenter-opts
@@ -53,4 +59,10 @@
   ;; :timeout-ms 120000                      ; per-window timeout
   ;; :secret-pass "Venice/api-key"           ; `pass` path wins over env key
   ;; :api-url "https://api.venice.ai/api/v1/chat/completions"
+  }
+
+ ;; --- video compositing opts (read when :composer is :hard) -------------
+ :composer-opts
+ {:font-size 28                              ; burn-in font size in pixels
+  :wrap      42                              ; word-wrap width in characters
   }}

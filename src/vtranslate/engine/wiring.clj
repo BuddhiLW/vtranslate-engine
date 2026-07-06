@@ -5,7 +5,8 @@
    provider is added by a new method, not by editing this ns (OCP)."
   (:require [hive-dsl.result :as r]
             [vtranslate.engine.providers.config :as cfg]
-            [vtranslate.engine.providers.router :as router]))
+            [vtranslate.engine.providers.router :as router]
+            [vtranslate.engine.providers.composer-registry :as cmp-reg]))
 
 (defmulti build-port
   "Build a port impl for a port key. Extension point: adapters register methods
@@ -19,17 +20,29 @@
 
 (defn default-ports
   "Assemble the ASR ingress port set {:media :segmenter :transcriber :translator
-   :renderer} from `config`. :media/:segmenter come from the ffmpeg + grid-stub
-   adapters (loaded only on the :ffmpeg classpath); :transcriber fails loud until
-   a real ASR adapter lands."
+   :renderer :muxer} from `config`. :media/:segmenter come from the ffmpeg +
+   grid-stub adapters (loaded only on the :ffmpeg classpath); :transcriber fails
+   loud until a real ASR adapter lands. :muxer is nil unless config selects a
+   composition strategy ([:providers :composer] :soft|:hard)."
   [config]
   (r/let-ok [media       (build-port :media config)
              segmenter   (build-port :segmenter config)
              transcriber (build-port :transcriber config)
              translator  (build-port :translator config)
-             renderer    (build-port :renderer config)]
+             renderer    (build-port :renderer config)
+             muxer       (build-port :composer config)]
     (r/ok {:media media :segmenter segmenter :transcriber transcriber
-           :translator translator :renderer renderer})))
+           :translator translator :renderer renderer :muxer muxer})))
+
+(defmethod build-port :composer
+  ;; L2 resolve-routing picks the composition strategy key; the L3 registry builds
+  ;; it. :none (default) => no muxer, so the compose stage is a passthrough.
+  [_ config]
+  (r/let-ok [routing (cfg/resolve-routing config)]
+    (let [composer (:composer routing)]
+      (if (contains? #{nil :none} composer)
+        (r/ok nil)
+        (cmp-reg/resolve-composer composer (merge config routing))))))
 
 (defn parse-ports
   "Assemble the no-ASR (subtitle parse) ingress port set {:source :parser

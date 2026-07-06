@@ -14,7 +14,8 @@
             [vtranslate.engine.port.translator :as p.tr]
             [vtranslate.engine.port.subtitle :as p.sub]
             [vtranslate.engine.port.source :as p.src]
-            [hive.events.fsm :as fsm]))
+            [hive.events.fsm :as fsm]
+            [vtranslate.engine.port.composer :as p.comp]))
 
 (defn- segment-audio [segmenter audio probe]
   (if segmenter
@@ -195,11 +196,22 @@
       (r/let-ok [track    (build-render-track spec translated)
                  rendered (p.sub/render-bytes renderer track)
                  job      (complete-render-job job track)]
-                (r/ok {:job job
+                (r/ok {:spec spec
+                       :job job
                        :transcript transcript
                        :translated translated
                        :subtitle-track track
                        :rendered rendered})))))
+
+(defn- compose-video [{:keys [muxer]} state]
+  (with-result
+    state
+    (fn [{:keys [spec subtitle-track] :as ctx}]
+      (if muxer
+        (r/let-ok [out (p.comp/compose muxer (:source spec) subtitle-track
+                                       {:output-uri (:output spec)})]
+                  (r/ok (assoc ctx :output-video (:output-uri out))))
+        (r/ok ctx)))))
 
 (def ^:private video-fsm
   (compile-stage-fsm
@@ -207,7 +219,8 @@
     (->JobStage :vtranslate.pipeline/ingest ingest-media)
     (->JobStage :vtranslate.pipeline/transcribe transcribe-media)
     (->JobStage :vtranslate.pipeline/translate translate-transcript)
-    (->JobStage :vtranslate.pipeline/render render-subtitles)]))
+    (->JobStage :vtranslate.pipeline/render render-subtitles)
+    (->JobStage :vtranslate.pipeline/compose compose-video)]))
 
 (defrecord TranslationPipeline [ports fsm]
   ITranslationPipeline
@@ -215,22 +228,24 @@
     (:result (fsm/run fsm ports {:data spec}))))
 
 (defn run-job
-  [{:keys [media segmenter transcriber translator renderer]}
-   {:keys [job-id source source-language target-language asset-kind format]
+  [{:keys [media segmenter transcriber translator renderer muxer]}
+   {:keys [job-id source source-language target-language asset-kind format output]
     :or   {asset-kind :media/video format :format/srt}}]
   (run-translation-job
    (->TranslationPipeline {:media media
                            :segmenter segmenter
                            :transcriber transcriber
                            :translator translator
-                           :renderer renderer}
+                           :renderer renderer
+                           :muxer muxer}
                           video-fsm)
    {:job-id job-id
     :source source
     :source-language source-language
     :target-language target-language
     :asset-kind asset-kind
-    :format format}))
+    :format format
+    :output output}))
 
 (defn- start-subtitle-translation [_ {:keys [job-id source target-language] :as spec}]
   (result-state
