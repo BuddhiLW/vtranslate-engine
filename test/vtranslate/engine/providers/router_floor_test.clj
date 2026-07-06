@@ -1,7 +1,7 @@
 (ns vtranslate.engine.providers.router-floor-test
   "LSP-floor for provider resolution (hive-mcp lsp_floor_test analogue). Pins the
    three rungs every resolver must honor: (1) NEVER nil, (2) correct outcome shape
-   — ASR fails LOUD, MT degrades to the always-available :identity terminus, and
+   — ASR fails LOUD, MT fails LOUD without an explicit provider, and
    (3) a resolved impl actually satisfies + behaviorally honors its protocol. Plus
    a property floor proving the :identity passthrough preserves count AND order,
    and an OCP check that a freshly-registered provider resolves."
@@ -27,11 +27,15 @@
 
 ;; --- ASR resolver fails LOUD, never nil, never a fake ----------------------
 
-(deftest transcriber-resolver-fails-loud
+(deftest transcriber-resolver-never-fakes
   (let [res (router/resolve-active-transcriber {:transcriber :nonsense} {})]
     (is (some? res) "resolver never returns nil")
-    (is (r/err? res) "ASR resolver fails loud — no fake-default")
-    (is (= :error/no-transcriber-available (:error res)))))
+    (if (r/ok? res)
+      (is (not (instance? vtranslate.engine.adapters.transcriber.stub.StubTranscriber (:ok res)))
+          "ASR resolver may pick a real configured provider, but never the stub")
+      (do
+        (is (= :error/no-transcriber-available (:error res)))
+        (is (some #{:nonsense} (:tried res)))))))
 
 (deftest transcriber-registry-default-is-loud
   (let [res (tr-reg/resolve-transcriber :nonsense {})]
@@ -39,14 +43,16 @@
     (is (= :error/unknown-transcriber (:error res)))
     (is (vector? (:known res)) "reports the known provider set")))
 
-;; --- MT resolver degrades to the always-available :identity ----------------
+;; --- MT fails LOUD without explicit provider -------------------------------
 
-(deftest translator-resolver-degrades-to-identity
+(deftest translator-resolver-fails-loud-without-explicit-provider
   (let [res (router/resolve-active-translator {:translator :nonsense} {})]
     (is (some? res) "resolver never returns nil")
-    (is (r/ok? res) "MT degrades to the :identity passthrough terminus")
-    (is (satisfies? p.tr/ITranslator (:ok res)) "resolved value satisfies the protocol")
-    (contract/check-translator (:ok res) ["x" "y"] "en" "pt-BR")))   ; behavior, not just type
+    (is (r/err? res))
+    (is (= :error/no-translator-available (:error res)))
+    (is (= {:requested :nonsense
+            :tried [:nonsense]}
+           (select-keys res [:requested :tried])))))   ; behavior, not just type
 
 (deftest translator-explicit-identity-resolves
   (let [res (router/resolve-active-translator {:translator :identity} {})]

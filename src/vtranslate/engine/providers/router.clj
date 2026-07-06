@@ -15,11 +15,12 @@
   "Ordered ASR fallthrough when the requested provider can't be built. These keys
    are served by real adapters (M3); until then the chain legitimately exhausts
    and the resolver fails loud."
-  [:whisper-local :openai-whisper])
+  [:whisper-local :whisper-ffm :sherpa-onnx :onnx-bytedeco
+   :groq :openai-whisper :whisper-server])
 
 (def translator-priority
-  "Ordered MT fallthrough; ENDS in :identity (always-available passthrough)."
-  [:identity])
+  "Ordered MT fallback chain. Empty means no implicit passthrough."
+  [])
 
 (defn- first-ok
   "Try each provider key in order via `resolve-fn`; the first (r/ok ...) wins,
@@ -46,8 +47,7 @@
                 :hint      "configure an available ASR provider; ASR never falls back to a fake transcript"}))))
 
 (defn resolve-active-translator
-  "Resolve an ITranslator: requested key first, then `translator-priority`
-   (ending in :identity — MT may degrade to passthrough).
+  "Resolve an ITranslator from the requested key plus configured fallback chain.
    => (r/ok impl) | (r/err :error/no-translator-available {:requested :tried})."
   [routing config]
   (let [order (order-for (:translator routing) translator-priority)]

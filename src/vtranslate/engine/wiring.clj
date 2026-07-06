@@ -45,14 +45,22 @@
              renderer   (build-port :renderer config)]
     (r/ok {:source source :parser parser :translator translator :renderer renderer})))
 
+(defn- decorate-translator
+  "Wrap `translator` with the contextual decorator when config asks for it, else
+   return it unchanged."
+  [translator config]
+  (if-let [wrap (requiring-resolve 'vtranslate.engine.adapters.translator.contextual/wrap)]
+    (wrap translator config)
+    translator))
+
 (defmethod build-port :translator
-  ;; Same seam; MT may degrade to the :identity passthrough terminus.
   [_ config]
-  (r/let-ok [routing (cfg/resolve-routing config)]
-    (router/resolve-active-translator routing config)))
+  (r/let-ok [routing    (cfg/resolve-routing config)
+             translator (router/resolve-active-translator routing (merge config routing))]
+    (r/ok (decorate-translator translator (merge config routing)))))
 
 (defmethod build-port :transcriber
   ;; L2 resolve-routing picks the provider key; L4 router builds it (fail-loud).
   [_ config]
   (r/let-ok [routing (cfg/resolve-routing config)]
-    (router/resolve-active-transcriber routing config)))
+    (router/resolve-active-transcriber routing (merge config routing))))

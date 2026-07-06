@@ -30,5 +30,8 @@
   (testing "the stub is NOT in the router fallback chain (no silent fake transcript)"
     (is (not (some #{:stub} router/transcriber-priority))
         "ASR must never silently fall back to the stub")
-    (is (r/err? (router/resolve-active-transcriber {:transcriber nil} {}))
-        "with no provider requested and no real backend, resolution fails loud")))
+    (let [res (router/resolve-active-transcriber {:transcriber nil} {})]
+      (is (some? res) "resolver never returns nil")
+      (when (r/ok? res)
+        (is (not (instance? vtranslate.engine.adapters.transcriber.stub.StubTranscriber (:ok res)))
+            "fallback may find a real ASR provider, but never the stub")))))

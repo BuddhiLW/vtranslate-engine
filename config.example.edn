@@ -1,9 +1,15 @@
 ;; Example ~/.config/vtranslate/config.edn (XDG: $XDG_CONFIG_HOME/vtranslate/config.edn).
 ;; Provider ROUTING selects WHICH adapter is active; per-adapter opts live under
-;; :transcriber-opts / :translator-opts. Precedence: job-spec :config > env
-;; (VT_TRANSCRIBER / VT_TRANSLATOR) > this file > built-in default.
+;; :segmenter-opts / :transcriber-opts / :translator-opts. Precedence: job-spec :config > env
+;; (VT_SEGMENTER / VT_TRANSCRIBER / VT_TRANSLATOR) > this file > built-in default.
 {:providers
- {;; --- ASR (speech -> timestamped text) ---------------------------------
+ {;; --- segmentation (speech-boundary spans) -----------------------------
+  ;;   :grid        fixed windows, default.
+  ;;   :silero-vad  speech-aware VAD, needs :silero-vad alias + models/silero_vad.onnx.
+  ;;   :none        disable cutting, let ASR backend produce native timestamps.
+  :segmenter :grid
+
+  ;; --- ASR (speech -> timestamped text) ---------------------------------
   ;; :transcriber has NO default — absent => the router fails LOUD (ASR never
   ;; falls back to a fake transcript). Pick ONE:
   ;;   :stub            deterministic placeholder segments — NO model, dev only,
@@ -19,11 +25,17 @@
 
   ;; --- MT (translate) --- may degrade to :identity passthrough -----------
   ;;   :openrouter  OpenAI-compatible, key via `pass openrouter/keys/hive-mcp` or OPENROUTER_API_KEY.
-  ;;   :venice      OpenAI-compatible, VENICE_API_KEY.
+  ;;   :venice      OpenAI-compatible, key via `pass Venice/api-key` or VENICE_API_KEY.
   ;;   :identity    passthrough (no translation) — the always-available terminus.
-  :translator :openrouter}
+  :translator :venice}
 
  ;; --- adapter opts ------------------------------------------------------
+ :segmenter-opts
+ {;; :model-path "models/silero_vad.onnx"    ; :silero-vad ONNX model
+  ;; :threshold 0.5
+  ;; :speech-pad-ms 30
+  }
+
  :transcriber-opts
  {;; :model      "whisper-large-v3"          ; override the provider's default model
   ;; :secret-pass "groq/keys/main"           ; `pass` path wins over the env key
@@ -34,5 +46,11 @@
   }
 
  :translator-opts
- {;; :model "z-ai/glm-5.2"                    ; override OpenRouter/Venice model
+ {:model   "gemma-4-uncensored"              ; uncensored multilingual Venice model (256k ctx)
+  :window  40                                ; target cues translated per request
+  :context 4                                 ; neighbour cues sent as untranslated context
+  ;; :concurrency 4                          ; parallel windows (lower if the API throttles)
+  ;; :timeout-ms 120000                      ; per-window timeout
+  ;; :secret-pass "Venice/api-key"           ; `pass` path wins over env key
+  ;; :api-url "https://api.venice.ai/api/v1/chat/completions"
   }}
