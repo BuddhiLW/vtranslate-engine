@@ -23,9 +23,10 @@
 ;; --- Language (BCP-47 tag, closed registry) --------------------------------
 
 (def supported-languages
-  "Closed registry of supported language tags (BCP-47). Mutation surface — keep
+  "Closed registry of supported language tags (BCP-47). Mutation surface - keep
    in sync with translator/ASR adapter capability tables."
-  #{"en" "pt-BR" "es" "fr" "de" "ja"})
+  #{"und" "en" "en-us" "pt" "pt-BR" "es" "es-419" "fr" "de" "ru"
+    "zh" "zh-hans" "zh-cn" "zh-tw" "ja" "ar" "he" "fa"})
 
 (defn make-language
   "Validate a BCP-47 tag against the registry.
@@ -52,9 +53,9 @@
   [start-ms end-ms]
   (r/let-ok [start (make-timecode start-ms)
              end   (make-timecode end-ms)]
-    (if (<= (:ms start) (:ms end))
-      (r/ok (->TimeRange start end))
-      (r/err :error/inverted-time-range {:start start-ms :end end-ms}))))
+            (if (<= (:ms start) (:ms end))
+              (r/ok (->TimeRange start end))
+              (r/err :error/inverted-time-range {:start start-ms :end end-ms}))))
 
 (defn duration-ms
   "Length of a TimeRange in milliseconds (a pure calculation)."

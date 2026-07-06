@@ -42,6 +42,12 @@
   (is (= [] (sup/normalize-segments [] {:unit :s})) "empty in, empty out")
   (is (= [] (sup/normalize-segments [{:start 0 :end 1 :text ""}] {:unit :s})) "all-blank -> empty"))
 
+(deftest preserves-segment-language
+  (is (= ["de" "es"]
+         (mapv :language
+               (sup/normalize-segments [{:start-ms 0 :end-ms 100 :text "eins" :language "de"}
+                                        {:start-ms 100 :end-ms 200 :text "dos" :language "es"}])))))
+
 ;; Property: for ANY generated set of ragged segments, the output is always
 ;; contract-shaped. This is the machine-checked LSP invariant.
 (def gen-raw-seg

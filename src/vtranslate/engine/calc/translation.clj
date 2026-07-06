@@ -9,9 +9,9 @@
    (get-in segment [:range :end :ms])])
 
 (defn build-translated-cues
-  "Align `translations` (1:1 with the transcript's segments, same order) onto the
-   transcript and fold into a completed TranslatedCues. `spec` = {:id :target-language};
-   source-language comes from the transcript.
+  "Align `translations` onto transcript segments and fold a completed TranslatedCues.
+   Segment :language is preserved on each TranslationUnit; transcript language
+   remains the aggregate source-language.
    => (r/ok TranslatedCues) | (r/err :error/translation-failed ...)."
   [transcript translations {:keys [id target-language]}]
   (let [segments (:segments transcript)]
@@ -31,6 +31,7 @@
                              (r/let-ok [c acc
                                         u (tr/make-translation-unit
                                            {:start-ms s :end-ms e
+                                            :source-language (:language seg)
                                             :source-text (:text seg)
                                             :target-text target-text})]
                                (r/ok (tr/add-unit c u)))))

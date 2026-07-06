@@ -27,15 +27,17 @@
 
 ;; --- Segment (entity within the Transcript aggregate) ----------------------
 
-(defrecord Segment [index range text confidence])
+(defrecord Segment [index range text confidence language])
 
 (defn make-segment
-  "Build a Segment over a shared/TimeRange. Validates range + confidence.
+  "Build a Segment over a shared/TimeRange. Validates range, confidence, and
+   optional source language.
    => (r/ok Segment) | (r/err ...)."
-  [{:keys [index start-ms end-ms text confidence]}]
+  [{:keys [index start-ms end-ms text confidence language]}]
   (r/let-ok [range (shared/make-time-range start-ms end-ms)
-             conf  (make-confidence confidence)]
-    (r/ok (->Segment index range text conf))))
+             conf  (make-confidence confidence)
+             lang  (if language (shared/make-language language) (r/ok nil))]
+    (r/ok (->Segment index range text conf lang))))
 
 ;; --- Aggregate root --------------------------------------------------------
 

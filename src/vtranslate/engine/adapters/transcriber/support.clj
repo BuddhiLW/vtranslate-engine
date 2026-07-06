@@ -39,11 +39,8 @@
     (max 0 (long (Math/round (double (case unit :s (* 1000.0 t) :ms t)))))))
 
 (defn normalize-segments
-  "Coerce raw backend segments into the ITranscriber contract shape — ORDERED by
-   start, NON-OVERLAPPING (each start >= previous end), start<=end, non-blank
-   string text — so ANY backend passes check-transcriber by construction. `raw`
-   is a seq of maps carrying :start/:end (or :start-ms/:end-ms) in `unit`, :text,
-   and optional :confidence. Blank/timeless segments are dropped.
+  "Coerce raw backend segments into the ITranscriber contract shape: ordered,
+   non-overlapping, start<=end, non-blank text. Preserves optional :language.
    opts: {:unit :s|:ms (default :ms) :default-confidence 1.0}."
   ([raw] (normalize-segments raw {}))
   ([raw {:keys [unit default-confidence] :or {unit :ms default-confidence 1.0}}]
@@ -53,12 +50,12 @@
                       end   (->ms (or (:end-ms s) (:end s)) unit)
                       text  (some-> (:text s) str str/trim)]
                   (when (and start (seq text))
-                    {:start-ms   start
-                     :end-ms     (max start (or end start))
-                     :text       text
-                     :confidence (double (or (:confidence s) default-confidence))}))))
+                    (cond-> {:start-ms   start
+                             :end-ms     (max start (or end start))
+                             :text       text
+                             :confidence (double (or (:confidence s) default-confidence))}
+                      (:language s) (assoc :language (:language s)))))))
         (sort-by :start-ms)
-        ;; shear overlaps: force each segment to start at or after the prior end
         (reduce (fn [acc seg]
                   (let [start (max (:start-ms seg) (:end-ms (peek acc) (:start-ms seg)))]
                     (conj acc (assoc seg :start-ms start :end-ms (max start (:end-ms seg))))))

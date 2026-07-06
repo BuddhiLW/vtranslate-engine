@@ -7,9 +7,8 @@
 (defn build-transcript
   "Fold ASR segment-data maps into a completed Transcript. Boundary ASR data has
    no :index (adapters don't number segments); the promote layer assigns the
-   1-based index — same enrichment rule the rendering promoter applies to Cues.
-   `spec` = {:id :asset-id :language :segments [{:start-ms :end-ms :text :confidence} ...]}.
-   => (r/ok Transcript) | (r/err ...) — first failing segment / language / empty."
+   1-based index. Missing per-segment language defaults to transcript language.
+   => (r/ok Transcript) | (r/err ...)."
   [{:keys [id asset-id language segments]}]
   (r/let-ok [t0     (tx/make-transcript {:id id :asset-id asset-id :language language})
              filled (reduce (fn [acc seg-data]
@@ -17,6 +16,9 @@
                                          seg (tx/make-segment seg-data)]
                                 (r/ok (tx/add-segment t seg))))
                             (r/ok t0)
-                            (map-indexed (fn [i seg] (assoc seg :index (inc i)))
+                            (map-indexed (fn [i seg]
+                                           (assoc seg
+                                                  :index (inc i)
+                                                  :language (or (:language seg) language)))
                                          segments))]
     (tx/complete filled)))

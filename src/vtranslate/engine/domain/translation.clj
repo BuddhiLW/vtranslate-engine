@@ -18,14 +18,15 @@
 
 ;; --- TranslationUnit (value object) ----------------------------------------
 
-(defrecord TranslationUnit [range source-text target-text])
+(defrecord TranslationUnit [range source-language source-text target-text])
 
 (defn make-translation-unit
   "Pair source text with its translation over a shared/TimeRange.
    => (r/ok TranslationUnit) | (r/err ...)."
-  [{:keys [start-ms end-ms source-text target-text]}]
-  (r/let-ok [range (shared/make-time-range start-ms end-ms)]
-    (r/ok (->TranslationUnit range source-text target-text))))
+  [{:keys [start-ms end-ms source-language source-text target-text]}]
+  (r/let-ok [range (shared/make-time-range start-ms end-ms)
+             lang  (if source-language (shared/make-language source-language) (r/ok nil))]
+    (r/ok (->TranslationUnit range lang source-text target-text))))
 
 ;; --- Aggregate root --------------------------------------------------------
 
