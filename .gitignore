@@ -13,5 +13,11 @@
 # bb-depsolve machine-local dep overrides (:local/root) — never commit
 local.deps.edn
 
+# Local model artifacts
+/models/*
+!/models/
+!/models/README.md
+!/models/.gitkeep
+
 # scratch
 /ms.edn
