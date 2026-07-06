@@ -23,23 +23,38 @@
       res
       (p.tr/translate-batch fallback chunk source-language target-language opts))))
 
+(def ^:private chunk-timeout-error
+  "bounded-pmap :fallback — a chunk that never returns (times out) surfaces as a
+   loud translation error, never a silently dropped chunk."
+  (r/err :error/translation-failed
+         {:reason "chunk translation failed or timed out"}))
+
+(defn- translate-chunks
+  "Translate every chunk concurrently under a hard concurrency bound, chunk order
+   preserved. => vector of per-chunk Results (one Result per chunk)."
+  [{:keys [inner fallback concurrency]} chunks source-language target-language opts]
+  (par/bounded-pmap
+   {:concurrency concurrency :fallback chunk-timeout-error}
+   (fn [chunk] (translate-chunk inner fallback chunk source-language target-language opts))
+   chunks))
+
+(defn- reassemble
+  "Fold per-chunk Results back into one whole-batch Result: fail LOUD on the
+   first failing chunk (no chunk dropped or reordered), else concatenate every
+   chunk's translations in original order."
+  [chunk-results]
+  (if-let [failure (first (remove r/ok? chunk-results))]
+    failure
+    (r/ok (into [] (mapcat :ok) chunk-results))))
+
 (defrecord ChunkedTranslator [inner chunk-size concurrency fallback]
   p.tr/ITranslator
-  (translate-batch [_ texts source-language target-language opts]
+  (translate-batch [this texts source-language target-language opts]
     (if (empty? texts)
       (r/ok [])
-      (let [chunks  (partition-all chunk-size texts)
-            results (par/bounded-pmap
-                     {:concurrency concurrency
-                      :fallback    (r/err :error/translation-failed
-                                          {:reason "chunk translation failed or timed out"})}
-                     (fn [chunk]
-                       (translate-chunk inner fallback chunk
-                                        source-language target-language opts))
-                     chunks)]
-        (if-let [failure (first (remove r/ok? results))]
-          failure
-          (r/ok (into [] (mapcat :ok) results)))))))
+      (let [chunks (partition-all chunk-size texts)]
+        (reassemble
+         (translate-chunks this chunks source-language target-language opts))))))
 
 (defn make-chunked
   "Decorate `inner` ITranslator with bounded concurrent chunked batching.

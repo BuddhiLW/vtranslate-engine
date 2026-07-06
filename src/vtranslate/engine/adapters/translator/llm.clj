@@ -47,20 +47,45 @@
 (def ^:private http-client
   (delay (.. (HttpClient/newBuilder) (connectTimeout (Duration/ofSeconds 15)) (build))))
 
-(defn- system-prompt [src tgt]
+(defn- system-prompt
+  "System instruction to translate a JSON array of subtitle strings from `src` to
+   `tgt`, returning a JSON array of the same length and order. When `context?` is
+   truthy, also instructs the model to treat labelled surrounding lines as
+   untranslated reference context."
+  [src tgt context?]
   (str "You are a professional subtitle translator. The user message is a JSON "
        "array of subtitle strings. Translate each element from "
        (or src "its source language") " to " tgt ". Keep meaning, tone, and a "
        "subtitle-appropriate length. Return ONLY a JSON array of translated "
-       "strings — the SAME length and order as the input. No prose, no markdown, "
-       "no code fences."))
+       "strings the SAME length and order as the input. No prose, no markdown, "
+       "no code fences."
+       (when context?
+         (str " Lines under PRECEDING CONTEXT / FOLLOWING CONTEXT are reference "
+              "only do NOT translate them and do NOT include them in your output."))))
 
-(defn- chat-body [model src tgt texts]
+(defn- context-block
+  "Render `label` over `lines` as a text block, or nil when `lines` is empty."
+  [label lines]
+  (when (seq lines)
+    (str label ":\n" (str/join "\n" lines) "\n\n")))
+
+(defn- user-content
+  "The user message: PRECEDING/FOLLOWING context blocks (when present) followed by
+   the JSON array of `texts` to translate."
+  [texts before after]
+  (str (context-block "PRECEDING CONTEXT" before)
+       (context-block "FOLLOWING CONTEXT" after)
+       (json/generate-string (vec texts))))
+
+(defn- chat-body
+  "Build the chat-completions request body translating `texts` from `src` to
+   `tgt`, using opts :context/before and :context/after as reference context."
+  [model src tgt texts {:context/keys [before after]}]
   (json/generate-string
    {:model       model
     :temperature 0.2
-    :messages    [{:role "system" :content (system-prompt src tgt)}
-                  {:role "user"   :content (json/generate-string (vec texts))}]}))
+    :messages    [{:role "system" :content (system-prompt src tgt (boolean (or (seq before) (seq after))))}
+                  {:role "user"   :content (user-content texts before after)}]}))
 
 (defn- strip-fences [s]
   (-> (str/trim (str s))
@@ -108,43 +133,39 @@
 
 (defrecord LlmTranslator [api-url model secret-env secret-pass]
   p.tr/ITranslator
-  (translate-batch [_ texts source-language target-language _opts]
+  (translate-batch [_ texts source-language target-language opts]
     (if (empty? texts)
       (r/ok [])
       (if-let [api-key (resolve-key secret-env secret-pass)]
         (r/let-ok [content (post-chat api-url api-key
-                                      (chat-body model source-language target-language texts))]
+                                      (chat-body model source-language target-language texts opts))]
           (parse-translations content (count texts)))
         (r/err :error/translation-failed
-               {:reason (str "no API key — set env " secret-env
+               {:reason (str "no API key set env " secret-env
                              (when secret-pass (str " or pass " secret-pass)))
                 :api-url api-url})))))
 
 (def ^:private provider-defaults
-  "Self-contained per-provider endpoint + a strong default model + key sources.
-   Overridable via config [:translator-opts {:model :secret-env :secret-pass}].
-   OpenRouter's authoritative key lives in `pass` here (the env var is stale);
-   Venice's env key works directly. Models default to the GLM-5.2 family, which
-   reliably returns a bare JSON array."
+  "Self-contained per-provider endpoint, model, and key sources."
   {:openrouter {:api-url     "https://openrouter.ai/api/v1/chat/completions"
                 :secret-env  "OPENROUTER_API_KEY"
                 :secret-pass "openrouter/keys/hive-mcp"
                 :model       "z-ai/glm-5.2"}
    :venice     {:api-url     "https://api.venice.ai/api/v1/chat/completions"
                 :secret-env  "VENICE_API_KEY"
-                :secret-pass nil
+                :secret-pass "Venice/api-key"
                 :model       "zai-org-glm-5-2"}})
 
 (defn make-translator
-  "Build an LLM translator for `provider-key`. Per-provider overrides (model /
-   secret-env / secret-pass) may be supplied under config [:translator-opts] (a
-   map); absent => the built-in provider defaults. NOTE: the [:translator] key
-   itself is the routing SELECTION (a provider keyword), not an opts map — opts
-   live under [:translator-opts] to avoid that collision."
+  "Build an LLM translator for `provider-key`. Per-provider overrides (api-url /
+   model / secret-env / secret-pass) may be supplied under config
+   [:translator-opts] (a map); absent => the built-in provider defaults. NOTE:
+   the [:translator] key itself is the routing SELECTION (a provider keyword), not
+   an opts map — opts live under [:translator-opts] to avoid that collision."
   [provider-key config]
   (let [d    (get provider-defaults provider-key)
         opts (get config :translator-opts)]
-    (->LlmTranslator (:api-url d)
+    (->LlmTranslator (or (:api-url opts) (:api-url d))
                      (or (:model opts) (:model d))
                      (or (:secret-env opts) (:secret-env d))
                      (if (and (map? opts) (contains? opts :secret-pass))
