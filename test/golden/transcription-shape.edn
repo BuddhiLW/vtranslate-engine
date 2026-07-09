@@ -1,0 +1,13 @@
+{:mixed
+ {:ok? true,
+  :indices [1 2 3],
+  :languages ["en" "fr" "en"],
+  :status :transcript/complete,
+  :count 3},
+ :all-default
+ {:ok? true,
+  :indices [1 2],
+  :languages ["de" "de"],
+  :status :transcript/complete,
+  :count 2},
+ :empty {:ok? false, :indices [], :languages [], :status nil, :count 0}}

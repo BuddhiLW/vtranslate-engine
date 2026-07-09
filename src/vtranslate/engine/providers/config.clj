@@ -46,18 +46,20 @@
    :translator-opts  (src/file cfg-path [:translator-opts]
                                :type :map :required false :default {})
    :composer-opts    (src/file cfg-path [:composer-opts]
-                               :type :map :required false :default {})})
+                               :type :map :required false :default {})
+   :addons           (src/file cfg-path [:addons]
+                               :type :vector :required false :default [])})
 
 (defn resolve-routing
   "Resolve active provider routing + option maps.
    `overrides` (job-spec :config) win over env/file/default for selected keys.
    => (r/ok {:segmenter kw :transcriber kw|nil :translator kw :composer kw
-             :segmenter-opts {} :transcriber-opts {} :translator-opts {}
-             :composer-opts {}})
+             :addons [] :segmenter-opts {} :transcriber-opts {}
+             :translator-opts {} :composer-opts {}})
       | (r/err :config/resolution-failed {:errors [...] :partial {...}})."
   ([] (resolve-routing {}))
   ([overrides]
    (di/resolve-config (routing-fields (config-path))
                       (select-keys overrides [:segmenter :transcriber :translator :composer
-                                              :segmenter-opts :transcriber-opts
-                                              :translator-opts :composer-opts]))))
+                                              :segmenter-opts :transcriber-opts :translator-opts
+                                              :composer-opts :addons]))))

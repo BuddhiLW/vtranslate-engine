@@ -1,0 +1,26 @@
+{:ms->clock-srt
+ {:zero "00:00:00,000",
+  :sub-second "00:00:00,001",
+  :half-sec "00:00:01,500",
+  :one-min "00:01:01,000",
+  :hours "01:01:01,001",
+  :distinct "01:02:03,456",
+  :ten-hours "10:00:00,000"},
+ :ms->clock-vtt
+ {:zero "00:00:00.000",
+  :sub-second "00:00:00.001",
+  :half-sec "00:00:01.500",
+  :hours "01:01:01.001",
+  :distinct "01:02:03.456"},
+ :clock->ms
+ {:zero 0,
+  :trimmed 0,
+  :empty nil,
+  :distinct 3723456,
+  :sub-second 1,
+  :garbage nil,
+  :ten-hours 36000000,
+  :half-sec 1500,
+  :hours 3661001,
+  :short-ms 1005,
+  :no-hour 123456}}

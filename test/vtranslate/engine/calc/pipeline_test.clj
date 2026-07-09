@@ -115,3 +115,7 @@
            (mapv :target-text (get-in res [:ok :translated :units]))))
     (is (= ["de" "es" "de"]
            (mapv :source-language (get-in res [:ok :translated :units]))))))
+
+;; Comprehension grounding is an ADDON concern now; its engine integration is
+;; covered by the generic pre-translate seam test (pipeline/extensions-test) and the
+;; addon's engine+comprehender e2e test (vtranslate.context.e2e.*).

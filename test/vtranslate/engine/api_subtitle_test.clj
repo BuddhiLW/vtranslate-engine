@@ -53,6 +53,18 @@
              (mapv (juxt :start-ms :end-ms) reparsed))
           "re-parsed rendered SRT preserves every cue's timing"))))
 
+;; --- (a2) unregistered EXPLICIT source-language fails loud (registry symmetry) --
+
+(deftest unregistered-source-language-fails-loud
+  (let [path (write-temp srt-2cues ".srt")
+        res  (api/run-subtitle-job (ports)
+                                   {:job-id "j-a2" :source path
+                                    :source-language "klingon" :target-language "en"
+                                    :format :format/srt})]
+    (is (r/err? res))
+    (is (= :error/unsupported-language (:error res)))
+    (is (= "klingon" (:language res)))))
+
 ;; --- (b) pt-BR + :format/vtt: rendered document is WebVTT --------------------
 
 (deftest vtt-emission

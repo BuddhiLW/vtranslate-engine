@@ -1,0 +1,8 @@
+[{:ok? true, :score 0.0}
+ {:ok? true, :score 0.5}
+ {:ok? true, :score 1.0}
+ {:ok? false, :error :error/invalid-confidence}
+ {:ok? false, :error :error/invalid-confidence}
+ {:ok? false, :error :error/invalid-confidence}
+ {:ok? false, :error :error/invalid-confidence}
+ {:ok? false, :error :error/invalid-confidence}]

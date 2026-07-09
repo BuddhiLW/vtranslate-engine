@@ -1,0 +1,16 @@
+{:aligned
+ {:ok? true,
+  :unit-count 3,
+  :target-texts ["Hola" "Mundo" "Adios"],
+  :source-languages ["en" "pt" "fr"],
+  :source-language "en",
+  :target-language "es",
+  :status :translation/complete},
+ :mismatch
+ {:ok? false,
+  :unit-count nil,
+  :target-texts [],
+  :source-languages [],
+  :source-language nil,
+  :target-language nil,
+  :status nil}}

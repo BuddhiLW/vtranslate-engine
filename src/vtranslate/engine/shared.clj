@@ -61,3 +61,8 @@
   "Length of a TimeRange in milliseconds (a pure calculation)."
   [{:keys [start end]}]
   (- (:ms end) (:ms start)))
+
+(defn range-ms
+  "TimeRange -> [start-ms end-ms]."
+  [{:keys [start end]}]
+  [(:ms start) (:ms end)])

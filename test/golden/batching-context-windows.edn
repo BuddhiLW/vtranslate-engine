@@ -1,0 +1,20 @@
+{:size2-la1
+ [{:texts ["a" "b"], :before [], :after ["c"]}
+  {:texts ["c" "d"], :before ["b"], :after ["e"]}
+  {:texts ["e"], :before ["d"], :after []}],
+ :size3-la0
+ [{:texts ["a" "b" "c"], :before [], :after []}
+  {:texts ["d"], :before [], :after []}],
+ :size-huge [{:texts ["a" "b"], :before [], :after []}],
+ :size1-la2
+ [{:texts ["a"], :before [], :after ["b" "c"]}
+  {:texts ["b"], :before ["a"], :after ["c"]}
+  {:texts ["c"], :before ["a" "b"], :after []}],
+ :empty [],
+ :size-zero
+ [{:texts ["a"], :before [], :after ["b"]}
+  {:texts ["b"], :before ["a"], :after ["c"]}
+  {:texts ["c"], :before ["b"], :after []}],
+ :neg-la
+ [{:texts ["a" "b"], :before [], :after []}
+  {:texts ["c"], :before [], :after []}]}

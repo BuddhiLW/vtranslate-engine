@@ -1,0 +1,5 @@
+{:start-ms 250,
+ :end-ms 3750,
+ :source-language "en",
+ :source-text "the cat",
+ :target-text "o gato"}

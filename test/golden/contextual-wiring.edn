@@ -1,0 +1,5 @@
+{:output ["S0" "S1" "S2" "S3" "S4" "S5" "S6"],
+ :windows
+ [{:texts ["s0" "s1" "s2"], :before [], :after ["s3"]}
+  {:texts ["s3" "s4" "s5"], :before ["s2"], :after ["s6"]}
+  {:texts ["s6"], :before ["s5"], :after []}]}

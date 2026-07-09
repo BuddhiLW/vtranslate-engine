@@ -15,7 +15,10 @@
             [vtranslate.engine.port.subtitle :as p.sub]
             [vtranslate.engine.port.source :as p.src]
             [hive.events.fsm :as fsm]
-            [vtranslate.engine.port.composer :as p.comp]))
+            [vtranslate.engine.shared :as shared]
+            [vtranslate.engine.port.composer :as p.comp]
+            [vtranslate.engine.pipeline.extensions :as ext]
+            [vtranslate.engine.adapters.translator.augment :as augment]))
 
 (defn- segment-audio [segmenter audio probe]
   (if segmenter
@@ -121,6 +124,19 @@
                                :job (job/link-transcript job (:id transcript))
                                :transcript transcript)))))))
 
+(defn- apply-extensions
+  "OCP extension point: fold every registered pre-translate middleware over the
+   pipeline context (r/let-ok short-circuit). Middleware augment ctx (e.g. add
+   :translate/opts for the translator or :result/extra for the job result); with no
+   addon loaded there is no middleware and this is a no-op."
+  [resources state]
+  (with-result
+    state
+    (fn [ctx]
+      (reduce (fn [acc mw] (r/let-ok [c acc] (mw resources c)))
+              (r/ok ctx)
+              (ext/middleware :vtranslate.pipeline/pre-translate resources)))))
+
 (defn- segment-source-language [transcript fallback-source-language segment]
   (or (:language segment) fallback-source-language (:language transcript) "und"))
 
@@ -170,8 +186,9 @@
   (with-result
     state
     (fn [{:keys [spec job transcript] :as ctx}]
-      (let [{:keys [job-id source-language target-language]} spec]
-        (r/let-ok [targets    (translate-segments translator transcript target-language
+      (let [{:keys [job-id source-language target-language]} spec
+            tr (augment/wrap-opts translator (:translate/opts ctx))]
+        (r/let-ok [targets    (translate-segments tr transcript target-language
                                                   (explicit-source-language source-language))
                    translated (c.tr/build-translated-cues
                                transcript targets
@@ -192,16 +209,17 @@
 (defn- render-subtitles [{:keys [renderer]} state]
   (with-result
     state
-    (fn [{:keys [spec job transcript translated]}]
+    (fn [{:keys [spec job transcript translated] :as ctx}]
       (r/let-ok [track    (build-render-track spec translated)
                  rendered (p.sub/render-bytes renderer track)
                  job      (complete-render-job job track)]
-                (r/ok {:spec spec
-                       :job job
-                       :transcript transcript
-                       :translated translated
-                       :subtitle-track track
-                       :rendered rendered})))))
+                (r/ok (merge {:spec spec
+                              :job job
+                              :transcript transcript
+                              :translated translated
+                              :subtitle-track track
+                              :rendered rendered}
+                             (:result/extra ctx)))))))
 
 (defn- compose-video [{:keys [muxer]} state]
   (with-result
@@ -218,6 +236,7 @@
    [(->JobStage ::fsm/start start-translation)
     (->JobStage :vtranslate.pipeline/ingest ingest-media)
     (->JobStage :vtranslate.pipeline/transcribe transcribe-media)
+    (->JobStage :vtranslate.pipeline/extend apply-extensions)
     (->JobStage :vtranslate.pipeline/translate translate-transcript)
     (->JobStage :vtranslate.pipeline/render render-subtitles)
     (->JobStage :vtranslate.pipeline/compose compose-video)]))
@@ -228,7 +247,7 @@
     (:result (fsm/run fsm ports {:data spec}))))
 
 (defn run-job
-  [{:keys [media segmenter transcriber translator renderer muxer]}
+  [{:keys [media segmenter transcriber translator renderer muxer config]}
    {:keys [job-id source source-language target-language asset-kind format output]
     :or   {asset-kind :media/video format :format/srt}}]
   (run-translation-job
@@ -237,7 +256,8 @@
                            :transcriber transcriber
                            :translator translator
                            :renderer renderer
-                           :muxer muxer}
+                           :muxer muxer
+                           :config config}
                           video-fsm)
    {:job-id job-id
     :source source
@@ -247,9 +267,12 @@
     :format format
     :output output}))
 
-(defn- start-subtitle-translation [_ {:keys [job-id source target-language] :as spec}]
+(defn- start-subtitle-translation [_ {:keys [job-id source source-language target-language] :as spec}]
   (result-state
-   (r/let-ok [asset (ing/make-media-asset
+   (r/let-ok [_     (if-let [src (explicit-source-language source-language)]
+                      (shared/make-language src)
+                      (r/ok nil))
+              asset (ing/make-media-asset
                      {:id (str job-id "-asset") :source-uri source :kind :media/subtitle})
               job   (job/make-translation-job
                      {:id job-id :asset-id (:id asset) :target-language target-language})]

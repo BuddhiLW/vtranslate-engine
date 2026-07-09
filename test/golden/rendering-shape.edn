@@ -1,0 +1,7 @@
+{:ok? true,
+ :format "srt",
+ :indices [1 2 3],
+ :lines [["Hola"] ["mundo"] ["adios"]],
+ :language "es",
+ :source-id "tc-1",
+ :status :track/rendered}

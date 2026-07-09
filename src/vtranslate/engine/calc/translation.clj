@@ -2,11 +2,8 @@
   "Promote (CPPB) — pure: zip a source Transcript with its translated strings
    into a TranslatedCues aggregate for one target language. No IO."
   (:require [hive-dsl.result :as r]
+            [vtranslate.engine.shared :as shared]
             [vtranslate.engine.domain.translation :as tr]))
-
-(defn- seg-range-ms [segment]
-  [(get-in segment [:range :start :ms])
-   (get-in segment [:range :end :ms])])
 
 (defn build-translated-cues
   "Align `translations` onto transcript segments and fold a completed TranslatedCues.
@@ -27,7 +24,7 @@
                           :target-language target-language})
                  filled (reduce
                          (fn [acc [seg target-text]]
-                           (let [[s e] (seg-range-ms seg)]
+                           (let [[s e] (shared/range-ms (:range seg))]
                              (r/let-ok [c acc
                                         u (tr/make-translation-unit
                                            {:start-ms s :end-ms e

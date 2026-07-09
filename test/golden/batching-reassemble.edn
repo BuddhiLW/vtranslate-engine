@@ -1,0 +1,3 @@
+{:all-ok {:ok? true, :value ["a" "b" "c"]},
+ :empty {:ok? true, :value []},
+ :first-failure {:ok? false, :error {:error :error/boom, :pos 1}}}

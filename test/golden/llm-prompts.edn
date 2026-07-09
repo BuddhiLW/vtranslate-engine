@@ -1,0 +1,17 @@
+{:system
+ "You are a professional subtitle translator. The user message is a JSON array of subtitle strings. Translate each element from en to pt-BR. Keep meaning, tone, and a subtitle-appropriate length. Return ONLY a JSON array of translated strings the SAME length and order as the input. No prose, no markdown, no code fences. Lines under PRECEDING CONTEXT / FOLLOWING CONTEXT are reference only do NOT translate them and do NOT include them in your output. GROUNDING (opaque suffix built behind the pipeline seam) — render Scales as Scales.",
+ :system-min
+ "You are a professional subtitle translator. The user message is a JSON array of subtitle strings. Translate each element from its source language to pt-BR. Keep meaning, tone, and a subtitle-appropriate length. Return ONLY a JSON array of translated strings the SAME length and order as the input. No prose, no markdown, no code fences.",
+ :context "PRECEDING CONTEXT:\nl1\nl2\n\n",
+ :context-nil nil,
+ :user "PRECEDING CONTEXT:\nctx\n\n[\"a\",\"b\"]",
+ :body
+ {:model "model-x",
+  :temperature 0.2,
+  :messages
+  [{:role "system",
+    :content
+    "You are a professional subtitle translator. The user message is a JSON array of subtitle strings. Translate each element from en to pt-BR. Keep meaning, tone, and a subtitle-appropriate length. Return ONLY a JSON array of translated strings the SAME length and order as the input. No prose, no markdown, no code fences. Lines under PRECEDING CONTEXT / FOLLOWING CONTEXT are reference only do NOT translate them and do NOT include them in your output. GROUNDING (opaque suffix built behind the pipeline seam) — render Scales as Scales."}
+   {:role "user",
+    :content
+    "PRECEDING CONTEXT:\npre\n\nFOLLOWING CONTEXT:\npost\n\n[\"a\",\"b\"]"}]}}

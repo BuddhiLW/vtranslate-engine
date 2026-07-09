@@ -1,6 +1,5 @@
 (ns vtranslate.engine.providers.config-test
-  (:require [clojure.java.io :as io]
-            [clojure.test :refer [deftest is]]
+  (:require [clojure.test :refer [deftest is]]
             [hive-dsl.result :as r]
             [vtranslate.engine.providers.config :as sut]
             [vtranslate.engine.wiring :as wiring]))
@@ -22,6 +21,8 @@
   (let [path (temp-config {:providers {:segmenter :silero-vad
                                        :transcriber :whisper-local
                                        :translator :venice}
+                           :addons [{:ns 'vtranslate.context.addon
+                                     :config {:collection-id "movies"}}]
                            :segmenter-opts {:model-path "models/silero_vad.onnx"}
                            :transcriber-opts {:model-path "models/ggml-large-v3.bin"
                                               :span-pad-ms 750}
@@ -34,6 +35,9 @@
         (is (= :silero-vad (get-in res [:ok :segmenter])))
         (is (= :whisper-local (get-in res [:ok :transcriber])))
         (is (= :venice (get-in res [:ok :translator])))
+        (is (= [{:ns 'vtranslate.context.addon
+                 :config {:collection-id "movies"}}]
+               (get-in res [:ok :addons])))
         (is (= "models/silero_vad.onnx" (get-in res [:ok :segmenter-opts :model-path])))
         (is (= 750 (get-in res [:ok :transcriber-opts :span-pad-ms])))
         (is (= "Venice/api-key" (get-in res [:ok :translator-opts :secret-pass])))))))

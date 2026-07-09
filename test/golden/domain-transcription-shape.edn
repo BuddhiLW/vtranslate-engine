@@ -1,0 +1,43 @@
+{:empty
+ {:id "tr-1",
+  :asset-id "asset-9",
+  :language "en",
+  :status :transcript/empty,
+  :segments []},
+ :partial
+ {:id "tr-1",
+  :asset-id "asset-9",
+  :language "en",
+  :status :transcript/partial,
+  :segments
+  [{:index 0,
+    :text "Hello",
+    :start-ms 0,
+    :end-ms 1000,
+    :score 0.9,
+    :language "en"}
+   {:index 1,
+    :text "World",
+    :start-ms 1000,
+    :end-ms 2500,
+    :score 0.5,
+    :language nil}]},
+ :complete
+ {:id "tr-1",
+  :asset-id "asset-9",
+  :language "en",
+  :status :transcript/complete,
+  :segments
+  [{:index 0,
+    :text "Hello",
+    :start-ms 0,
+    :end-ms 1000,
+    :score 0.9,
+    :language "en"}
+   {:index 1,
+    :text "World",
+    :start-ms 1000,
+    :end-ms 2500,
+    :score 0.5,
+    :language nil}]},
+ :total-ms 2500}

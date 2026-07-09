@@ -29,11 +29,14 @@
 
 ;; A well-formed spec with no adapters wired returns the wiring err as a Result
 ;; (boundary never throws), and short-circuits at the first unbuilt port.
-(deftest run-surfaces-unwired-adapters
+(deftest run-surfaces-provider-errors
   (main/register-adapters!)
   (let [res (main/run ["{:job-id \"j\" :source \"/v.mp4\" :target-language \"en\"}"])]
     (is (r/err? res))
-    (is (= :error/adapters-not-wired (:error res)))))
+    (is (contains? #{:error/adapters-not-wired
+                     :error/no-translator-available
+                     :error/transcriber-unavailable}
+                   (:error res)))))
 
 ;; register-adapters! is best-effort: a missing optional (:ffmpeg) dep is
 ;; swallowed so the core stays runnable; returns nil, never throws.

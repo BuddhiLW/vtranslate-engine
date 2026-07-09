@@ -22,15 +22,15 @@
   "Assemble the ASR ingress port set {:media :segmenter :transcriber :translator
    :renderer :muxer} from `config`. :media/:segmenter come from the ffmpeg +
    grid-stub adapters (loaded only on the :ffmpeg classpath); :transcriber fails
-   loud until a real ASR adapter lands. :muxer is nil unless config selects a
-   composition strategy ([:providers :composer] :soft|:hard)."
+   loud until a real ASR adapter lands. :muxer is nil unless config selects it
+   ([:providers :composer])."
   [config]
-  (r/let-ok [media       (build-port :media config)
-             segmenter   (build-port :segmenter config)
-             transcriber (build-port :transcriber config)
-             translator  (build-port :translator config)
-             renderer    (build-port :renderer config)
-             muxer       (build-port :composer config)]
+  (r/let-ok [media        (build-port :media config)
+             segmenter    (build-port :segmenter config)
+             transcriber  (build-port :transcriber config)
+             translator   (build-port :translator config)
+             renderer     (build-port :renderer config)
+             muxer        (build-port :composer config)]
     (r/ok {:media media :segmenter segmenter :transcriber transcriber
            :translator translator :renderer renderer :muxer muxer})))
 

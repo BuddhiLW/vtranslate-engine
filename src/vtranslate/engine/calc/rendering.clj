@@ -2,17 +2,14 @@
   "Promote (CPPB) — pure: turn a TranslatedCues aggregate into a render-ready
    SubtitleTrack. Term shift TranslationUnit -> Cue at the rendering boundary. No IO."
   (:require [hive-dsl.result :as r]
+            [vtranslate.engine.shared :as shared]
             [vtranslate.engine.domain.rendering :as rd]))
-
-(defn- unit-range-ms [unit]
-  [(get-in unit [:range :start :ms])
-   (get-in unit [:range :end :ms])])
 
 (defn- unit->cue
   "Promote one TranslationUnit into a render Cue at the given 1-based index.
    => (r/ok Cue) | (r/err :error/render-failed ...)."
   [index unit]
-  (let [[start-ms end-ms] (unit-range-ms unit)]
+  (let [[start-ms end-ms] (shared/range-ms (:range unit))]
     (rd/make-cue {:index index :start-ms start-ms :end-ms end-ms
                   :lines [(:target-text unit)]})))
 

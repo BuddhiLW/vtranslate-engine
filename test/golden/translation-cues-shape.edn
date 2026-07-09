@@ -1,0 +1,17 @@
+{:id "tc-1",
+ :transcript-id "trs-1",
+ :source-language "en",
+ :target-language "pt",
+ :unit-count 2,
+ :units
+ [{:start-ms 0,
+   :end-ms 1000,
+   :source-language "en",
+   :source-text "Hello",
+   :target-text "Ola"}
+  {:start-ms 1000,
+   :end-ms 2500,
+   :source-language "en",
+   :source-text "World",
+   :target-text "Mundo"}],
+ :status :translation/complete}

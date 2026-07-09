@@ -1,0 +1,15 @@
+{:ok? true,
+ :format :format/srt,
+ :cues
+ [{:index 1, :lines ["Hello"], :start-ms 0, :end-ms 1000}
+  {:index 2,
+   :lines ["World" "second line"],
+   :start-ms 1000,
+   :end-ms 2000}
+  {:index 3, :lines ["Third"], :start-ms 2000, :end-ms 3000}],
+ :extension "srt",
+ :status :track/rendered,
+ :language "en",
+ :id "trk",
+ :error nil,
+ :source-id "src"}

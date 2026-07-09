@@ -1,0 +1,13 @@
+{:bare-array {:ok ["a" "b" "c"]},
+ :single-key {:ok ["x" "y"]},
+ :fenced {:ok ["p" "q"]},
+ :wrong-length
+ {:error :error/translation-failed,
+  :reason "model returned wrong shape/length",
+  :expected 3},
+ :non-string
+ {:error :error/translation-failed,
+  :reason "model returned wrong shape/length",
+  :expected 2},
+ :unparseable
+ {:error :error/translation-failed, :reason "unparseable model output"}}

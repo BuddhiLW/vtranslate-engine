@@ -1,0 +1,14 @@
+{:active-start ["hello"],
+ :wrap-zero ["a b c"],
+ :wrap-nowrap ["short"],
+ :wrap-long-word ["supercalifragilistic" "word"],
+ :active-gap nil,
+ :active-mid ["hello"],
+ :active-end-excl ["world" "two"],
+ :wrap-basic ["the quick" "brown fox" "jumps over" "the lazy" "dog"],
+ :wrap-nil ["a b c"],
+ :active-before nil,
+ :timeline
+ [{:start-ms 0, :end-ms 1000, :lines ["a" "b"]}
+  {:start-ms 1000, :end-ms 2000, :lines ["mid"]}
+  {:start-ms 2000, :end-ms 3000, :lines ["c"]}]}
