@@ -1,0 +1,2 @@
+{:nb-streams 2,
+ :streams [{:type 0, :codec "h264"} {:type 3, :codec "mov_text"}]}

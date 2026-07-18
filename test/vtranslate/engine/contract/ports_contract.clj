@@ -11,7 +11,9 @@
             [vtranslate.engine.port.segmenter :as p.seg]
             [vtranslate.engine.port.transcriber :as p.asr]
             [vtranslate.engine.port.translator :as p.tr]
-            [vtranslate.engine.port.subtitle :as p.sub]))
+            [vtranslate.engine.port.subtitle :as p.sub]
+            [vtranslate.engine.port.composer :as p.comp]
+            [vtranslate.engine.schema :as schema]))
 
 ;; ---------------------------------------------------------------------------
 ;; Reusable contract assertions — parameterized over an impl (LSP). Reuse these
@@ -87,6 +89,36 @@
     (is (or (r/ok? res) (r/err? res)) "render-bytes returns a Result")
     (when (r/ok? res) (is (string? (:ok res)) "ok render is a string"))))
 
+(defn check-composer
+  "IVideoComposer: compose returns a Result. An ok carries a non-blank string
+   :output-uri. An err carries the contract's :error/compose-failed tag (fail-loud
+   — never a silent success)."
+  [impl video-source subtitle-track opts]
+  (let [res (p.comp/compose impl video-source subtitle-track opts)]
+    (is (or (r/ok? res) (r/err? res)) "compose returns a hive-dsl Result")
+    (if (r/ok? res)
+      (let [out (:output-uri (:ok res))]
+        (is (string? out) "ok carries a string :output-uri")
+        (is (seq out) ":output-uri is non-blank"))
+      (is (= :error/compose-failed (:error res)) "err carries the :error/compose-failed tag"))))
+
+(defn check-parser
+  "ISubtitleParser: parse returns a Result. An ok carries :cues that each conform
+   to the CueData schema, in non-decreasing index order. An err carries the
+   contract's :error/unsupported-format tag."
+  [impl text format]
+  (let [res (p.sub/parse impl text format)]
+    (is (or (r/ok? res) (r/err? res)) "parse returns a hive-dsl Result")
+    (if (r/ok? res)
+      (let [cues (:cues (:ok res))]
+        (is (sequential? cues) "ok carries a :cues sequence")
+        (is (every? #(schema/validate schema/CueData %) cues)
+            "every cue conforms to the CueData schema")
+        (is (->> cues (partition 2 1) (every? (fn [[a b]] (<= (:index a) (:index b)))))
+            "cues are in non-decreasing index order"))
+      (is (= :error/unsupported-format (:error res))
+          "err carries the :error/unsupported-format tag"))))
+
 ;; ---------------------------------------------------------------------------
 ;; Conformant reference impls (one passing impl per port).
 ;; ---------------------------------------------------------------------------
@@ -120,6 +152,17 @@
     (render-bytes [_ track]
       (r/ok (pr-str (mapv :lines (:cues track)))))))
 
+(def ref-composer
+  (reify p.comp/IVideoComposer
+    (compose [_ _video-source _track opts]
+      (r/ok {:output-uri (or (:output-uri opts) "/tmp/v.subbed.mp4")}))))
+
+(def ref-parser
+  (reify p.sub/ISubtitleParser
+    (parse [_ _text _format]
+      (r/ok {:cues [{:index 1 :start-ms 0 :end-ms 1000 :lines ["oi"]}
+                    {:index 2 :start-ms 1000 :end-ms 2000 :lines ["tchau"]}]}))))
+
 (defn- sample-track []
   (let [t (:ok (rd/make-subtitle-track {:id "s" :source-id "c" :language "pt-BR" :format :format/srt}))
         c (:ok (rd/make-cue {:index 1 :start-ms 0 :end-ms 1000 :lines ["oi"]}))]
@@ -135,3 +178,7 @@
 (deftest transcriber-contract     (check-transcriber ref-transcriber {:path "/tmp/a.wav"} "en"))
 (deftest translator-contract      (check-translator ref-translator ["a" "b" "c"] "en" "pt-BR"))
 (deftest renderer-contract        (check-renderer ref-renderer (sample-track)))
+
+(deftest composer-contract        (check-composer ref-composer "/v.mp4" (sample-track) {:output-uri "/tmp/x.subbed.mp4"}))
+
+(deftest parser-contract          (check-parser ref-parser "1\n00:00:00,000 --> 00:00:01,000\noi\n" :format/srt))

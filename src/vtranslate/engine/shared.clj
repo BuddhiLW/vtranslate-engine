@@ -66,3 +66,11 @@
   "TimeRange -> [start-ms end-ms]."
   [{:keys [start end]}]
   [(:ms start) (:ms end)])
+
+(defn guard-transition
+  "Shared aggregate-lifecycle guard: (r/ok agg) when (:adt/variant (status-of agg)) is in `allowed`, else (r/err :error/illegal-transition {:from variant})."
+  [agg status-of allowed]
+  (let [from (:adt/variant (status-of agg))]
+    (if (contains? allowed from)
+      (r/ok agg)
+      (r/err :error/illegal-transition {:from from}))))

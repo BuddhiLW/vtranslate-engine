@@ -46,4 +46,4 @@
   (let [j (:ok (job/make-translation-job
                 {:id "j" :asset-id "a" :target-language "en"}))]
     (is (= :job/pending (get-in j [:state :adt/variant])) "starts pending")
-    (is (= :job/completed (get-in (job/complete j) [:state :adt/variant])))))
+    (is (= :job/completed (get-in (:ok (job/complete j)) [:state :adt/variant])))))

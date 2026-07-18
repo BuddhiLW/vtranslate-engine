@@ -4,7 +4,8 @@
    after :silero-vad alias + model-file gates pass."
   (:require [hive-dsl.result :as r]
             [vtranslate.engine.adapters.transcriber.support :as sup]
-            [vtranslate.engine.port.segmenter :as p.seg]))
+            [vtranslate.engine.port.segmenter :as p.seg]
+            [vtranslate.engine.providers.segmenter-registry :as reg]))
 
 (def ^:private native-speech-probs-sym
   (quote vtranslate.engine.adapters.segmenter.silero-vad-native/speech-probs))
@@ -172,3 +173,7 @@
              (long (or (:min-speech-ms opts) default-min-speech-ms))
              (long (or (:min-silence-ms opts) default-min-silence-ms))
              (long (or (:speech-pad-ms opts) default-speech-pad-ms)))))))
+
+(defmethod reg/resolve-segmenter :silero-vad
+  [_ config]
+  (make-segmenter config))

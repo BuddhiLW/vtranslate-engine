@@ -10,7 +10,8 @@
             [hive-dsl.result :as r]
             [vtranslate.engine.adapters.segmenter.stub :as sut]
             [vtranslate.engine.wiring :as wiring]
-            [vtranslate.engine.contract.ports-contract :as contract]))
+            [vtranslate.engine.contract.ports-contract :as contract]
+            [vtranslate.engine.providers.segmenter-registry :as reg]))
 
 ;; =============================================================================
 ;; GOLDEN — the tiling of representative (duration, window) pairs is pure data
@@ -77,6 +78,9 @@
   (let [res (wiring/build-port :segmenter {:segment-window-ms 4000})]
     (is (r/ok? res))
     (is (= 4000 (:window-ms (:ok res))))))
+
+(deftest resolves-via-segmenter-registry
+  (is (r/ok? (reg/resolve-segmenter :grid {}))))
 
 
 (deftest build-port-registers-grid-explicitly

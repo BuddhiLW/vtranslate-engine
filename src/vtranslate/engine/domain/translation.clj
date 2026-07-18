@@ -62,14 +62,17 @@
   (update cues :units conj unit))
 
 (defn complete
-  "Seal the translation once at least one unit exists.
-   => (r/ok cues') | (r/err :error/translation-failed ...)."
+  "Seal the translation once at least one unit exists; a sealed or failed
+   translation cannot be re-completed.
+   => (r/ok cues') | (r/err :error/translation-failed | :error/illegal-transition ...)."
   [{:keys [units] :as cues}]
-  (if (seq units)
-    (r/ok (assoc cues :status (translation-status :translation/complete)))
-    (r/err :error/translation-failed
-           {:segment-id (str (:id cues))
-            :reason "no units translated"})))
+  (r/let-ok [c (shared/guard-transition cues :status
+                                        #{:translation/pending :translation/translating})]
+    (if (seq units)
+      (r/ok (assoc c :status (translation-status :translation/complete)))
+      (r/err :error/translation-failed
+             {:segment-id (str (:id cues))
+              :reason "no units translated"}))))
 
 (defn unit-count
   [{:keys [units]}]

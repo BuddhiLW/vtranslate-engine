@@ -24,4 +24,5 @@
  :hot-reload true
 
  ;; Project-local presets directory
- :presets-path ".hive/presets"}
+ :presets-path ".hive/presets" 
+ :carto {:source-roots ["dev" "model" "schemas" "src" "test" "test-int"]}}

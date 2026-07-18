@@ -313,8 +313,9 @@
                   (r/ok (assoc ctx :translated-cues tcues)))))))
 
 (defn- complete-subtitle-job [job track]
-  (r/let-ok [ingesting (job/advance job)]
-            (r/ok (job/link-subtitle (job/complete ingesting) (:id track)))))
+  (r/let-ok [ingesting (job/advance job)
+             completed (job/complete ingesting)]
+    (r/ok (job/link-subtitle completed (:id track)))))
 
 (defn- render-subtitle-track [{:keys [renderer]} state]
   (with-result

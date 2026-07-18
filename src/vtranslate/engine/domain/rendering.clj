@@ -61,12 +61,14 @@
   (update track :cues conj cue))
 
 (defn render
-  "Seal the track once it has cues.
-   => (r/ok track') | (r/err :error/render-failed ...)."
+  "Seal the track once it has cues; a rendered or failed track cannot be
+   re-sealed.
+   => (r/ok track') | (r/err :error/render-failed | :error/illegal-transition ...)."
   [{:keys [cues] :as track}]
-  (if (seq cues)
-    (r/ok (assoc track :status (track-status :track/rendered)))
-    (r/err :error/render-failed {:reason "no cues to render"})))
+  (r/let-ok [t (shared/guard-transition track :status #{:track/draft})]
+    (if (seq cues)
+      (r/ok (assoc t :status (track-status :track/rendered)))
+      (r/err :error/render-failed {:reason "no cues to render"}))))
 
 (defn extension
   "File extension for the track's format. adt-case ⇒ exhaustive."

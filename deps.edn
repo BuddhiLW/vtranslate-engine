@@ -39,14 +39,26 @@
          :extra-deps {nrepl/nrepl       {:mvn/version "1.7.0"}
                       cider/cider-nrepl {:mvn/version "0.58.0"}}}
 
-  :test {:extra-paths ["test"]
+
+  ;; Malli value objects for the kernel VOs + cross-boundary maps.
+  ;; NON-RUNTIME: kept OFF :paths [src] so the subprocess core stays malli-free.
+  :schemas {:extra-paths ["schemas"]
+            :extra-deps {metosin/malli               {:mvn/version "0.20.1"}
+                         io.github.hive-agi/hive-spi  {:mvn/version "0.1.4"}}}
+
+  ;; Optional Typed Clojure check over the schema-derived annotations.
+  :typed {:extra-paths ["schemas"]
+          :extra-deps {metosin/malli                      {:mvn/version "0.20.1"}
+                       io.github.hive-agi/hive-spi         {:mvn/version "0.1.4"}
+                       org.typedclojure/typed.clj.checker  {:mvn/version "1.4.0"}}}
+  :test {:extra-paths ["test" "schemas"]
          :extra-deps {lambdaisland/kaocha     {:mvn/version "1.91.1392"}
                       org.clojure/test.check  {:mvn/version "1.1.1"}
-                      ;; Published v0.2.1 predates the golden/mutation/trifecta
-                      ;; macros this suite uses, so the live working copy (which
-                      ;; has them) is wired via local.deps.edn (:local/root).
-                      ;; Re-pin the sha here once a hive-test release ships them.
-                      io.github.hive-agi/hive-test {:git/tag "v0.2.1" :git/sha "48b480f"}}
+                      ;; hive-test 0.3.5 ships golden/mutation/trifecta (also hive-schemas.test dep).
+                      io.github.hive-agi/hive-test    {:mvn/version "0.3.5"}
+                      metosin/malli                   {:mvn/version "0.20.1"}
+                      io.github.hive-agi/hive-spi     {:mvn/version "0.1.4"}
+                      io.github.hive-agi/hive-schemas {:mvn/version "0.1.2"}}
          :main-opts ["-m" "kaocha.runner"]}
 
   ;; M5 — ffmpeg via bytedeco JavaCV (in-process, no system ffmpeg). Only the
@@ -86,4 +98,12 @@
   ;; foreign API. Point -Dvtranslate.whisper.lib=<libwhisper.so> at your build.
 
   ;; Subprocess entrypoint the CLI shells out to.
-  :run  {:main-opts ["-m" "vtranslate.engine.main"]}}}
+  :run  {:main-opts ["-m" "vtranslate.engine.main"]}
+
+  ;; hive-recife JobState FSM model-check (TLA+/TLC). NON-RUNTIME: hive-recife
+  ;; pulls malli transitively, so it is kept OFF :paths ["src"] — the
+  ;; subprocess cores stay malli-free. Model specs live under model/ and are
+  ;; never required from src. Local working copy wired via local.deps.edn.
+  :model {:extra-paths ["model"]
+          :extra-deps {io.github.hive-agi/hive-recife
+                       {:git/sha "2734b324642afac34fed6803495819343481121f"}}}}}

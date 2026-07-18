@@ -25,6 +25,11 @@
   [:job/pending :job/ingesting :job/transcribing
    :job/translating :job/rendering :job/completed])
 
+(def ^:private active-phases
+  "Non-terminal JobState variants (neither :job/completed nor :job/failed) — the
+   legal SOURCE states for advance / complete / fail."
+  (set (butlast forward-path)))
+
 ;; --- Closed domain failures (the railway err categories) -------------------
 
 (defadt TranslationError
@@ -67,28 +72,27 @@
             :error nil}))))
 
 (defn fail
-  "Move a job to terminal :job/failed, carrying a TranslationError variant kw
-   (the same category used on the railway err channel)."
+  "Move a job to terminal :job/failed, carrying error-kw (a TranslationError variant). Rejects a terminal source.
+   => (r/ok job') | (r/err :error/illegal-transition {:from variant})."
   [job error-kw]
-  (assoc job :state (job-state :job/failed) :error error-kw))
+  (r/let-ok [j (shared/guard-transition job :state active-phases)]
+    (r/ok (assoc j :state (job-state :job/failed) :error error-kw))))
 
 (defn advance
-  "Advance to the next happy-path phase.
+  "Advance to the next happy-path phase. Rejects a terminal source (:job/completed
+   or :job/failed).
    => (r/ok job') | (r/err :error/illegal-transition {:from variant})."
   [{:keys [state] :as job}]
-  (let [variant (:adt/variant state)
-        idx     (.indexOf forward-path variant)]
-    (if (and (nat-int? idx) (< (inc idx) (count forward-path)))
-      (r/ok (assoc job :state (job-state (nth forward-path (inc idx)))))
-      (r/err :error/illegal-transition {:from variant}))))
+  (r/let-ok [j (shared/guard-transition job :state active-phases)]
+    (let [idx (.indexOf forward-path (:adt/variant state))]
+      (r/ok (assoc j :state (job-state (nth forward-path (inc idx))))))))
 
 (defn complete
-  "Move a job directly to the terminal happy state :job/completed. Used by an
-   ingress that does not traverse every intermediate phase — the no-ASR subtitle
-   path has no transcribing step — so it cannot reach :job/completed by repeated
-   `advance`. Forward-only still holds: :job/completed is a happy terminus."
+  "Move a job directly to terminal :job/completed. Rejects a terminal source.
+   => (r/ok job') | (r/err :error/illegal-transition {:from variant})."
   [job]
-  (assoc job :state (job-state :job/completed)))
+  (r/let-ok [j (shared/guard-transition job :state active-phases)]
+    (r/ok (assoc j :state (job-state :job/completed)))))
 
 (defn link-transcript
   "Record the produced Transcript on the job BY ID (DDD: reference, never embed)."

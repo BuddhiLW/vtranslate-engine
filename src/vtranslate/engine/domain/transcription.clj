@@ -63,12 +63,15 @@
       (assoc :status (transcript-status :transcript/partial))))
 
 (defn complete
-  "Seal the transcript. An empty transcript cannot complete.
-   => (r/ok transcript') | (r/err :error/asr-failed ...)."
+  "Seal the transcript. An empty transcript cannot complete; a sealed or failed
+   transcript cannot be re-completed.
+   => (r/ok transcript') | (r/err :error/asr-failed | :error/illegal-transition ...)."
   [{:keys [segments] :as transcript}]
-  (if (seq segments)
-    (r/ok (assoc transcript :status (transcript-status :transcript/complete)))
-    (r/err :error/asr-failed {:reason "no segments produced"})))
+  (r/let-ok [t (shared/guard-transition transcript :status
+                                        #{:transcript/empty :transcript/partial})]
+    (if (seq segments)
+      (r/ok (assoc t :status (transcript-status :transcript/complete)))
+      (r/err :error/asr-failed {:reason "no segments produced"}))))
 
 (defn total-duration-ms
   "Sum of segment durations — a calc over the shared kernel."

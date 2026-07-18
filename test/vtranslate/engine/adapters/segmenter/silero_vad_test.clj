@@ -2,7 +2,8 @@
   (:require [clojure.test :refer [deftest is]]
             [hive-dsl.result :as r]
             [vtranslate.engine.adapters.segmenter.silero-vad :as sut]
-            [vtranslate.engine.wiring :as wiring]))
+            [vtranslate.engine.wiring :as wiring]
+            [vtranslate.engine.providers.segmenter-registry :as reg]))
 
 (deftest speech-spans-from-probs-detects-bounded-speech
   (is (= [{:start-ms 32 :end-ms 96}]
@@ -36,3 +37,10 @@
       (is (= :error/segmentation-failed (:error res))))
     (when (r/ok? res)
       (is (= "models/silero_vad.onnx" (:model-path (:ok res)))))))
+
+(deftest resolves-via-segmenter-registry
+  (let [res (reg/resolve-segmenter :silero-vad {})]
+    (is (or (r/ok? res) (r/err? res)))
+    (when (r/err? res)
+      (is (not= :error/unknown-segmenter (:error res))
+          "dispatch reached the silero-vad method, not the :default fallthrough"))))

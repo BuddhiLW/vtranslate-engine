@@ -9,7 +9,8 @@
   (:require [hive-dsl.result :as r]
             [vtranslate.engine.port.segmenter :as p.seg]
             [vtranslate.engine.providers.config :as cfg]
-            [vtranslate.engine.wiring :as wiring]))
+            [vtranslate.engine.wiring :as wiring]
+            [vtranslate.engine.providers.segmenter-registry :as reg]))
 
 (defn grid-spans
   "Pure: tile [0, duration-ms) into contiguous windows of window-ms, the final
@@ -32,22 +33,14 @@
   ([] (make-segmenter 5000))
   ([window-ms] (->GridSegmenter window-ms)))
 
+(defmethod reg/resolve-segmenter :grid
+  [_ config]
+  (r/ok (make-segmenter (get config :segment-window-ms 5000))))
+
 (defmethod wiring/build-port :segmenter
   [_ config]
   (r/let-ok [routing (cfg/resolve-routing config)]
-    (case (:segmenter routing)
-      :grid
-      (r/ok (make-segmenter (get config :segment-window-ms 5000)))
-
-      :none
-      (r/ok nil)
-
-      :silero-vad
-      (if-let [make-silero (requiring-resolve
-                            (quote vtranslate.engine.adapters.segmenter.silero-vad/make-segmenter))]
-        (make-silero (merge config routing))
-        (r/err :error/segmentation-failed
-               {:reason "silero-vad segmenter namespace is not loadable"}))
-
-      (r/err :error/segmentation-failed
-             {:reason (str "unknown segmenter provider: " (:segmenter routing))}))))
+    (let [segmenter (:segmenter routing)]
+      (if (contains? #{nil :none} segmenter)
+        (r/ok nil)
+        (reg/resolve-segmenter segmenter (merge config routing))))))
