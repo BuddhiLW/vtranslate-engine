@@ -106,4 +106,14 @@
   ;; never required from src. Local working copy wired via local.deps.edn.
   :model {:extra-paths ["model"]
           :extra-deps {io.github.hive-agi/hive-recife
-                       {:git/sha "2734b324642afac34fed6803495819343481121f"}}}}}
+                       {:git/sha "2734b324642afac34fed6803495819343481121f"}}}
+  :test-repl {:extra-paths ["test" "schemas"]
+ :extra-deps {nrepl/nrepl                      {:mvn/version "1.7.0"}
+              cider/cider-nrepl                {:mvn/version "0.58.0"}
+              lambdaisland/kaocha              {:mvn/version "1.91.1392"}
+              org.clojure/test.check           {:mvn/version "1.1.1"}
+              io.github.hive-agi/hive-test     {:mvn/version "0.3.5"}
+              metosin/malli                    {:mvn/version "0.20.1"}
+              io.github.hive-agi/hive-spi       {:mvn/version "0.1.4"}
+              io.github.hive-agi/hive-schemas  {:mvn/version "0.1.2"}}
+ :main-opts ["-m" "nrepl.cmdline" "--middleware" "[cider.nrepl/cider-middleware]"]}}}
