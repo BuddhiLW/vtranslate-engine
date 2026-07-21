@@ -28,3 +28,46 @@
   (if-let [failure (first (remove r/ok? window-results))]
     failure
     (r/ok (into [] (mapcat :ok) window-results))))
+
+(defn index-groups
+  "Partition `items` into groups keyed by `(key-fn item)`, tagging every item with
+   its original 0-based position. => {group-key [[index item] ...] ...} with
+   clojure.core/group-by semantics (groups by first key appearance, members in
+   original order). The indices across all groups are a permutation of
+   (range (count items)); every item appears in exactly one group."
+  [items key-fn]
+  (group-by (fn [[_ item]] (key-fn item))
+            (map-indexed vector items)))
+
+(defn group-payload
+  "The ordered indices and `value-fn` payloads of one indexed group (a
+   [[index item] ...] vector such as an `index-groups` value).
+   => {:indices [index ...] :values [(value-fn item) ...]}, order preserved."
+  [indexed-group value-fn]
+  {:indices (mapv first indexed-group)
+   :values  (mapv (comp value-fn second) indexed-group)})
+
+(defn zip-indices
+  "Zip `indices` with `values` positionally into [[index value] ...] iff their counts
+   match; otherwise `(on-mismatch expected actual)`. The caller supplies `on-mismatch`
+   (=> Result) so this algebra carries no domain error vocabulary.
+   => (r/ok [[index value] ...]) | (on-mismatch (count indices) (count values))."
+  [indices values on-mismatch]
+  (if (= (count values) (count indices))
+    (r/ok (mapv vector indices values))
+    (on-mismatch (count indices) (count values))))
+
+(defn scatter
+  "Reassemble sparse `indexed` [[index value] ...] into a dense length-`n` vector in
+   index order — the left inverse of the indexing done by `index-groups`. Every
+   position 0 <= index < n must be filled exactly once (later duplicates overwrite
+   earlier). => (r/ok [value ...]) when every slot is filled, else
+   `(on-incomplete n filled-count)` for the caller's error vocabulary."
+  [n indexed on-incomplete]
+  (let [missing ::missing
+        dense   (reduce (fn [acc [index value]] (assoc acc index value))
+                        (vec (repeat n missing))
+                        indexed)]
+    (if (some #{missing} dense)
+      (on-incomplete n (count (remove #{missing} dense)))
+      (r/ok dense))))

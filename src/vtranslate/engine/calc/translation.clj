@@ -35,3 +35,19 @@
                          (r/ok (tr/begin c0))
                          (map vector segments translations))]
         (tr/complete filled)))))
+
+(defn segment-source-language
+  "Resolve one `segment`'s source language through the fallback chain: the segment's
+   own :language, else the caller `fallback`, else the transcript language, else
+   \"und\". Pure — the grouping key for language-routed translation batches."
+  [transcript fallback segment]
+  (or (:language segment) fallback (:language transcript) "und"))
+
+(defn translation-count-error
+  "The canonical :error/translation-failed Result for a batch whose produced count
+   `actual` != the expected count `expected`; `id` tags the offending batch.
+   => (r/err :error/translation-failed {:segment-id (str id) :reason ...})."
+  [id expected actual]
+  (r/err :error/translation-failed
+         {:segment-id (str id)
+          :reason (format "translation count %d != segment count %d" actual expected)}))

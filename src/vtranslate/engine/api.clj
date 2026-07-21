@@ -8,17 +8,22 @@
             [vtranslate.engine.calc.reflow :as c.reflow]
             [vtranslate.engine.calc.subtitle-in :as c.si]
             [vtranslate.engine.calc.subtitle-out :as c.so]
+            [vtranslate.engine.calc.batching :as batch]
             [vtranslate.engine.port.media :as p.media]
             [vtranslate.engine.port.segmenter :as p.seg]
             [vtranslate.engine.port.transcriber :as p.asr]
             [vtranslate.engine.port.translator :as p.tr]
             [vtranslate.engine.port.subtitle :as p.sub]
             [vtranslate.engine.port.source :as p.src]
-            [hive.events.fsm :as fsm]
+            [vtranslate.engine.pipeline.fsm :as pf]
             [vtranslate.engine.shared :as shared]
             [vtranslate.engine.port.composer :as p.comp]
             [vtranslate.engine.pipeline.extensions :as ext]
             [vtranslate.engine.adapters.translator.augment :as augment]))
+
+;; ---------------------------------------------------------------------------
+;; Language helpers
+;; ---------------------------------------------------------------------------
 
 (defn- segment-audio [segmenter audio probe]
   (if segmenter
@@ -35,64 +40,39 @@
 (defn- transcript-language [language]
   (if (auto-language? language) "und" language))
 
-(defprotocol ITranslationPipeline
-  (run-translation-job [pipeline spec]))
+;; ---------------------------------------------------------------------------
+;; Shared pipeline seams — both the video and subtitle pipelines reuse these
+;; ---------------------------------------------------------------------------
 
-(defprotocol IJobStage
-  (stage-id [stage])
-  (apply-stage [stage resources state]))
-
-(defrecord JobStage [id handler]
-  IJobStage
-  (stage-id [_] id)
-  (apply-stage [_ resources state]
-    (handler resources state)))
-
-(defn- result-state [result]
-  {:result result})
-
-(defn- result-of [state]
-  (:result state))
-
-(defn- continue? [state]
-  (r/ok? (result-of state)))
-
-(defn- halted? [state]
-  (r/err? (result-of state)))
-
-(defn- with-result [state f]
-  (result-state
-   (r/let-ok [ctx (result-of state)]
-             (f ctx))))
-
-(defn- step-dispatches [next-id]
-  [[next-id continue?]
-   [::fsm/end halted?]])
-
-(defn- stage-state [stage next-id]
-  [(stage-id stage)
-   {:handler (fn [resources state]
-               (apply-stage stage resources state))
-    :dispatches (if next-id
-                  (step-dispatches next-id)
-                  [[::fsm/end (constantly true)]])}])
-
-(defn- compile-stage-fsm [stages]
-  (let [ids      (mapv stage-id stages)
-        next-ids (conj (subvec ids 1) nil)]
-    (fsm/compile
-     {:fsm (into {} (map stage-state stages next-ids))})))
-
-(defn- start-translation [_ {:keys [job-id source target-language asset-kind] :as spec}]
-  (result-state
-   (r/let-ok [asset (ing/make-media-asset
-                     {:id (str job-id "-asset") :source-uri source :kind asset-kind})
+(defn- start-job
+  "Shared start seam: run `validate` on `spec`, then build the media asset (as `kind`)
+   and a pending TranslationJob. => an fsm result-state carrying {:spec :asset :job}."
+  [{:keys [job-id source target-language] :as spec} kind validate]
+  (pf/result-state
+   (r/let-ok [_     (validate spec)
+              asset (ing/make-media-asset
+                     {:id (str job-id "-asset") :source-uri source :kind kind})
               job   (job/make-translation-job
                      {:id job-id :asset-id (:id asset) :target-language target-language})]
              (r/ok {:spec spec :asset asset :job job}))))
 
+(defn- finalize-job
+  "Shared finalize seam: advance the job, apply the terminal `step` transition
+   (advance | complete), then link the produced subtitle track by id. => Result<Job>."
+  [job track step]
+  (r/let-ok [advanced (job/advance job)
+             done     (step advanced)]
+            (r/ok (job/link-subtitle done (:id track)))))
+
+;; ---------------------------------------------------------------------------
+;; Video pipeline stages
+;; ---------------------------------------------------------------------------
+
+(defn- start-translation [_ {:keys [asset-kind] :as spec}]
+  (start-job spec asset-kind (constantly (r/ok nil))))
+
 (defn- ingest-media [{:keys [media]} state]
-  (with-result
+  (pf/with-result
     state
     (fn [{:keys [spec asset job] :as ctx}]
       (let [{:keys [source]} spec]
@@ -107,7 +87,7 @@
                                :audio audio)))))))
 
 (defn- transcribe-media [{:keys [segmenter transcriber]} state]
-  (with-result
+  (pf/with-result
     state
     (fn [{:keys [spec asset job probe audio] :as ctx}]
       (let [{:keys [job-id source-language]} spec]
@@ -130,34 +110,20 @@
    :translate/opts for the translator or :result/extra for the job result); with no
    addon loaded there is no middleware and this is a no-op."
   [resources state]
-  (with-result
+  (pf/with-result
     state
     (fn [ctx]
       (reduce (fn [acc mw] (r/let-ok [c acc] (mw resources c)))
               (r/ok ctx)
               (ext/middleware :vtranslate.pipeline/pre-translate resources)))))
 
-(defn- segment-source-language [transcript fallback-source-language segment]
-  (or (:language segment) fallback-source-language (:language transcript) "und"))
-
-(defn- indexed-segment-groups [transcript fallback-source-language]
-  (group-by (fn [[_ segment]]
-              (segment-source-language transcript fallback-source-language segment))
-            (map-indexed vector (:segments transcript))))
-
-(defn- translation-count-error [id expected actual]
-  (r/err :error/translation-failed
-         {:segment-id (str id)
-          :reason (format "translation count %d != segment count %d" actual expected)}))
-
 (defn- translate-indexed-group [translator target-language [source-language indexed-segments]]
-  (let [indices (mapv first indexed-segments)
-        texts   (mapv (comp :text second) indexed-segments)]
-    (r/let-ok [targets (p.tr/translate-batch translator texts source-language target-language
+  (let [{:keys [indices values]} (batch/group-payload indexed-segments :text)]
+    (r/let-ok [targets (p.tr/translate-batch translator values source-language target-language
                                              {:segment-indices indices})]
-      (if (= (count targets) (count indices))
-        (r/ok (mapv vector indices targets))
-        (translation-count-error source-language (count indices) (count targets))))))
+      (batch/zip-indices indices targets
+                         (fn [expected actual]
+                           (c.tr/translation-count-error source-language expected actual))))))
 
 (defn- collect-translations [translator target-language groups]
   (reduce (fn [acc group]
@@ -167,23 +133,18 @@
           (r/ok [])
           groups))
 
-(defn- ordered-translations [segment-count indexed-translations]
-  (let [missing ::missing-translation
-        targets (reduce (fn [acc [index text]] (assoc acc index text))
-                        (vec (repeat segment-count missing))
-                        indexed-translations)]
-    (if (some #{missing} targets)
-      (translation-count-error "ordered-translations" segment-count (count (remove #{missing} targets)))
-      (r/ok targets))))
-
 (defn- translate-segments [translator transcript target-language fallback-source-language]
-  (let [groups (indexed-segment-groups transcript fallback-source-language)]
+  (let [segments (:segments transcript)
+        groups   (batch/index-groups
+                  segments
+                  #(c.tr/segment-source-language transcript fallback-source-language %))]
     (r/let-ok [pairs (collect-translations translator target-language groups)]
-      (ordered-translations (count (:segments transcript)) pairs))))
-
+      (batch/scatter (count segments) pairs
+                     (fn [expected actual]
+                       (c.tr/translation-count-error "ordered-translations" expected actual))))))
 
 (defn- translate-transcript [{:keys [translator]} state]
-  (with-result
+  (pf/with-result
     state
     (fn [{:keys [spec job transcript] :as ctx}]
       (let [{:keys [job-id source-language target-language]} spec
@@ -201,18 +162,13 @@
 (defn- build-render-track [{:keys [job-id format]} translated]
   (c.rd/build-subtitle-track translated {:id (str job-id "-sub") :format format}))
 
-(defn- complete-render-job [job track]
-  (r/let-ok [advanced (job/advance job)
-             done     (job/advance advanced)]
-            (r/ok (job/link-subtitle done (:id track)))))
-
 (defn- render-subtitles [{:keys [renderer]} state]
-  (with-result
+  (pf/with-result
     state
     (fn [{:keys [spec job transcript translated] :as ctx}]
       (r/let-ok [track    (build-render-track spec translated)
                  rendered (p.sub/render-bytes renderer track)
-                 job      (complete-render-job job track)]
+                 job      (finalize-job job track job/advance)]
                 (r/ok (merge {:spec spec
                               :job job
                               :transcript transcript
@@ -222,7 +178,7 @@
                              (:result/extra ctx)))))))
 
 (defn- compose-video [{:keys [muxer]} state]
-  (with-result
+  (pf/with-result
     state
     (fn [{:keys [spec subtitle-track] :as ctx}]
       (if muxer
@@ -232,33 +188,28 @@
         (r/ok ctx)))))
 
 (def ^:private video-fsm
-  (compile-stage-fsm
-   [(->JobStage ::fsm/start start-translation)
-    (->JobStage :vtranslate.pipeline/ingest ingest-media)
-    (->JobStage :vtranslate.pipeline/transcribe transcribe-media)
-    (->JobStage :vtranslate.pipeline/extend apply-extensions)
-    (->JobStage :vtranslate.pipeline/translate translate-transcript)
-    (->JobStage :vtranslate.pipeline/render render-subtitles)
-    (->JobStage :vtranslate.pipeline/compose compose-video)]))
-
-(defrecord TranslationPipeline [ports fsm]
-  ITranslationPipeline
-  (run-translation-job [_ spec]
-    (:result (fsm/run fsm ports {:data spec}))))
+  (pf/compile-stages
+   [(pf/stage pf/start-id start-translation)
+    (pf/stage :vtranslate.pipeline/ingest ingest-media)
+    (pf/stage :vtranslate.pipeline/transcribe transcribe-media)
+    (pf/stage :vtranslate.pipeline/extend apply-extensions)
+    (pf/stage :vtranslate.pipeline/translate translate-transcript)
+    (pf/stage :vtranslate.pipeline/render render-subtitles)
+    (pf/stage :vtranslate.pipeline/compose compose-video)]))
 
 (defn run-job
   [{:keys [media segmenter transcriber translator renderer muxer config]}
    {:keys [job-id source source-language target-language asset-kind format output]
     :or   {asset-kind :media/video format :format/srt}}]
-  (run-translation-job
-   (->TranslationPipeline {:media media
-                           :segmenter segmenter
-                           :transcriber transcriber
-                           :translator translator
-                           :renderer renderer
-                           :muxer muxer
-                           :config config}
-                          video-fsm)
+  (pf/run-pipeline
+   (pf/pipeline {:media media
+                 :segmenter segmenter
+                 :transcriber transcriber
+                 :translator translator
+                 :renderer renderer
+                 :muxer muxer
+                 :config config}
+                video-fsm)
    {:job-id job-id
     :source source
     :source-language source-language
@@ -267,19 +218,19 @@
     :format format
     :output output}))
 
-(defn- start-subtitle-translation [_ {:keys [job-id source source-language target-language] :as spec}]
-  (result-state
-   (r/let-ok [_     (if-let [src (explicit-source-language source-language)]
-                      (shared/make-language src)
-                      (r/ok nil))
-              asset (ing/make-media-asset
-                     {:id (str job-id "-asset") :source-uri source :kind :media/subtitle})
-              job   (job/make-translation-job
-                     {:id job-id :asset-id (:id asset) :target-language target-language})]
-             (r/ok {:spec spec :asset asset :job job}))))
+;; ---------------------------------------------------------------------------
+;; Subtitle pipeline stages
+;; ---------------------------------------------------------------------------
+
+(defn- start-subtitle-translation [_ {:keys [source-language] :as spec}]
+  (start-job spec :media/subtitle
+             (fn [_]
+               (if-let [src (explicit-source-language source-language)]
+                 (shared/make-language src)
+                 (r/ok nil)))))
 
 (defn- read-subtitle-source [{:keys [reader]} state]
-  (with-result
+  (pf/with-result
     state
     (fn [{:keys [spec] :as ctx}]
       (r/let-ok [text (p.src/read-text reader (:source spec))]
@@ -291,7 +242,7 @@
     (r/err :error/render-failed {:reason "no cues parsed from source"})))
 
 (defn- parse-subtitle-source [{:keys [parser]} state]
-  (with-result
+  (pf/with-result
     state
     (fn [{:keys [spec text] :as ctx}]
       (let [{:keys [format reflow]} spec]
@@ -302,7 +253,7 @@
                   (r/ok (assoc ctx :cues cues)))))))
 
 (defn- translate-subtitle-cues [{:keys [translator]} state]
-  (with-result
+  (pf/with-result
     state
     (fn [{:keys [spec cues] :as ctx}]
       (let [{:keys [source-language target-language]} spec]
@@ -312,13 +263,8 @@
                    tcues   (c.so/apply-translations cues targets)]
                   (r/ok (assoc ctx :translated-cues tcues)))))))
 
-(defn- complete-subtitle-job [job track]
-  (r/let-ok [ingesting (job/advance job)
-             completed (job/complete ingesting)]
-    (r/ok (job/link-subtitle completed (:id track)))))
-
 (defn- render-subtitle-track [{:keys [renderer]} state]
-  (with-result
+  (pf/with-result
     state
     (fn [{:keys [spec asset job translated-cues]}]
       (let [{:keys [job-id target-language format]} spec]
@@ -327,28 +273,28 @@
                                                :source-id (:id asset)
                                                :language target-language
                                                :format format})
-                   job      (complete-subtitle-job job track)
+                   job      (finalize-job job track job/complete)
                    rendered (p.sub/render-bytes renderer track)]
                   (r/ok {:job job :subtitle-track track :rendered rendered}))))))
 
 (def ^:private subtitle-fsm
-  (compile-stage-fsm
-   [(->JobStage ::fsm/start start-subtitle-translation)
-    (->JobStage :vtranslate.subtitle/read read-subtitle-source)
-    (->JobStage :vtranslate.subtitle/parse parse-subtitle-source)
-    (->JobStage :vtranslate.subtitle/translate translate-subtitle-cues)
-    (->JobStage :vtranslate.subtitle/render render-subtitle-track)]))
+  (pf/compile-stages
+   [(pf/stage pf/start-id start-subtitle-translation)
+    (pf/stage :vtranslate.subtitle/read read-subtitle-source)
+    (pf/stage :vtranslate.subtitle/parse parse-subtitle-source)
+    (pf/stage :vtranslate.subtitle/translate translate-subtitle-cues)
+    (pf/stage :vtranslate.subtitle/render render-subtitle-track)]))
 
 (defn run-subtitle-job
   [{:keys [parser translator renderer] reader :source}
    {:keys [job-id source source-language target-language format reflow]
     :or   {format :format/srt}}]
-  (run-translation-job
-   (->TranslationPipeline {:reader reader
-                           :parser parser
-                           :translator translator
-                           :renderer renderer}
-                          subtitle-fsm)
+  (pf/run-pipeline
+   (pf/pipeline {:reader reader
+                 :parser parser
+                 :translator translator
+                 :renderer renderer}
+                subtitle-fsm)
    {:job-id job-id
     :source source
     :source-language source-language

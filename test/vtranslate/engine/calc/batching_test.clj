@@ -1,6 +1,8 @@
 (ns vtranslate.engine.calc.batching-test
   "Trifecta — golden + property + mutation — for the pure batching helpers:
-   context-windows (plain-EDN windowing) and reassemble (Result fold). No IO."
+   context-windows (plain-EDN windowing), reassemble (Result fold), and the
+   language-routing algebra promoted out of api (index-groups / group-payload /
+   zip-indices / scatter). No IO."
   (:require [clojure.test :refer [deftest is]]
             [clojure.test.check.generators :as gen]
             [clojure.test.check.properties :as prop]
@@ -199,3 +201,146 @@
       (is (r/err? err-res))
       (is (= :error/boom (:error err-res)))
       (is (= 1 (:pos err-res))))))
+
+;; =============================================================================
+;; LANGUAGE-ROUTING ALGEBRA — index-groups / group-payload / zip-indices /
+;; scatter. These are the pure batching/ordering slab promoted out of api: a
+;; transcript's segments are indexed and grouped by source language, each group
+;; is translated, and the results are scattered back into original segment order.
+;; =============================================================================
+
+(def ^:private gen-item
+  (gen/fmap (fn [[t g]] {:text t :group g})
+            (gen/tuple gen/string-alphanumeric (gen/elements ["de" "es" "en" "fr"]))))
+
+(def ^:private gen-items (gen/vector gen-item 0 12))
+
+(defn- err-fn
+  "A domain-agnostic on-mismatch/on-incomplete for the algebra under test."
+  [tag]
+  (fn [expected actual] (r/err tag {:expected expected :actual actual})))
+
+;; ---- PROPERTY — index-groups is a total, order-preserving indexed partition --
+
+(defspec index-groups-is-a-total-indexed-partition 300
+  (prop/for-all [items gen-items]
+    (let [v      (vec items)
+          groups (sut/index-groups items :group)
+          all    (mapcat val groups)
+          idxs   (map first all)]
+      (and (map? groups)
+           ;; every 0..n-1 index present exactly once (a permutation)
+           (= (range (count v)) (sort idxs))
+           ;; each pair sits under the key its item resolves to
+           (every? (fn [[k pairs]]
+                     (every? (fn [[_ item]] (= k (:group item))) pairs))
+                   groups)
+           ;; within a group indices strictly increase => original order kept
+           (every? (fn [[_ pairs]] (apply < -1 (map first pairs))) groups)
+           ;; the item recorded at each index is exactly the original
+           (every? (fn [[i item]] (= (nth v i) item)) all)))))
+
+;; ---- PROPERTY — scatter left-inverts the index-groups indexing --------------
+
+(defspec scatter-inverts-index-groups 300
+  (prop/for-all [items gen-items]
+    (let [n      (count items)
+          groups (sut/index-groups items :group)
+          pairs  (mapcat (fn [[_ g]]
+                           (let [{:keys [indices values]} (sut/group-payload g identity)]
+                             (map vector indices values)))
+                         groups)
+          res    (sut/scatter n pairs (err-fn :error/gap))]
+      (and (r/ok? res)
+           (= (vec items) (:ok res))))))
+
+;; ---- PROPERTY — scatter is ok iff every index is filled, else reports counts -
+
+(defspec scatter-complete-iff-every-index-filled 300
+  (prop/for-all [n       (gen/choose 1 12)
+                 removed (gen/set (gen/choose 0 11))]
+    (let [removed (into #{} (filter #(< % n) removed))
+          full    (mapv (fn [i] [i (str "v" i)]) (range n))
+          kept    (remove (fn [[i _]] (contains? removed i)) full)
+          res     (sut/scatter n kept (err-fn :error/gap))]
+      (if (empty? removed)
+        (and (r/ok? res) (= (mapv second full) (:ok res)))
+        (and (r/err? res)
+             (= :error/gap (:error res))
+             (= n (:expected res))
+             (= (count kept) (:actual res)))))))
+
+;; ---- PROPERTY — zip-indices aligns iff counts match, else reports counts -----
+
+(defspec zip-indices-aligns-iff-counts-equal 300
+  (prop/for-all [indices (gen/vector (gen/choose 0 50) 0 8)
+                 values  (gen/vector gen/string-alphanumeric 0 8)]
+    (let [res (sut/zip-indices indices values (err-fn :error/mismatch))]
+      (if (= (count indices) (count values))
+        (and (r/ok? res) (= (mapv vector indices values) (:ok res)))
+        (and (r/err? res)
+             (= :error/mismatch (:error res))
+             (= (count indices) (:expected res))
+             (= (count values) (:actual res)))))))
+
+;; ---- PROPERTY — group-payload projects indices + values in group order ------
+
+(defspec group-payload-projects-in-order 200
+  (prop/for-all [pairs (gen/vector
+                        (gen/tuple (gen/choose 0 99)
+                                   (gen/fmap (fn [t] {:text t}) gen/string-alphanumeric))
+                        0 8)]
+    (let [{:keys [indices values]} (sut/group-payload pairs :text)]
+      (and (= (mapv first pairs) indices)
+           (= (mapv (comp :text second) pairs) values)))))
+
+;; ---- UNIT — algebra edges ---------------------------------------------------
+
+(deftest index-groups-empty-is-empty-map
+  (is (= {} (sut/index-groups [] :group))))
+
+(deftest index-groups-keeps-index-and-first-appearance-order
+  (is (= {"a" [[0 {:g "a" :t 1}] [2 {:g "a" :t 3}]]
+          "b" [[1 {:g "b" :t 2}]]}
+         (sut/index-groups [{:g "a" :t 1} {:g "b" :t 2} {:g "a" :t 3}] :g))))
+
+(deftest scatter-reorders-by-index-not-arrival
+  (is (= ["a" "b" "c"]
+         (:ok (sut/scatter 3 [[2 "c"] [0 "a"] [1 "b"]] (err-fn :error/gap))))))
+
+(deftest scatter-duplicate-index-last-wins
+  (is (= ["z" "b"]
+         (:ok (sut/scatter 2 [[0 "a"] [1 "b"] [0 "z"]] (err-fn :error/gap))))))
+
+(deftest zip-indices-empty-pair-is-ok-empty
+  (is (= [] (:ok (sut/zip-indices [] [] (err-fn :error/mismatch))))))
+
+;; ---- MUTATION — index-groups: drop the index, drop the key, collapse keys ----
+
+(deftest-mutations index-groups-mutations-caught
+  vtranslate.engine.calc.batching/index-groups
+  [["drop-index"    (fn [items key-fn] (group-by key-fn items))]
+   ["no-index-pair" (fn [items key-fn] (group-by (fn [[_ item]] (key-fn item)) (map vector items)))]
+   ["collapse-keys" (fn [items _key-fn] (group-by (constantly :all) (map-indexed vector items)))]]
+  (fn []
+    (is (= {"a" [[0 {:g "a" :t 1}] [2 {:g "a" :t 3}]]
+            "b" [[1 {:g "b" :t 2}]]}
+           (sut/index-groups [{:g "a" :t 1} {:g "b" :t 2} {:g "a" :t 3}] :g)))))
+
+;; ---- MUTATION — scatter: ignore gaps, drop index placement, sort values ------
+
+(deftest-mutations scatter-mutations-caught
+  vtranslate.engine.calc.batching/scatter
+  [["ignore-gaps" (fn [n indexed _on]
+                    (r/ok (reduce (fn [acc [i v]] (assoc acc i v)) (vec (repeat n nil)) indexed)))]
+   ["drop-index"  (fn [_n indexed _on] (r/ok (mapv second indexed)))]
+   ["sort-values" (fn [n indexed on]
+                    (let [m ::m
+                          d (reduce (fn [a [i v]] (assoc a i v)) (vec (repeat n m)) indexed)]
+                      (if (some #{m} d)
+                        (on n (count (remove #{m} d)))
+                        (r/ok (vec (sort d))))))]]
+  (fn []
+    (is (= ["c" "b" "a"]
+           (:ok (sut/scatter 3 [[2 "a"] [0 "c"] [1 "b"]] (err-fn :error/gap)))))
+    (is (r/err? (sut/scatter 3 [[0 "a"] [2 "c"]] (err-fn :error/gap))))))
