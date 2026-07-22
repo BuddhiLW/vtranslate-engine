@@ -98,7 +98,7 @@
   (prop/for-all [a  (gen/choose 0 100000)
                  d  (gen/choose 0 100000)
                  st gen/string-alphanumeric
-                 tt gen/string-alphanumeric]
+                 tt (gen/not-empty gen/string-alphanumeric)]
     (let [res (sut/make-translation-unit
                {:start-ms a :end-ms (+ a d) :source-language "en"
                 :source-text st :target-text tt})]

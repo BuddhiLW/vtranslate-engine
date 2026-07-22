@@ -33,9 +33,9 @@
    :status           (get-in res [:ok :status :adt/variant])})
 
 (def ^:private sample-segs
-  [{:index 0 :start-ms 0    :end-ms 1000 :text "Hello" :confidence 0.9 :language "en"}
-   {:index 1 :start-ms 1000 :end-ms 2000 :text "World" :confidence 0.8 :language "pt"}
-   {:index 2 :start-ms 2000 :end-ms 3000 :text "Bye"   :confidence 0.7 :language "fr"}])
+  [{:index 1 :start-ms 0    :end-ms 1000 :text "Hello" :confidence 0.9 :language "en"}
+   {:index 2 :start-ms 1000 :end-ms 2000 :text "World" :confidence 0.8 :language "pt"}
+   {:index 3 :start-ms 2000 :end-ms 3000 :text "Bye"   :confidence 0.7 :language "fr"}])
 
 (def ^:private sample-tls ["Hola" "Mundo" "Adios"])
 
@@ -61,17 +61,17 @@
 
 (def ^:private gen-seg-input
   (gen/fmap (fn [[s d text lang]]
-              {:index 0 :start-ms s :end-ms (+ s d)
+              {:index 1 :start-ms s :end-ms (+ s d)
                :text text :confidence 0.9 :language lang})
             (gen/tuple (gen/choose 0 100000) (gen/choose 1 5000)
-                       gen/string-alphanumeric gen-lang)))
+                       (gen/not-empty gen/string-alphanumeric) gen-lang)))
 
 (defspec aligned-units-match-translations 200
   (prop/for-all [[segs tls]
                  (gen/bind (gen/vector gen-seg-input 1 6)
                            (fn [segs]
                              (gen/fmap (fn [tls] [segs tls])
-                                       (gen/vector gen/string-alphanumeric (count segs)))))]
+                                       (gen/vector (gen/not-empty gen/string-alphanumeric) (count segs)))))]
     (let [res (sut/build-translated-cues (transcript-with segs) tls
                                          {:id "c" :target-language "es"})]
       (and (r/ok? res)
@@ -84,7 +84,7 @@
 
 (defspec count-mismatch-fails-else-ok 200
   (prop/for-all [segs (gen/vector gen-seg-input 1 6)
-                 tls  (gen/vector gen/string-alphanumeric 0 6)]
+                 tls  (gen/vector (gen/not-empty gen/string-alphanumeric) 0 6)]
     (let [res (sut/build-translated-cues (transcript-with segs) tls
                                          {:id "c" :target-language "es"})]
       (if (= (count segs) (count tls))

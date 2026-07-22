@@ -40,11 +40,11 @@
   (:ok (sut/make-transcript {:id "tr-1" :asset-id "asset-9" :language "en"})))
 
 (def ^:private seg1
-  (:ok (sut/make-segment {:index 0 :start-ms 0 :end-ms 1000
+  (:ok (sut/make-segment {:index 1 :start-ms 0 :end-ms 1000
                           :text "Hello" :confidence 0.9 :language "en"})))
 
 (def ^:private seg2
-  (:ok (sut/make-segment {:index 1 :start-ms 1000 :end-ms 2500
+  (:ok (sut/make-segment {:index 2 :start-ms 1000 :end-ms 2500
                           :text "World" :confidence 0.5})))
 
 (def ^:private with-segs (-> base (sut/add-segment seg1) (sut/add-segment seg2)))
@@ -84,7 +84,7 @@
 
 (def ^:private gen-seg-spec
   (gen/fmap (fn [[s d c]]
-              {:index 0 :start-ms s :end-ms (+ s d) :text "t" :confidence c})
+              {:index 1 :start-ms s :end-ms (+ s d) :text "t" :confidence c})
             (gen/tuple (gen/choose 0 100000)
                        (gen/choose 0 10000)
                        (gen/double* {:NaN? false :infinite? false :min 0.0 :max 1.0}))))

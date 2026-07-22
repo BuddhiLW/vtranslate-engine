@@ -19,7 +19,7 @@
 
 (def gen-seg
   (gen/fmap (fn [[s d t]] {:start-ms s :end-ms (+ s d) :text t :confidence 0.9})
-            (gen/tuple (gen/choose 0 10000) (gen/choose 1 5000) gen/string-alphanumeric)))
+            (gen/tuple (gen/choose 0 10000) (gen/choose 1 5000) (gen/not-empty gen/string-alphanumeric))))
 
 ;; PROPERTY: build-transcript assigns 1..n indices regardless of ASR ordering.
 (defspec build-transcript-indices 100

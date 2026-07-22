@@ -7,6 +7,7 @@
             [hive-test.golden :refer [deftest-golden]]
             [hive-test.mutation :refer [deftest-mutations]]
             [hive-dsl.result :as r]
+            [vtranslate.engine.shared :as shared]
             [vtranslate.engine.domain.rendering :as rd]
             [vtranslate.engine.domain.translation :as t]
             [vtranslate.engine.calc.rendering :as sut]))
@@ -98,10 +99,17 @@
              {:id "s" :format :format/foo})]
     (is (= :error/unsupported-format (:error res)))))
 
-(deftest nil-target-text-fails-render
-  (let [res (sut/build-subtitle-track
-             (->tcues "es" [{:start-ms 0 :end-ms 1000 :target-text nil}])
-             {:id "s" :format :format/srt})]
+(deftest blank-target-text-fails-render
+  ;; make-translation-unit now forbids a blank target-text upstream, so a bad
+  ;; unit is unconstructable via the smart ctor. build-subtitle-track's make-cue
+  ;; defense must still fail loud if a blank-target unit is injected directly.
+  (let [rng (:ok (shared/make-time-range 0 1000))
+        tc  (-> (:ok (t/make-translated-cues {:id "tc-1" :transcript-id "tr-1"
+                                              :source-language "en" :target-language "es"}))
+                t/begin
+                (t/add-unit (t/->TranslationUnit rng "en" "src" "")))
+        res (sut/build-subtitle-track (:ok (t/complete tc)) {:id "s" :format :format/srt})]
+    (is (r/err? res))
     (is (= :error/render-failed (:error res)))))
 
 ;; =============================================================================
@@ -139,19 +147,5 @@
                                      :lines ["X"]}))]]
   mut-check)
 
-(deftest-mutations add-unit-mutations-caught
-  vtranslate.engine.calc.rendering/add-unit
-  [["ignore-cue"   (fn [track-result _pair] track-result)]
-   ["add-raw-unit" (fn [track-result [_index unit]]
-                     (r/let-ok [track track-result]
-                       (r/ok (rd/add-cue track unit))))]]
-  mut-check)
-
-(deftest-mutations fill-cues-mutations-caught
-  vtranslate.engine.calc.rendering/fill-cues
-  [["empty-fill" (fn [track _tc] (r/ok track))]
-   ["zero-index" (fn [track tc]
-                   (->> (:units tc)
-                        (map-indexed (fn [i unit] [i unit]))
-                        (reduce #'vtranslate.engine.calc.rendering/add-unit (r/ok track))))]]
-  mut-check)
+;; NOTE: the add-unit / fill-cues folds moved to calc.promote — their mutation
+;; coverage lives in calc.promote-test now.

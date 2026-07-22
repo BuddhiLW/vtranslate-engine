@@ -53,7 +53,7 @@
                 lang? (assoc :language lang?)))
             (gen/tuple (gen/choose 0 100000)
                        (gen/choose 0 5000)
-                       gen/string-alphanumeric
+                       (gen/not-empty gen/string-alphanumeric)
                        (gen/double* {:min 0.0 :max 1.0 :NaN? false :infinite? false})
                        (gen/one-of [(gen/return nil) gen-lang]))))
 

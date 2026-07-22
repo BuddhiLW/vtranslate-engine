@@ -81,7 +81,7 @@
             (gen/tuple (gen/choose 1 100)
                        (gen/choose 0 100000)
                        (gen/choose 0 5000)
-                       (gen/vector gen/string-alphanumeric 1 3))))
+                       (gen/vector (gen/not-empty gen/string-alphanumeric) 1 3))))
 
 (defspec add-cue-grows-cues-by-one 200
   (prop/for-all [cis (gen/vector gen-cue-input 0 8)]
