@@ -5,24 +5,13 @@
    stripping. Prompt composition + response parsing stay in each adapter — those are
    task-specific; only the wire transport is shared."
   (:require [cheshire.core :as json]
-            [clojure.java.shell :as shell]
             [clojure.string :as str]
-            [hive-dsl.result :as r])
+            [hive-dsl.result :as r]
+            [vtranslate.engine.adapters.support.secrets :as secrets])
   (:import (java.net URI)
            (java.net.http HttpClient HttpRequest HttpRequest$BodyPublishers
                           HttpResponse$BodyHandlers)
            (java.time Duration)))
-
-(defn- pass-show
-  "First line of `pass show <path>`, or nil (missing pass / non-zero exit)."
-  [path]
-  (try
-    (let [{:keys [exit out]} (shell/sh "pass" "show" path)]
-      (when (zero? exit) (some-> out str/split-lines first str/trim not-empty)))
-    (catch Exception _ nil)))
-
-(defonce ^:private pass-cache
-  (atom {}))
 
 (defonce ^:private last-request-at
   (atom 0))
@@ -39,20 +28,7 @@
   (when (pos? ms)
     (Thread/sleep ms)))
 
-(defn- cached-pass-show [path]
-  (when path
-    (if-let [cached (get @pass-cache path)]
-      cached
-      (when-let [secret (pass-show path)]
-        (swap! pass-cache assoc path secret)
-        secret))))
-
-(defn resolve-key
-  "A configured `pass:` path wins over the env var (a stale env key must not shadow
-   the real one). Successful pass lookups are cached per JVM. => key-string | nil."
-  [secret-env secret-pass]
-  (or (cached-pass-show secret-pass)
-      (some-> (System/getenv secret-env) str/trim not-empty)))
+(def resolve-key secrets/resolve-key)
 
 (def ^:private http-client
   (delay (.. (HttpClient/newBuilder) (connectTimeout (Duration/ofSeconds 15)) (build))))

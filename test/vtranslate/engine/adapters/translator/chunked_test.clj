@@ -21,6 +21,16 @@
   (let [t (chunked/make-chunked (->RecordingUpper (atom 0)) {})]
     (is (= (r/ok []) (p.tr/translate-batch t [] "en" "es" {})))))
 
+;; an inner that never returns is bounded by :timeout-ms => the loud
+;; chunk-timeout-error, never a hung batch (previously :timeout-ms was dead).
+(deftest slow-chunk-times-out-into-loud-error
+  (let [slow (reify p.tr/ITranslator
+               (translate-batch [_ _ _ _ _] (Thread/sleep 3000) (r/ok ["nope"])))
+        t    (chunked/make-chunked slow {:chunk-size 1 :timeout-ms 50})
+        res  (p.tr/translate-batch t ["a" "b"] "en" "es" {})]
+    (is (r/err? res))
+    (is (= :error/translation-failed (:error res)))))
+
 (deftest chunks-preserve-order-and-count
   (let [calls (atom 0)
         inner (->RecordingUpper calls)

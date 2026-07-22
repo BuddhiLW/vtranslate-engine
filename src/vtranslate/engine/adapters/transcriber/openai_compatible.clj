@@ -13,13 +13,13 @@
    is always resolvable. The transcribe method fails LOUD (:error/asr-failed) on
    any transport/parse failure. Response uses verbose_json => per-segment
    timestamps (seconds), normalized to the contract by support/normalize-segments."
-  (:require [clojure.java.shell :as shell]
-            [clojure.string :as str]
+  (:require [clojure.string :as str]
             [cheshire.core :as json]
             [hive-dsl.result :as r]
             [vtranslate.engine.port.transcriber :as p.asr]
             [vtranslate.engine.adapters.transcriber.support :as sup]
-            [vtranslate.engine.providers.transcriber-registry :as reg])
+            [vtranslate.engine.providers.transcriber-registry :as reg]
+            [vtranslate.engine.adapters.support.secrets :as secrets])
   (:import [java.io ByteArrayOutputStream File]
            [java.net URI]
            [java.net.http HttpClient HttpRequest HttpRequest$BodyPublishers
@@ -29,15 +29,7 @@
 
 ;; --- secret resolution: pass: ref (authoritative) > env var ----------------
 
-(defn- pass-show [path]
-  (try
-    (let [{:keys [exit out]} (shell/sh "pass" "show" path)]
-      (when (zero? exit) (some-> out str/split-lines first str/trim not-empty)))
-    (catch Exception _ nil)))
-
-(defn- resolve-key [secret-env secret-pass]
-  (or (when secret-pass (pass-show secret-pass))
-      (some-> (System/getenv secret-env) str/trim not-empty)))
+(def ^:private resolve-key secrets/resolve-key)
 
 ;; --- multipart/form-data ----------------------------------------------------
 

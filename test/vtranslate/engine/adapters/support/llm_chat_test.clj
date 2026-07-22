@@ -6,17 +6,6 @@
 (defn- success-body [content]
   (str "{\"choices\":[{\"message\":{\"content\":\"" content "\"}}]}"))
 
-(deftest pass-secret-is-memoized
-  (let [calls (atom 0)]
-    (reset! (deref #'sut/pass-cache) {})
-    (with-redefs-fn {#'sut/pass-show (fn [_path]
-                                      (swap! calls inc)
-                                      "secret")}
-      #(do
-         (is (= "secret" (sut/resolve-key "MISSING_ENV" "pass/path")))
-         (is (= "secret" (sut/resolve-key "MISSING_ENV" "pass/path")))
-         (is (= 1 @calls))))))
-
 (deftest post-chat-retries-429
   (let [calls (atom 0)
         sleeps (atom [])]
