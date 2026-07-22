@@ -5,7 +5,8 @@
    (one per target language). DDD: references the Transcript BY ID
    (:transcript-id). Deliberately NOT shared with rendering — rendering owns its
    own Cue/SubtitleTrack; this aggregate is the translation-stage output only."
-  (:require [hive-dsl.adt :refer [defadt]]
+  (:require [clojure.string :as str]
+            [hive-dsl.adt :refer [defadt]]
             [hive-dsl.result :as r]
             [vtranslate.engine.shared :as shared]))
 
@@ -21,12 +22,15 @@
 (defrecord TranslationUnit [range source-language source-text target-text])
 
 (defn make-translation-unit
-  "Pair source text with its translation over a shared/TimeRange.
-   => (r/ok TranslationUnit) | (r/err ...)."
+  "Pair source text with its translation over a shared/TimeRange. Requires a
+   non-blank target-text (it becomes the rendered cue's visible text).
+   => (r/ok TranslationUnit) | (r/err :error/translation-failed ...)."
   [{:keys [start-ms end-ms source-language source-text target-text]}]
   (r/let-ok [range (shared/make-time-range start-ms end-ms)
              lang  (if source-language (shared/make-language source-language) (r/ok nil))]
-    (r/ok (->TranslationUnit range lang source-text target-text))))
+    (if (str/blank? target-text)
+      (r/err :error/translation-failed {:reason "translation unit has blank target-text"})
+      (r/ok (->TranslationUnit range lang source-text target-text)))))
 
 ;; --- Aggregate root --------------------------------------------------------
 

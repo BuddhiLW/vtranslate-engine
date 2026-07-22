@@ -3,7 +3,8 @@
    A Transcript owns its ordered Segments (entities inside the aggregate) and a
    per-segment Confidence value object. DDD: it references the MediaAsset BY ID
    (:asset-id) and never embeds it. Time ranges reuse the shared kernel."
-  (:require [hive-dsl.adt :refer [defadt]]
+  (:require [clojure.string :as str]
+            [hive-dsl.adt :refer [defadt]]
             [hive-dsl.result :as r]
             [vtranslate.engine.shared :as shared]))
 
@@ -30,14 +31,22 @@
 (defrecord Segment [index range text confidence language])
 
 (defn make-segment
-  "Build a Segment over a shared/TimeRange. Validates range, confidence, and
-   optional source language.
+  "Build a Segment over a shared/TimeRange. Validates a 1-based index, a non-blank
+   text, confidence, and optional source language.
    => (r/ok Segment) | (r/err ...)."
   [{:keys [index start-ms end-ms text confidence language]}]
   (r/let-ok [range (shared/make-time-range start-ms end-ms)
              conf  (make-confidence confidence)
              lang  (if language (shared/make-language language) (r/ok nil))]
-    (r/ok (->Segment index range text conf lang))))
+    (cond
+      (not (pos-int? index))
+      (r/err :error/asr-failed {:reason "segment index must be a positive integer" :index index})
+
+      (str/blank? text)
+      (r/err :error/asr-failed {:reason "segment text is blank"})
+
+      :else
+      (r/ok (->Segment index range text conf lang)))))
 
 ;; --- Aggregate root --------------------------------------------------------
 

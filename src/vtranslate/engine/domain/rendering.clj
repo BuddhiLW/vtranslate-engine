@@ -4,7 +4,8 @@
    a time range) and a SubtitleFormat. DDD: references the TranslatedCues
    aggregate BY ID (:source-id). The adapter/Collect layer serializes a
    SubtitleTrack to bytes (srt/vtt/ass); this domain never touches IO."
-  (:require [hive-dsl.adt :refer [defadt adt-case]]
+  (:require [clojure.string :as str]
+            [hive-dsl.adt :refer [defadt adt-case]]
             [hive-dsl.result :as r]
             [vtranslate.engine.shared :as shared]))
 
@@ -30,13 +31,20 @@
 (defrecord Cue [index range lines])
 
 (defn make-cue
-  "A display cue: 1-based index, a shared/TimeRange, and 1+ text lines.
+  "A display cue: a 1-based index, a shared/TimeRange, and 1+ text lines with at
+   least one non-blank line.
    => (r/ok Cue) | (r/err :error/render-failed ...)."
   [{:keys [index start-ms end-ms lines]}]
   (r/let-ok [range (shared/make-time-range start-ms end-ms)]
-    (if (and (seq lines) (every? string? lines))
-      (r/ok (->Cue index range (vec lines)))
-      (r/err :error/render-failed {:reason "cue has no text lines"}))))
+    (cond
+      (not (pos-int? index))
+      (r/err :error/render-failed {:reason "cue index must be a positive integer" :index index})
+
+      (not (and (seq lines) (every? string? lines) (some (complement str/blank?) lines)))
+      (r/err :error/render-failed {:reason "cue has no non-blank text lines"})
+
+      :else
+      (r/ok (->Cue index range (vec lines))))))
 
 ;; --- Aggregate root --------------------------------------------------------
 
