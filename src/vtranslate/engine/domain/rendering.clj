@@ -15,7 +15,9 @@
   :format/ass)
 
 (def ^:private subtitle-formats
-  #{:format/srt :format/vtt :format/ass})
+  "Known wire formats — derived from the SubtitleFormat ADT (single source of
+   truth; adding a variant is picked up here automatically)."
+  (:variants SubtitleFormat))
 
 (defadt TrackStatus
   "Lifecycle of a subtitle track. :track/failed is terminal."

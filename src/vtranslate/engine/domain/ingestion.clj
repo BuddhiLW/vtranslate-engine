@@ -18,7 +18,9 @@
   :media/subtitle)    ;; parse path, no ASR
 
 (def ^:private media-kinds
-  #{:media/video :media/audio :media/subtitle})
+  "Valid source kinds — derived from the MediaKind ADT (single source of truth;
+   adding a variant is picked up here automatically)."
+  (:variants MediaKind))
 
 (defadt AssetStatus
   "Ingestion lifecycle. :asset/rejected is terminal."
