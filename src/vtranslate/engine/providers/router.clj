@@ -23,11 +23,19 @@
   [])
 
 (defn- first-ok
-  "Try each provider key in order via `resolve-fn`; the first (r/ok ...) wins,
-   else nil (the caller turns an exhausted chain into a loud err)."
+  "Try each provider key in order via `resolve-fn`. Return the first (r/ok ...);
+   otherwise {:errors [[k <error-tag>] ...]} accumulating every candidate's failure
+   IN ORDER — so a registered-but-misconfigured provider (its own build error) is
+   distinguishable from an unknown one (:error/unknown-*), instead of both being
+   masked as a bare 'no provider'."
   [resolve-fn keys config]
-  (some (fn [k] (let [res (resolve-fn k config)] (when (r/ok? res) res)))
-        keys))
+  (reduce (fn [acc k]
+            (let [res (resolve-fn k config)]
+              (if (r/ok? res)
+                (reduced res)
+                (update acc :errors conj [k (:error res)]))))
+          {:errors []}
+          keys))
 
 (defn- order-for
   "Requested key first (when set), then the priority chain, de-duplicated."
@@ -37,21 +45,30 @@
 (defn resolve-active-transcriber
   "Resolve an ITranscriber: requested key first, then `transcriber-priority`.
    `routing` = {:transcriber kw|nil ...}; `config` carries adapter opts.
-   => (r/ok impl) | (r/err :error/no-transcriber-available {:requested :tried})."
+   => (r/ok impl) | (r/err :error/no-transcriber-available
+                          {:requested :tried :errors [[k tag]...]}). The :errors
+   accumulator distinguishes an unknown key from a registered-but-misconfigured one."
   [routing config]
-  (let [order (order-for (:transcriber routing) transcriber-priority)]
-    (or (first-ok tr-reg/resolve-transcriber order config)
-        (r/err :error/no-transcriber-available
-               {:requested (:transcriber routing)
-                :tried     order
-                :hint      "configure an available ASR provider; ASR never falls back to a fake transcript"}))))
+  (let [order (order-for (:transcriber routing) transcriber-priority)
+        res   (first-ok tr-reg/resolve-transcriber order config)]
+    (if (r/ok? res)
+      res
+      (r/err :error/no-transcriber-available
+             {:requested (:transcriber routing)
+              :tried     order
+              :errors    (:errors res)
+              :hint      "configure an available ASR provider; ASR never falls back to a fake transcript"}))))
 
 (defn resolve-active-translator
   "Resolve an ITranslator from the requested key plus configured fallback chain.
-   => (r/ok impl) | (r/err :error/no-translator-available {:requested :tried})."
+   => (r/ok impl) | (r/err :error/no-translator-available
+                          {:requested :tried :errors [[k tag]...]})."
   [routing config]
-  (let [order (order-for (:translator routing) translator-priority)]
-    (or (first-ok tl-reg/resolve-translator order config)
-        (r/err :error/no-translator-available
-               {:requested (:translator routing)
-                :tried     order}))))
+  (let [order (order-for (:translator routing) translator-priority)
+        res   (first-ok tl-reg/resolve-translator order config)]
+    (if (r/ok? res)
+      res
+      (r/err :error/no-translator-available
+             {:requested (:translator routing)
+              :tried     order
+              :errors    (:errors res)}))))

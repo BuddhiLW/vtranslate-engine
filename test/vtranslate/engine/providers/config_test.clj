@@ -17,6 +17,26 @@
         (is (r/ok? res))
         (is (nil? (get-in res [:ok :translator])))))))
 
+;; --- precedence: (caller > env >) file > default -----------------------------
+
+(deftest resolve-routing-applies-defaults-when-absent
+  ;; empty config + no VT_* env => the built-in selector defaults apply.
+  (let [path (temp-config {})]
+    (with-redefs [sut/config-path (constantly path)]
+      (let [res (sut/resolve-routing {})]
+        (is (r/ok? res))
+        (is (= :grid (get-in res [:ok :segmenter])) "segmenter falls back to :grid")
+        (is (= :none (get-in res [:ok :composer])) "composer falls back to :none")))))
+
+(deftest resolve-routing-file-selector-beats-default
+  ;; a config.edn selector wins over the built-in default (the file rung).
+  (let [path (temp-config {:providers {:composer :hard :segmenter :silero-vad}})]
+    (with-redefs [sut/config-path (constantly path)]
+      (let [res (sut/resolve-routing {})]
+        (is (r/ok? res))
+        (is (= :hard (get-in res [:ok :composer])) "file selector beats the :none default")
+        (is (= :silero-vad (get-in res [:ok :segmenter])) "file selector beats the :grid default")))))
+
 (deftest resolve-routing-loads-provider-opts-from-file
   (let [path (temp-config {:providers {:segmenter :silero-vad
                                        :transcriber :whisper-local

@@ -43,6 +43,42 @@
     (is (= :error/unknown-transcriber (:error res)))
     (is (vector? (:known res)) "reports the known provider set")))
 
+;; --- observability: candidate errors accumulate; unknown vs failed distinct ---
+
+(deftest unknown-requested-provider-surfaces-in-errors
+  ;; translator priority is empty, so a bad requested key exhausts deterministically:
+  ;; the unknown key is reported first, as :error/unknown-translator, never masked.
+  (let [res  (router/resolve-active-translator {:translator :zzz-unknown} {})
+        errs (:errors res)]
+    (is (r/err? res))
+    (is (= :error/no-translator-available (:error res)))
+    (is (= [:zzz-unknown :error/unknown-translator] (first errs)))))
+
+(deftest resolver-distinguishes-build-error-from-unknown
+  ;; a REGISTERED-but-misconfigured provider surfaces its own build error — the
+  ;; whole point: 'registered but broken' must not read as 'unknown provider'.
+  (defmethod tl-reg/resolve-translator :floor-broken
+    [_ _config] (r/err :error/translator-unavailable {:reason "misconfigured"}))
+  (try
+    (let [res  (router/resolve-active-translator {:translator :floor-broken} {})
+          errs (:errors res)]
+      (is (r/err? res))
+      (is (= [:floor-broken :error/translator-unavailable] (first errs)))
+      (is (not= :error/unknown-translator (second (first errs)))))
+    (finally (remove-method tl-reg/resolve-translator :floor-broken))))
+
+;; --- selection order: requested-first, priority chain, de-duplicated ----------
+
+(defspec transcriber-order-requested-first-and-deduped 100
+  ;; order-for is tested directly so it does not depend on which adapters happen
+  ;; to be registered in the test image (some resolve, so the chain need not exhaust).
+  (prop/for-all [requested (gen/elements [nil :zzz :whisper-local :sherpa-onnx :whisper-server])]
+    (let [order (#'router/order-for requested router/transcriber-priority)]
+      (and (= order (distinct order))                                   ;; de-duplicated
+           (if requested (= requested (first order)) true)              ;; requested first
+           (= (vec (distinct (remove nil? (cons requested router/transcriber-priority))))
+              order)))))                                                 ;; exact ordered chain
+
 ;; --- MT fails LOUD without explicit provider -------------------------------
 
 (deftest translator-resolver-fails-loud-without-explicit-provider
