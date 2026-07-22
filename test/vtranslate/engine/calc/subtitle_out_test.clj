@@ -5,9 +5,12 @@
    and fails loud on a count mismatch. Unit shape + failure mode + a property
    that count/order/timing survive an equal-length batch. No IO."
   (:require [clojure.test :refer [deftest is]]
+            [clojure.string :as str]
             [clojure.test.check.generators :as gen]
             [clojure.test.check.properties :as prop]
             [clojure.test.check.clojure-test :refer [defspec]]
+            [hive-test.golden :refer [deftest-golden]]
+            [hive-test.mutation :refer [deftest-mutations]]
             [hive-dsl.result :as r]
             [vtranslate.engine.calc.subtitle-out :as sut]))
 
@@ -72,3 +75,44 @@
            (= (mapv :index cues)     (mapv :index (:ok res)))
            (= (mapv :start-ms cues)  (mapv :start-ms (:ok res)))
            (= (mapv :end-ms cues)    (mapv :end-ms (:ok res)))))))
+
+;; =============================================================================
+;; GOLDEN — the aligned fold + the count-mismatch failure are pure data
+;; =============================================================================
+
+(def ^:private golden-cues
+  [{:index 1 :start-ms 0    :end-ms 1000 :lines ["Hello" "World"]}
+   {:index 2 :start-ms 1000 :end-ms 2000 :lines ["Solo"]}
+   {:index 3 :start-ms 2000 :end-ms 3000 :lines ["a" "b"]}])
+
+(deftest-golden apply-translations-golden
+  "test/golden/calc-subtitle-out.edn"
+  {:aligned  (sut/apply-translations golden-cues ["Bonjour\nMonde" "Seul" "x\ny"])
+   :mismatch (sut/apply-translations golden-cues ["only-one"])})
+
+;; =============================================================================
+;; MUTATION — drop the count guard / mangle the fold, prove the assertions catch it
+;; =============================================================================
+
+(deftest-mutations apply-translations-mutations-caught
+  vtranslate.engine.calc.subtitle-out/apply-translations
+  [["ignore-count-guard"                                    ;; desync text from timing
+    (fn [cue-maps translations]
+      (r/ok (mapv (fn [cue tr] (assoc cue :lines (str/split-lines (str tr))))
+                  cue-maps translations)))]
+   ["no-split-lines"                                        ;; keep the newline in one line
+    (fn [cue-maps translations]
+      (if (not= (count cue-maps) (count translations))
+        (r/err :error/translation-failed {})
+        (r/ok (mapv (fn [cue tr] (assoc cue :lines [(str tr)])) cue-maps translations))))]
+   ["keep-original-lines"                                   ;; ignore the translation batch
+    (fn [cue-maps translations]
+      (if (not= (count cue-maps) (count translations))
+        (r/err :error/translation-failed {})
+        (r/ok (vec cue-maps))))]]
+  (fn []
+    (let [cues [{:index 1 :start-ms 0 :end-ms 1000 :lines ["Hello" "World"]}
+                {:index 2 :start-ms 1000 :end-ms 2000 :lines ["Solo"]}]]
+      (is (= [["Bonjour" "Monde"] ["Seul"]]
+             (mapv :lines (:ok (sut/apply-translations cues ["Bonjour\nMonde" "Seul"])))))
+      (is (r/err? (sut/apply-translations cues ["only one"]))))))

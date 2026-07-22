@@ -1,0 +1,8 @@
+{:aligned
+ {:ok
+  [{:index 1, :start-ms 0, :end-ms 1000, :lines ["Bonjour" "Monde"]}
+   {:index 2, :start-ms 1000, :end-ms 2000, :lines ["Seul"]}
+   {:index 3, :start-ms 2000, :end-ms 3000, :lines ["x" "y"]}]},
+ :mismatch
+ {:error :error/translation-failed,
+  :reason "translation count 1 != cue count 3"}}

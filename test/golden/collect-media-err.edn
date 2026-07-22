@@ -1,0 +1,6 @@
+[:error/source-unreadable
+ :error/source-unreadable
+ :error/probe-failed
+ :error/probe-failed
+ :error/audio-extract-failed
+ :some/unknown-category]
