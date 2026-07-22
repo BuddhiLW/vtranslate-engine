@@ -9,13 +9,14 @@
   (:require [hive-dsl.result :as r]
             [vtranslate.engine.adapters.codec.registry :as reg]
             [vtranslate.engine.port.subtitle :as p.sub]
-            [vtranslate.engine.wiring :as wiring]))
+            [vtranslate.engine.wiring :as wiring]
+            [vtranslate.engine.domain.rendering :as rd]))
 
 (defn- format-of
-  "The track's SubtitleFormat as its plain registry keyword. Tolerates both the
-   defadt-wrapped value (make-subtitle-track) and a raw keyword."
+  "The track's SubtitleFormat as its plain registry keyword — via the domain
+   accessor, which tolerates both the defadt-wrapped value and a raw keyword."
   [track]
-  (get-in track [:format :adt/variant] (:format track)))
+  (rd/format->variant (:format track)))
 
 (defrecord RegistryCodec [registry]
   p.sub/ISubtitleRenderer

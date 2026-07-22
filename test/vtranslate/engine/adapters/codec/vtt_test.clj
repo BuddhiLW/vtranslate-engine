@@ -10,7 +10,9 @@
             [vtranslate.engine.adapters.codec.vtt :as vtt]
             [vtranslate.engine.contract.ports-contract :as contract]
             [vtranslate.engine.domain.rendering :as rd]
-            [vtranslate.engine.port.subtitle :as p.sub]))
+            [vtranslate.engine.port.subtitle :as p.sub]
+            [vtranslate.engine.adapters.codec.block :as block]
+            [hive-test.mutation :refer [deftest-mutations]]))
 
 (def codec (vtt/make-codec))
 
@@ -31,6 +33,22 @@
                 "1\n00:00:00.000 --> 00:00:01.500\nHello\n\n"
                 "2\n00:00:01.500 --> 00:00:03.200\ntwo\nlines\n")
            (:ok (p.sub/render-bytes codec track))))))
+
+;; --- MUTATION: the WebVTT wrapper (header + block separator + trailing EOL) ---
+
+(deftest-mutations render-track-mutations-caught
+  vtranslate.engine.adapters.codec.vtt/render-track
+  [["no-header"
+    (fn [track] (str (str/join "\n\n" (map #(block/cue->block "." %) (:cues track))) "\n"))]
+   ["no-trailing-eol"
+    (fn [track] (str "WEBVTT\n\n" (str/join "\n\n" (map #(block/cue->block "." %) (:cues track)))))]]
+  (fn []
+    (let [track (track-of [{:index 1 :start-ms 0    :end-ms 1500 :lines ["Hello"]}
+                           {:index 2 :start-ms 1500 :end-ms 3200 :lines ["two" "lines"]}])]
+      (is (= (str "WEBVTT\n\n"
+                  "1\n00:00:00.000 --> 00:00:01.500\nHello\n\n"
+                  "2\n00:00:01.500 --> 00:00:03.200\ntwo\nlines\n")
+             (:ok (p.sub/render-bytes codec track)))))))
 
 ;; --- ROUND-TRIP -------------------------------------------------------------
 

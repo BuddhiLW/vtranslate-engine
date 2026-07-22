@@ -65,6 +65,14 @@
               :status (track-status :track/draft)}))
       (r/err :error/unsupported-format {:format format}))))
 
+(defn format->variant
+  "The plain SubtitleFormat keyword from a track's :format value — tolerates the
+   defadt-wrapped value (make-subtitle-track stores {:adt/variant :format/x ...})
+   or a bare keyword. Encapsulates the ADT internal so callers (e.g. the codec
+   dispatch) never reach :adt/variant directly."
+  [format]
+  (get format :adt/variant format))
+
 (defn add-cue
   "Append a validated Cue to the track."
   [track cue]

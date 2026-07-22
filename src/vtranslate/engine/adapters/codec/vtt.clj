@@ -14,37 +14,21 @@
   (:require [clojure.string :as str]
             [hive-dsl.result :as r]
             [vtranslate.engine.adapters.codec.timecode :as tc]
-            [vtranslate.engine.port.subtitle :as p.sub]))
+            [vtranslate.engine.port.subtitle :as p.sub]
+            [vtranslate.engine.adapters.codec.block :as block]))
 
 (def ^:private sep ".")
 (def ^:private header "WEBVTT")
 
 ;; --- render: SubtitleTrack -> WebVTT text ------------------------------------
 
-(defn- cue->block
-  "One domain Cue -> a WebVTT cue block (identifier line + timing + text)."
-  [{:keys [index range lines]}]
-  (str index "\n"
-       (tc/ms->clock (get-in range [:start :ms]) sep) " --> "
-       (tc/ms->clock (get-in range [:end :ms]) sep) "\n"
-       (str/join "\n" lines)))
-
 (defn- render-track
   "Domain SubtitleTrack -> WebVTT document string (header + blank-separated cues)."
   [track]
   (str header "\n\n"
-       (str/join "\n\n" (map cue->block (:cues track))) "\n"))
+       (str/join "\n\n" (map #(block/cue->block sep %) (:cues track))) "\n"))
 
 ;; --- parse: WebVTT text -> cue maps -----------------------------------------
-
-(defn- split-blocks
-  "Normalize CRLF + BOM, then split into non-empty blocks."
-  [text]
-  (-> text
-      (str/replace "\r\n" "\n")
-      (str/replace "﻿" "")
-      str/trim
-      (str/split #"\n[ \t]*\n")))
 
 (defn- cue-block?
   "True unless the block is the WEBVTT header or a NOTE/STYLE/REGION block."
@@ -85,7 +69,7 @@
 (defn- parse-text
   "WebVTT document string -> {:cues [...]} (header/metadata/malformed dropped)."
   [text]
-  {:cues (into [] (comp (filter cue-block?) (keep block->cue)) (split-blocks text))})
+  {:cues (into [] (comp (filter cue-block?) (keep block->cue)) (block/split-blocks text))})
 
 ;; --- adapter ----------------------------------------------------------------
 

@@ -12,7 +12,9 @@
             [vtranslate.engine.adapters.codec.srt :as srt]
             [vtranslate.engine.contract.ports-contract :as contract]
             [vtranslate.engine.domain.rendering :as rd]
-            [vtranslate.engine.port.subtitle :as p.sub]))
+            [vtranslate.engine.port.subtitle :as p.sub]
+            [vtranslate.engine.adapters.codec.block :as block]
+            [hive-test.mutation :refer [deftest-mutations]]))
 
 (def codec (srt/make-codec))
 
@@ -33,6 +35,21 @@
     (is (= (str "1\n00:00:00,000 --> 00:00:01,500\nHello\n\n"
                 "2\n00:00:01,500 --> 00:00:03,200\ntwo\nlines\n")
            (:ok (p.sub/render-bytes codec track))))))
+
+;; --- MUTATION: the SRT document wrapper (block separator + trailing EOL) ------
+
+(deftest-mutations render-track-mutations-caught
+  vtranslate.engine.adapters.codec.srt/render-track
+  [["no-trailing-eol"
+    (fn [track] (str/join "\n\n" (map #(block/cue->block "," %) (:cues track))))]
+   ["single-newline-sep"
+    (fn [track] (str (str/join "\n" (map #(block/cue->block "," %) (:cues track))) "\n"))]]
+  (fn []
+    (let [track (track-of [{:index 1 :start-ms 0    :end-ms 1500 :lines ["Hello"]}
+                           {:index 2 :start-ms 1500 :end-ms 3200 :lines ["two" "lines"]}])]
+      (is (= (str "1\n00:00:00,000 --> 00:00:01,500\nHello\n\n"
+                  "2\n00:00:01,500 --> 00:00:03,200\ntwo\nlines\n")
+             (:ok (p.sub/render-bytes codec track)))))))
 
 ;; --- ROUND-TRIP: parse ∘ render preserves every cue's content ---------------
 
