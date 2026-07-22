@@ -8,13 +8,29 @@
             [vtranslate.engine.providers.config :as cfg]
             [vtranslate.engine.api :as api]
             [vtranslate.engine.domain.ingestion :as ing]
-            [vtranslate.engine.wiring :as wiring])
+            [vtranslate.engine.wiring :as wiring]
+            [clojure.string :as str])
   (:gen-class))
 
 (defn- read-spec [args]
   (edn/read-string (or (first args) (slurp *in*))))
 
-(def ^:private core-adapter-nses
+(defn- validate-spec
+  "Boundary smart-ctor: a job spec MUST carry a non-blank :job-id, :source, and
+   :target-language before any port is wired — a missing :job-id would otherwise
+   silently produce anemic '-asset'/'-tx'/'-sub' ids downstream.
+   => (r/ok spec) | (r/err :error/invalid-job-spec {:missing [...]})."
+  [spec]
+  (let [missing (vec (for [k [:job-id :source :target-language]
+                           :when (str/blank? (str (get spec k)))]
+                       k))]
+    (if (seq missing)
+      (r/err :error/invalid-job-spec {:missing missing})
+      (r/ok spec))))
+
+(def core-adapter-nses
+  "The core provider adapters — each ns self-registers its provider defmethod(s)
+   on require. Public so register-adapters! diagnostics can be exercised in tests."
   '[vtranslate.engine.collect.port
     vtranslate.engine.adapters.composer.hardsub
     vtranslate.engine.adapters.composer.softmux
@@ -42,12 +58,25 @@
   (addons/load-addons! (resolved-addons config)))
 
 (defn register-adapters!
+  "Require every core adapter ns (each self-registers its provider defmethods).
+   A core adapter that can't load on this classpath (e.g. a missing native) is
+   TOLERATED — the provider is simply unavailable and the resolver fails loud
+   later — but the failure is RECORDED + logged to stderr, never silently
+   swallowed. Then load configured addons. Returns {:failed [[ns message] ...]}."
   ([] (register-adapters! {}))
   ([config]
-   (doseq [adapter-ns core-adapter-nses]
-     (try (require adapter-ns) (catch Throwable _ nil)))
-   (load-addons! config)
-   nil))
+   (let [failed (into []
+                      (keep (fn [adapter-ns]
+                              (try (require adapter-ns) nil
+                                   (catch Throwable t [adapter-ns (.getMessage t)]))))
+                      core-adapter-nses)]
+     (when (seq failed)
+       (binding [*out* *err*]
+         (println (str "[vtranslate] " (count failed)
+                       " core adapter(s) unavailable on this classpath: "
+                       (str/join ", " (map first failed))))))
+     (load-addons! config)
+     {:failed failed})))
 
 (defn- ingress-kind
   "MediaKind for a spec: an explicit :asset-kind, else inferred from the source
@@ -56,14 +85,15 @@
   (or (:asset-kind spec) (ing/infer-kind (:source spec))))
 
 (defn run
-  "Boundary: load adapters -> parse spec -> wire ports -> run-job. Returns a
-   Result. A top-level Throwable guard funnels EVERY escaping throwable into a
-   structured (r/err ...) — native bytedeco Errors (mis-paired/missing natives),
-   malformed-EDN parse failures, temp-file IO — so the subprocess ALWAYS prints a
-   Result and exits cleanly, never dying with a raw stack trace."
+  "Boundary: parse spec -> validate -> load adapters -> wire ports -> run-job.
+   Returns a Result. A top-level Throwable guard funnels EVERY escaping throwable
+   into a structured (r/err ...) — native bytedeco Errors (mis-paired/missing
+   natives), malformed-EDN parse failures, temp-file IO — so the subprocess
+   ALWAYS prints a Result and exits cleanly, never dying with a raw stack trace."
   [args]
   (r/guard Throwable (r/err :error/uncaught {:phase :run})
-    (r/let-ok [spec (r/ok (read-spec args))]
+    (r/let-ok [spec (r/ok (read-spec args))
+               spec (validate-spec spec)]
         (let [config (:config spec)]
           (register-adapters! config)
           (if (= :media/subtitle (ingress-kind spec))

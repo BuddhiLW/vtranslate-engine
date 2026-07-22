@@ -41,7 +41,26 @@
 ;; register-adapters! is best-effort: a missing optional (:ffmpeg) dep is
 ;; swallowed so the core stays runnable; returns nil, never throws.
 (deftest register-adapters-is-best-effort
-  (is (nil? (main/register-adapters!))))
+  ;; a missing optional (:ffmpeg) dep is tolerated so the core stays runnable;
+  ;; returns {:failed [...]} (never throws).
+  (let [res (main/register-adapters!)]
+    (is (map? res))
+    (is (vector? (:failed res)))))
+
+;; a core adapter that cannot be required is RECORDED, not silently swallowed.
+(deftest register-adapters-records-load-failures
+  (with-redefs [main/core-adapter-nses '[vtranslate.engine.--does-not-exist--]]
+    (let [res (main/register-adapters! {})]
+      (is (= 1 (count (:failed res))))
+      (is (= 'vtranslate.engine.--does-not-exist-- (ffirst (:failed res)))))))
+
+;; the boundary smart-ctor rejects an anemic spec before wiring any port, so a
+;; nil :job-id can't leak into '-asset'/'-sub' ids downstream.
+(deftest run-rejects-spec-missing-job-id
+  (let [res (main/run ["{:source \"/v.mp4\" :target-language \"en\"}"])]
+    (is (r/err? res))
+    (is (= :error/invalid-job-spec (:error res)))
+    (is (= [:job-id] (:missing res)))))
 
 ;; TOTAL: run never throws — for ANY argv it returns a Result (the process-level
 ;; Throwable guard is the safety net the subprocess transport depends on).
