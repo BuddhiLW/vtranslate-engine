@@ -15,6 +15,13 @@
   (is (= "/a/b/a.b.c.subbed.mp4"  (sut/sibling-output "/a/b/a.b.c.avi" ".subbed.mp4"))
       "only the LAST extension is replaced"))
 
+(deftest both-outputs-cases
+  (is (= {:soft "/a/b/movie.pt-BR.soft.mp4" :hard "/a/b/movie.pt-BR.hard.mp4"}
+         (sut/both-outputs "/a/b/movie.pt-BR.mp4")))
+  (is (= {:soft "movie.soft.mp4" :hard "movie.hard.mp4"}
+         (sut/both-outputs "movie.mkv"))
+      "the source extension is replaced, not appended"))
+
 (defspec sibling-output-applies-suffix-and-keeps-parent 200
   (prop/for-all [nm  (gen/not-empty gen/string-alphanumeric)
                  ext (gen/elements ["mp4" "mkv" "avi" "webm" ""])]

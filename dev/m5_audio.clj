@@ -2,7 +2,7 @@
   "M5 dev harness — synthesise a real audio fixture (AAC-in-MP4) and drive the
    JavaCV Collect backend end to end, so REPL verification stays one-liners
    instead of giant inline forms. NOT on the src path — load-file it:
-     (load-file \"/home/leibniz/PP/vtranslate/vtranslate-engine/dev/m5_audio.clj\")
+     (load-file \"dev/m5_audio.clj\")   ;; from the vtranslate-engine repo root
      (m5-audio/run)"
   (:require [vtranslate.engine.collect.ffmpeg :as ff]
             [vtranslate.engine.collect.protocols :as p]

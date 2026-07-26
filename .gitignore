@@ -21,3 +21,6 @@ local.deps.edn
 
 # scratch
 /ms.edn
+
+# JVM crash dumps
+hs_err_pid*.log

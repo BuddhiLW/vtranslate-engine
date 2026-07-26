@@ -97,6 +97,13 @@
   ;; Path 4 — Panama FFM binds libwhisper.so directly; no dependency, JDK 22+
   ;; foreign API. Point -Dvtranslate.whisper.lib=<libwhisper.so> at your build.
 
+  ;; Path 5 — JVM-native HF ASR on the raster compiler (pretrained-rstr; no
+  ;; Python, no ONNX runtime). Qwen3-ASR multilingual (52 languages, per-call
+  ;; :language hint => per-span language routing). Weights auto-download
+  ;; sha-pinned from HF into ~/.cache/raster/models on first load; config
+  ;; [:transcriber-opts :model-dir] points at a local dir to skip. JDK 21+.
+  :qwen3-asr {:extra-deps {org.replikativ/pretrained-rstr {:mvn/version "0.1.6"}}}
+
   ;; Subprocess entrypoint the CLI shells out to.
   :run  {:main-opts ["-m" "vtranslate.engine.main"]}
 

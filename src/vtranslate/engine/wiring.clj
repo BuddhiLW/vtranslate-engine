@@ -34,6 +34,15 @@
     (r/ok {:media media :segmenter segmenter :transcriber transcriber
            :translator translator :renderer renderer :muxer muxer})))
 
+(defn transcription-ports
+  "Assemble the ASR-only ingress port set {:media :segmenter :transcriber} from
+   `config`. No translator, renderer, or muxer is built."
+  [config]
+  (r/let-ok [media       (build-port :media config)
+             segmenter   (build-port :segmenter config)
+             transcriber (build-port :transcriber config)]
+    (r/ok {:media media :segmenter segmenter :transcriber transcriber})))
+
 (defmethod build-port :composer
   ;; L2 resolve-routing picks the composition strategy key; the L3 registry builds
   ;; it. :none (default) => no muxer, so the compose stage is a passthrough.
@@ -59,18 +68,23 @@
     (r/ok {:source source :parser parser :translator translator :renderer renderer})))
 
 (defn- decorate-translator
-  "Wrap `translator` with the contextual decorator when config asks for it, else
-   return it unchanged."
+  "Wrap `translator` with the decorators config asks for (contextual windowing,
+   then chunked batching outermost), else return it unchanged.
+   => (r/ok translator) | (r/err ...) when a configured decorator can't be built."
   [translator config]
-  (if-let [wrap (requiring-resolve 'vtranslate.engine.adapters.translator.contextual/wrap)]
-    (wrap translator config)
-    translator))
+  (let [translator (if-let [wrap (requiring-resolve 'vtranslate.engine.adapters.translator.contextual/wrap)]
+                     (wrap translator config)
+                     translator)]
+    (if-let [wrap (requiring-resolve 'vtranslate.engine.adapters.translator.chunked/wrap)]
+      (wrap translator config)
+      (r/ok translator))))
 
 (defmethod build-port :translator
   [_ config]
   (r/let-ok [routing    (cfg/resolve-routing config)
-             translator (router/resolve-active-translator routing (merge config routing))]
-    (r/ok (decorate-translator translator (merge config routing)))))
+             translator (router/resolve-active-translator routing (merge config routing))
+             decorated  (decorate-translator translator (merge config routing))]
+    (r/ok decorated)))
 
 (defmethod build-port :transcriber
   ;; L2 resolve-routing picks the provider key; L4 router builds it (fail-loud).

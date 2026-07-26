@@ -10,7 +10,8 @@
   (:require [hive-dsl.result :as r]
             [hive-weave.parallel :as par]
             [vtranslate.engine.calc.batching :as batch]
-            [vtranslate.engine.port.translator :as p.tr]))
+            [vtranslate.engine.port.translator :as p.tr]
+            [vtranslate.engine.providers.translator-registry :as reg]))
 
 (def ^:private default-chunk-size 50)
 (def ^:private default-concurrency 4)
@@ -64,3 +65,28 @@
                  concurrency default-concurrency
                  timeout-ms  default-timeout-ms}}]
   (->ChunkedTranslator inner chunk-size concurrency fallback timeout-ms))
+
+(defn- resolve-fallback
+  "Build the fallback ITranslator named by provider key `k` via the registry,
+   reading opts from `config`; nil `k` => no fallback.
+   => (r/ok impl-or-nil) | (r/err ...) when the key is unknown/misconfigured."
+  [k config]
+  (if k
+    (reg/resolve-translator k config)
+    (r/ok nil)))
+
+(defn wrap
+  "Return `inner` wrapped with chunked batching when [:translator-opts :chunk-size]
+   is a positive int, else `inner` unchanged. [:translator-opts :fallback-translator]
+   names a provider key resolved via the translator registry as the per-chunk retry.
+   => (r/ok translator) | (r/err ...) when the fallback provider can't be built."
+  [inner config]
+  (let [{:keys [chunk-size concurrency timeout-ms fallback-translator]}
+        (get config :translator-opts)]
+    (if (and (integer? chunk-size) (pos? chunk-size))
+      (r/let-ok [fallback (resolve-fallback fallback-translator config)]
+        (r/ok (make-chunked inner {:chunk-size  chunk-size
+                                   :concurrency (or concurrency default-concurrency)
+                                   :timeout-ms  (or timeout-ms default-timeout-ms)
+                                   :fallback    fallback})))
+      (r/ok inner))))

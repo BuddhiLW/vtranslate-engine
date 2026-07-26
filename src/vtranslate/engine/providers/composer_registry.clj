@@ -6,7 +6,7 @@
   (:require [vtranslate.engine.providers.registry :as registry]))
 
 (defmulti resolve-composer
-  "Build an IVideoComposer for `provider-key` (:soft | :hard), reading opts from `config`."
+  "Build an IVideoComposer for `provider-key` (:soft | :hard | :both), reading opts from `config`."
   (fn [provider-key _config] provider-key))
 
 (defn known
@@ -18,4 +18,4 @@
   [provider-key _config]
   (registry/unknown-error
    :composer provider-key resolve-composer
-   "set config [:providers :composer] (or VT_COMPOSER) to :soft or :hard, or load an adapter ns that registers it"))
+   "set config [:providers :composer] (or VT_COMPOSER) to :soft, :hard or :both, or load an adapter ns that registers it"))

@@ -2,12 +2,15 @@
 ;; Proves the JavaCV Collect adapter is substitutable BEHIND the canonical
 ;; port.media (Liskov): the same checks ports_contract runs on a mock are run
 ;; here against the real bridge. Standalone so kaocha stays native-free; run:
-;;   clojure -M:ffmpeg -i dev/contract_collect_port.clj
+;;   clojure -M:dev:ffmpeg -i dev/contract_collect_port.clj
 ;; Assertions mirror vtranslate.engine.contract.ports-contract/check-media-probe
 ;; + check-audio-extractor (inlined to avoid pulling the :test classpath).
+;; Native probe target comes from the corpus ($VT_CORPUS, via
+;; vtranslate.engine.dev); the native section skips when no corpus is present.
 (require '[vtranslate.engine.collect.port :as cport]
          '[vtranslate.engine.collect.protocols :as cp]
          '[vtranslate.engine.port.media :as port]
+         '[vtranslate.engine.dev :as dev]
          '[hive-dsl.result :as r])
 
 (def failed (atom false))
@@ -49,11 +52,13 @@
          (r/err? (port/probe p "/vtranslate/__nope__.mp4"))))
 
 (println "=== CollectMediaPort over the REAL JavaCvMedia (native integration) ===")
-(let [p   (cport/collect-media-port)          ;; default backend = JavaCvMedia
-      res (port/probe p "/home/leibniz/whatsapp_video.mp4")]
-  (check "real native probe is ok"      (r/ok? res))
-  (check "real probe duration-ms > 0"   (pos? (:duration-ms (:ok res))))
-  (check "real probe detects audio"     (true? (:has-audio? (:ok res)))))
+(if-let [media (dev/corpus-file "bbb/clips/bbb_28-58s.mp4")]
+  (let [p   (cport/collect-media-port)          ;; default backend = JavaCvMedia
+        res (port/probe p media)]
+    (check "real native probe is ok"      (r/ok? res))
+    (check "real probe duration-ms > 0"   (pos? (:duration-ms (:ok res))))
+    (check "real probe detects audio"     (true? (:has-audio? (:ok res)))))
+  (println "  SKIP: no corpus media found (set $VT_CORPUS)"))
 
 (println (if @failed "\n=== CONTRACT: FAIL ===" "\n=== CONTRACT: PASS ==="))
 (shutdown-agents)

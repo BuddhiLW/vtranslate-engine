@@ -15,7 +15,7 @@
   "Ordered ASR fallthrough when the requested provider can't be built. These keys
    are served by real adapters (M3); until then the chain legitimately exhausts
    and the resolver fails loud."
-  [:whisper-local :whisper-ffm :sherpa-onnx :onnx-bytedeco
+  [:whisper-local :whisper-ffm :sherpa-onnx :onnx-bytedeco :qwen3-asr
    :groq :openai-whisper :whisper-server])
 
 (def translator-priority

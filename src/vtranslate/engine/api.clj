@@ -104,18 +104,32 @@
                                :job (job/link-transcript job (:id transcript))
                                :transcript transcript)))))))
 
+(defn- fold-middleware
+  "Fold every middleware registered for `phase` over ctx (r/let-ok
+   short-circuit). => Result<ctx>."
+  [phase resources ctx]
+  (reduce (fn [acc mw] (r/let-ok [c acc] (mw resources c)))
+          (r/ok ctx)
+          (ext/middleware phase resources)))
+
 (defn- apply-extensions
   "OCP extension point: fold every registered pre-translate middleware over the
-   pipeline context (r/let-ok short-circuit). Middleware augment ctx (e.g. add
-   :translate/opts for the translator or :result/extra for the job result); with no
-   addon loaded there is no middleware and this is a no-op."
+   pipeline context. Middleware augment ctx (e.g. add :translate/opts for the
+   translator or :result/extra for the job result); with no addon loaded there
+   is no middleware and this is a no-op."
   [resources state]
   (pf/with-result
     state
-    (fn [ctx]
-      (reduce (fn [acc mw] (r/let-ok [c acc] (mw resources c)))
-              (r/ok ctx)
-              (ext/middleware :vtranslate.pipeline/pre-translate resources)))))
+    (fn [ctx] (fold-middleware :vtranslate.pipeline/pre-translate resources ctx))))
+
+(defn- apply-post-extensions
+  "OCP extension point: fold every registered post-translate middleware over the
+   pipeline context. Middleware see :translated and may still augment
+   :result/extra before render; with no addon loaded this is a no-op."
+  [resources state]
+  (pf/with-result
+    state
+    (fn [ctx] (fold-middleware :vtranslate.pipeline/post-translate resources ctx))))
 
 (defn- translate-indexed-group [translator target-language [source-language indexed-segments]]
   (let [{:keys [indices values]} (batch/group-payload indexed-segments :text)]
@@ -162,20 +176,36 @@
 (defn- build-render-track [{:keys [job-id format]} translated]
   (c.rd/build-subtitle-track translated {:id (str job-id "-sub") :format format}))
 
+(def ^:private reserved-result-keys
+  "Job-result keys owned by the render stage; middleware :result/extra must not
+   overwrite them."
+  [:spec :job :transcript :translated :subtitle-track :rendered])
+
+(defn- merge-result-extra
+  "Merge middleware :result/extra into the job result. => Result<job-result>;
+   a collision with a reserved result key fails loud onto
+   :error/result-key-clobber rather than silently clobbering the pipeline output."
+  [result extra]
+  (let [clobbered (vec (filter #(contains? extra %) reserved-result-keys))]
+    (if (seq clobbered)
+      (r/err :error/result-key-clobber {:keys clobbered})
+      (r/ok (merge result extra)))))
+
 (defn- render-subtitles [{:keys [renderer]} state]
   (pf/with-result
     state
     (fn [{:keys [spec job transcript translated] :as ctx}]
       (r/let-ok [track    (build-render-track spec translated)
                  rendered (p.sub/render-bytes renderer track)
-                 job      (finalize-job job track job/advance)]
-                (r/ok (merge {:spec spec
-                              :job job
-                              :transcript transcript
-                              :translated translated
-                              :subtitle-track track
-                              :rendered rendered}
-                             (:result/extra ctx)))))))
+                 job      (finalize-job job track job/advance)
+                 result   (merge-result-extra {:spec spec
+                                               :job job
+                                               :transcript transcript
+                                               :translated translated
+                                               :subtitle-track track
+                                               :rendered rendered}
+                                              (:result/extra ctx))]
+                (r/ok result)))))
 
 (defn- compose-video [{:keys [muxer]} state]
   (pf/with-result
@@ -184,7 +214,8 @@
       (if muxer
         (r/let-ok [out (p.comp/compose muxer (:source spec) subtitle-track
                                        {:output-uri (:output spec)})]
-                  (r/ok (assoc ctx :output-video (:output-uri out))))
+                  (r/ok (assoc ctx :output-video (or (:output-uris out)
+                                                     (:output-uri out)))))
         (r/ok ctx)))))
 
 (def ^:private video-fsm
@@ -194,6 +225,7 @@
     (pf/stage :vtranslate.pipeline/transcribe transcribe-media)
     (pf/stage :vtranslate.pipeline/extend apply-extensions)
     (pf/stage :vtranslate.pipeline/translate translate-transcript)
+    (pf/stage :vtranslate.pipeline/extend-post apply-post-extensions)
     (pf/stage :vtranslate.pipeline/render render-subtitles)
     (pf/stage :vtranslate.pipeline/compose compose-video)]))
 
@@ -217,6 +249,54 @@
     :asset-kind asset-kind
     :format format
     :output output}))
+
+;; ---------------------------------------------------------------------------
+;; Transcription pipeline (ASR-only ingress)
+;; ---------------------------------------------------------------------------
+
+(def transcription-target-language
+  "Target language recorded on an ASR-only job: BCP-47 'und' (undetermined)."
+  "und")
+
+(defn- start-transcription [_ {:keys [asset-kind] :as spec}]
+  (start-job spec (or asset-kind :media/video) (constantly (r/ok nil))))
+
+(defn- finalize-transcription [_ state]
+  (pf/with-result
+    state
+    (fn [{:keys [spec job transcript] :as ctx}]
+      (r/let-ok [job    (job/complete job)
+                 result (merge-result-extra {:spec spec
+                                             :job job
+                                             :transcript transcript}
+                                            (:result/extra ctx))]
+        (r/ok result)))))
+
+(def ^:private transcription-fsm
+  (pf/compile-stages
+   [(pf/stage pf/start-id start-transcription)
+    (pf/stage :vtranslate.pipeline/ingest ingest-media)
+    (pf/stage :vtranslate.pipeline/transcribe transcribe-media)
+    (pf/stage :vtranslate.pipeline/extend apply-extensions)
+    (pf/stage :vtranslate.pipeline/finalize finalize-transcription)]))
+
+(defn run-transcription-job
+  "ASR-only ingress: ingest + transcribe. No translation, render, or compose.
+   => (r/ok {:spec spec :job job :transcript transcript}) | (r/err TranslationError)."
+  [{:keys [media segmenter transcriber config]}
+   {:keys [job-id source source-language asset-kind]
+    :or   {asset-kind :media/video}}]
+  (pf/run-pipeline
+   (pf/pipeline {:media media
+                 :segmenter segmenter
+                 :transcriber transcriber
+                 :config config}
+                transcription-fsm)
+   {:job-id job-id
+    :source source
+    :source-language source-language
+    :asset-kind asset-kind
+    :target-language transcription-target-language}))
 
 ;; ---------------------------------------------------------------------------
 ;; Subtitle pipeline stages
@@ -259,7 +339,8 @@
       (let [{:keys [source-language target-language]} spec]
         (r/let-ok [texts   (r/ok (c.so/cue-texts cues))
                    targets (p.tr/translate-batch translator texts
-                                                 source-language target-language {})
+                                                 (explicit-source-language source-language)
+                                                 target-language {})
                    tcues   (c.so/apply-translations cues targets)]
                   (r/ok (assoc ctx :translated-cues tcues)))))))
 

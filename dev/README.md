@@ -54,3 +54,12 @@ VT_CORPUS=/path/to/corpus clojure -M:test:itest:ffmpeg
 `smoke_ffmpeg.clj`, `contract_collect_port.clj`, `ffmpeg_worker.clj`,
 `m5_audio.clj` run via `clojure -M:ffmpeg -i dev/<file>.clj` (each `System/exit`s).
 Prefer the REPL helpers above; these remain for stdout-isolated native runs.
+
+`asr_runtime_verify.clj` runs the FULL pipeline (ingest -> transcribe ->
+identity-translate -> render) on the multisource corpus clip via the
+`:whisper-local` (whisper-jni, CPU) transcriber and writes the SRT to
+`target/asr-runtime-verify/`:
+
+```bash
+VT_CORPUS=/path/to/corpus clojure -M:dev:ffmpeg:whisper-jni -i dev/asr_runtime_verify.clj
+```

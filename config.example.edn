@@ -21,6 +21,8 @@
   ;;   :sherpa-onnx     sherpa-onnx over ONNX Runtime (needs :sherpa alias + model).
   ;;   :onnx-bytedeco   raw ONNX Runtime via bytedeco (needs :onnx alias + model).
   ;;   :whisper-ffm     Panama FFM binding to libwhisper.so (needs -Dvtranslate.whisper.lib).
+  ;;   :qwen3-asr       JVM-native Qwen3-ASR via pretrained-rstr (needs :qwen3-asr alias;
+  ;;                    multilingual, per-span :language routing, weights auto-download).
   :transcriber :groq
 
   ;; --- MT (translate) --- may degrade to :identity passthrough -----------
@@ -48,6 +50,8 @@
   ;; :model-path "models/ggml-large-v3.bin"  ; :whisper-local (whisper-jni)
   ;; :model-dir  "models/sherpa-whisper"     ; :sherpa-onnx / :onnx-bytedeco
   ;; :lib-path   "/opt/whisper/libwhisper.so" ; :whisper-ffm (or -Dvtranslate.whisper.lib)
+  ;; :model-key  :qwen3-asr-1.7b               ; :qwen3-asr (default :qwen3-asr-0.6b)
+  ;; :model-dir  "models/qwen3-asr-0.6b"       ; :qwen3-asr local weights (else auto-DL)
   ;; :window-ms  5000                         ; :stub tile size
   }
 
@@ -57,6 +61,9 @@
   :context 4                                 ; neighbour cues sent as untranslated context
   ;; :concurrency 4                          ; parallel windows (lower if the API throttles)
   ;; :timeout-ms 120000                      ; per-window timeout
+  ;; :chunk-size 50                          ; batch large jobs into bounded chunks of N
+  ;;                                         ; (a chunk err fails the batch LOUD unless retried)
+  ;; :fallback-translator :identity          ; provider key retried per failed chunk
   ;; :secret-pass "Venice/api-key"           ; `pass` path wins over env key
   ;; :api-url "https://api.venice.ai/api/v1/chat/completions"
   }

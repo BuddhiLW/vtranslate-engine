@@ -62,6 +62,20 @@
     (is (= :error/invalid-job-spec (:error res)))
     (is (= [:job-id] (:missing res)))))
 
+;; the ASR-only ingress carries no translation target, so the boundary must not
+;; demand one — only :job-id and :source.
+(deftest run-accepts-transcribe-spec-without-target-language
+  (main/register-adapters!)
+  (let [res (main/run ["{:operation :transcribe :job-id \"j\" :source \"/v.mp4\"}"])]
+    (is (r/err? res))
+    (is (not= :error/invalid-job-spec (:error res)))))
+
+(deftest run-rejects-transcribe-spec-missing-source
+  (let [res (main/run ["{:operation :transcribe :job-id \"j\"}"])]
+    (is (r/err? res))
+    (is (= :error/invalid-job-spec (:error res)))
+    (is (= [:source] (:missing res)))))
+
 ;; TOTAL: run never throws — for ANY argv it returns a Result (the process-level
 ;; Throwable guard is the safety net the subprocess transport depends on).
 (props/defprop-total run-is-total

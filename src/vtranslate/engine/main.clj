@@ -15,15 +15,24 @@
 (defn- read-spec [args]
   (edn/read-string (or (first args) (slurp *in*))))
 
+(defn- transcription-spec?
+  "True when a job spec selects the ASR-only ingress (:operation :transcribe)."
+  [spec]
+  (= :transcribe (:operation spec)))
+
 (defn- validate-spec
-  "Boundary smart-ctor: a job spec MUST carry a non-blank :job-id, :source, and
-   :target-language before any port is wired — a missing :job-id would otherwise
-   silently produce anemic '-asset'/'-tx'/'-sub' ids downstream.
+  "Boundary smart-ctor: a job spec MUST carry a non-blank :job-id and :source,
+   plus :target-language unless :operation is :transcribe (ASR-only ingress) —
+   a missing :job-id would otherwise silently produce anemic '-asset'/'-tx'/'-sub'
+   ids downstream.
    => (r/ok spec) | (r/err :error/invalid-job-spec {:missing [...]})."
   [spec]
-  (let [missing (vec (for [k [:job-id :source :target-language]
-                           :when (str/blank? (str (get spec k)))]
-                       k))]
+  (let [required (if (transcription-spec? spec)
+                   [:job-id :source]
+                   [:job-id :source :target-language])
+        missing  (vec (for [k required
+                            :when (str/blank? (str (get spec k)))]
+                        k))]
     (if (seq missing)
       (r/err :error/invalid-job-spec {:missing missing})
       (r/ok spec))))
@@ -34,6 +43,7 @@
   '[vtranslate.engine.collect.port
     vtranslate.engine.adapters.composer.hardsub
     vtranslate.engine.adapters.composer.softmux
+    vtranslate.engine.adapters.composer.both
     vtranslate.engine.adapters.segmenter.stub
     vtranslate.engine.adapters.segmenter.silero-vad
     vtranslate.engine.adapters.translator.identity
@@ -45,7 +55,8 @@
     vtranslate.engine.adapters.transcriber.whisper-jni
     vtranslate.engine.adapters.transcriber.sherpa-onnx
     vtranslate.engine.adapters.transcriber.onnx-bytedeco
-    vtranslate.engine.adapters.transcriber.whisper-ffm])
+    vtranslate.engine.adapters.transcriber.whisper-ffm
+    vtranslate.engine.adapters.transcriber.qwen3-asr])
 
 (defn- resolved-addons [config]
   (let [config (or config {})
@@ -96,9 +107,16 @@
                spec (validate-spec spec)]
         (let [config (:config spec)]
           (register-adapters! config)
-          (if (= :media/subtitle (ingress-kind spec))
+          (cond
+            (transcription-spec? spec)
+            (r/let-ok [ports (wiring/transcription-ports config)] ; Ingress C — ASR only
+              (api/run-transcription-job (assoc ports :config config) spec))
+
+            (= :media/subtitle (ingress-kind spec))
             (r/let-ok [ports (wiring/parse-ports config)]   ; Ingress B — no ASR
               (api/run-subtitle-job ports spec))
+
+            :else
             (r/let-ok [ports (wiring/default-ports config)] ; Ingress A — demux + ASR
               (api/run-job (assoc ports :config config) spec)))))))
 

@@ -5,6 +5,7 @@
   (:require [clojure.test :refer [deftest is]]
             [hive-dsl.result :as r]
             [vtranslate.engine.wiring :as sut]
+            [vtranslate.engine.adapters.translator.chunked :as chunked]
             [vtranslate.engine.providers.config :as cfg]))
 
 (defn- temp-config [edn]
@@ -42,3 +43,43 @@
         (is (r/ok? res))
         (is (= #{:source :parser :translator :renderer}
                (set (keys (:ok res)))))))))
+
+(deftest translator-chunked-when-configured
+  (require 'vtranslate.engine.adapters.translator.identity)
+  (let [path (temp-config {:providers       {:translator :identity}
+                           :translator-opts {:chunk-size 3}})]
+    (with-redefs [cfg/config-path (constantly path)]
+      (let [res (sut/build-port :translator {})]
+        (is (r/ok? res))
+        (is (instance? vtranslate.engine.adapters.translator.chunked.ChunkedTranslator
+                       (:ok res))
+            ":translator-opts :chunk-size => the router's translator is chunk-decorated")))))
+
+(deftest translator-not-chunked-without-chunk-size
+  (require 'vtranslate.engine.adapters.translator.identity)
+  (let [path (temp-config {:providers       {:translator :identity}
+                           :translator-opts {:window 40}})]
+    (with-redefs [cfg/config-path (constantly path)]
+      (let [res (sut/build-port :translator {})]
+        (is (r/ok? res))
+        (is (not (instance? vtranslate.engine.adapters.translator.chunked.ChunkedTranslator
+                            (:ok res)))
+            "no :chunk-size => translator passes through undecorated by chunked")))))
+
+(deftest translator-chunked-resolves-fallback-provider
+  (require 'vtranslate.engine.adapters.translator.identity)
+  (let [path (temp-config {:providers       {:translator :identity}
+                           :translator-opts {:chunk-size 3 :fallback-translator :identity}})]
+    (with-redefs [cfg/config-path (constantly path)]
+      (let [res (sut/build-port :translator {})]
+        (is (r/ok? res))
+        (is (some? (:fallback (:ok res)))
+            ":fallback-translator names a provider key resolved as the per-chunk retry")))))
+
+(deftest translator-chunked-unknown-fallback-fails-loud
+  (require 'vtranslate.engine.adapters.translator.identity)
+  (let [path (temp-config {:providers       {:translator :identity}
+                           :translator-opts {:chunk-size 3 :fallback-translator :nonsense}})]
+    (with-redefs [cfg/config-path (constantly path)]
+      (let [res (sut/build-port :translator {})]
+        (is (r/err? res) "an unknown :fallback-translator key fails loud via the registry")))))

@@ -61,5 +61,40 @@
       (.addMethod ^clojure.lang.MultiFn ext/middleware
                   :vtranslate.pipeline/pre-translate (fn [_ _] [tag-mw])))))
 
+(deftest result-extra-reserved-key-clobber-fails-loud
+  (reset! captured nil)
+  (.addMethod ^clojure.lang.MultiFn ext/middleware :vtranslate.pipeline/pre-translate
+              (fn [_ _] [(fn [_ ctx] (r/ok (assoc ctx :result/extra {:job :boom
+                                                                     :probe/ran true})))]))
+  (try
+    (let [res (api/run-job mock-ports {:job-id "j3" :source "/v.mp4"
+                                       :source-language "en" :target-language "pt-BR"})]
+      (is (r/err? res) "a :result/extra key colliding with a reserved result key fails loud")
+      (is (= :error/result-key-clobber (:error res)))
+      (is (= [:job] (:keys res))))
+    (finally
+      (.addMethod ^clojure.lang.MultiFn ext/middleware
+                  :vtranslate.pipeline/pre-translate (fn [_ _] [tag-mw])))))
+
+(deftest post-translate-middleware-sees-translated-cues
+  (reset! captured nil)
+  (.addMethod ^clojure.lang.MultiFn ext/middleware
+              :vtranslate.pipeline/post-translate
+              (fn [_ _] [(fn [_ ctx]
+                           (r/ok (assoc-in ctx [:result/extra :post/units]
+                                           (count (:units (:translated ctx))))))]))
+  (try
+    (let [res (api/run-job mock-ports {:job-id "j4" :source "/v.mp4"
+                                       :source-language "en" :target-language "pt-BR"})]
+      (is (r/ok? res))
+      (is (= "SUFFIX-X" (:prompt/system-suffix @captured))
+          "pre-translate middleware still ran")
+      (is (= 1 (get-in res [:ok :post/units]))
+          "post-translate middleware observed the translated cues")
+      (is (true? (get-in res [:ok :probe/ran]))
+          "pre-translate :result/extra survived the post-translate phase"))
+    (finally
+      (remove-method ext/middleware :vtranslate.pipeline/post-translate))))
+
 (deftest default-phase-has-no-middleware
   (is (= [] (ext/middleware :vtranslate.pipeline/no-such-phase {}))))

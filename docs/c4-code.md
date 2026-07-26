@@ -135,7 +135,7 @@ The job aggregate root, its lifecycle, and the closed set of domain failures.
 
 - **ADT `JobState`** (forward-only; `:job/failed` terminal): `:job/pending` → `:job/ingesting` → `:job/transcribing` → `:job/translating` → `:job/rendering` → `:job/completed`; `:job/failed`
 - **ADT `TranslationError`** — closed set of domain failure modes; the variant kw doubles as the `r/err` category, the schema map documents the payload:
-  - `:error/unsupported-format {:format}` · `:error/invalid-source {:source}` · `:error/source-unreadable {:source-uri}` · `:error/probe-failed {:reason}` · `:error/audio-extract-failed {:reason}` · `:error/no-audio-stream {:source-id}` · `:error/segmentation-failed {:reason}` · `:error/asr-failed {:reason}` · `:error/unsupported-language {:language}` · `:error/translation-failed {:segment-id :reason}` · `:error/render-failed {:reason}` · `:error/illegal-transition {:from}` · `:error/uncaught {:phase}`
+  - `:error/unsupported-format {:format}` · `:error/invalid-source {:source}` · `:error/source-unreadable {:source-uri}` · `:error/probe-failed {:reason}` · `:error/audio-extract-failed {:reason}` · `:error/no-audio-stream {:source-id}` · `:error/segmentation-failed {:reason}` · `:error/asr-failed {:reason}` · `:error/unsupported-language {:language}` · `:error/translation-failed {:segment-id :reason}` · `:error/render-failed {:reason}` · `:error/result-key-clobber {:keys}` · `:error/illegal-transition {:from}` · `:error/uncaught {:phase}`
 - **Aggregate root `TranslationJob`** `[id asset-id target-language state transcript-id subtitle-id error]`
 - Ctors / ops:
   - `make-translation-job {:id :asset-id :target-language}` → validates target-language, `:job/pending`

@@ -52,8 +52,8 @@
                     ctx (.init w (Path/of ^String model-path (into-array String []))
                                params)]
                 (when (nil? ctx)
-                  (throw (ex-info "whisper init returned no context (bad/corrupt model?)"
-                                  {:model-path model-path})))
+                  (throw (ex-info "whisper init returned no context (bad/corrupt model or insufficient VRAM/RAM)"
+                                  {:model-path model-path :use-gpu? use-gpu?})))
                 (swap! ctx-cache assoc k ctx)
                 ctx))))))
 
@@ -71,6 +71,9 @@
    never a fake/empty transcript."
   [model-path use-gpu? ^floats samples language]
   (r/try-effect* :error/asr-failed
+    (when (nil? samples)
+      (throw (ex-info "no audio samples (nil) — upstream audio decode produced nothing"
+                      {:model-path model-path})))
     (let [^WhisperJNI w   @jni
           ^WhisperContext ctx (context-for w model-path use-gpu?)
           ^WhisperFullParams params (WhisperFullParams.)

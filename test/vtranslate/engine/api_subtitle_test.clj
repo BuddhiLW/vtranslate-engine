@@ -114,3 +114,22 @@
                                     :source-language "en" :target-language "en"
                                     :format :format/srt})]
     (is (r/err? res))))
+
+;; --- (f) auto-ish source-language normalizes to nil before the translator ----
+
+(deftest auto-source-language-normalized-for-translator
+  (let [seen      (atom ::unset)
+        capture   (reify p.tr/ITranslator
+                    (translate-batch [_ texts src _ _]
+                      (reset! seen src)
+                      (r/ok texts)))
+        path      (write-temp srt-2cues ".srt")
+        run       (fn [src-lang]
+                    (api/run-subtitle-job (ports capture)
+                                          {:job-id "j-f" :source path
+                                           :source-language src-lang :target-language "en"
+                                           :format :format/srt}))]
+    (is (r/ok? (run "auto")))
+    (is (nil? @seen) "auto-ish source-language never reaches the translator as a token")
+    (is (r/ok? (run "en")))
+    (is (= "en" @seen) "explicit source-language passes through untouched")))

@@ -47,6 +47,7 @@
   [:error/unsupported-language {:language string?}]
   [:error/translation-failed   {:segment-id string? :reason string?}]
   [:error/render-failed        {:reason string?}]
+  [:error/result-key-clobber   {:keys any?}]
   [:error/illegal-transition   {:from any?}]
   [:error/uncaught             {:phase any?}])
 
