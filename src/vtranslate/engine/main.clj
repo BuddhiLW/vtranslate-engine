@@ -56,7 +56,8 @@
     vtranslate.engine.adapters.transcriber.sherpa-onnx
     vtranslate.engine.adapters.transcriber.onnx-bytedeco
     vtranslate.engine.adapters.transcriber.whisper-ffm
-    vtranslate.engine.adapters.transcriber.qwen3-asr])
+    vtranslate.engine.adapters.transcriber.qwen3-asr
+    vtranslate.engine.adapters.transcriber.nemo-python])
 
 (defn- resolved-addons [config]
   (let [config (or config {})

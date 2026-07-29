@@ -104,6 +104,15 @@
   ;; [:transcriber-opts :model-dir] points at a local dir to skip. JDK 21+.
   :qwen3-asr {:extra-deps {org.replikativ/pretrained-rstr {:mvn/version "0.1.6"}}}
 
+  ;; Path 6 — NVIDIA NeMo (Canary / Parakeet) through an EMBEDDED CPython.
+  ;; Canary is the only ASR backend here that also TRANSLATES (AST), so it is
+  ;; the one provider a :target-language reaches. pretrained-rstr cannot serve
+  ;; these: its registry is moonshine + qwen3-asr, and NeMo ships .nemo
+  ;; checkpoints rather than the safetensors it loads. Needs a Python <= 3.12
+  ;; with nemo_toolkit[asr] installed; point [:transcriber-opts
+  ;; :python-executable] at it (default: ~/anaconda3/envs/vtranslate-asr/bin/python).
+  :nemo {:extra-deps {clj-python/libpython-clj {:mvn/version "2.026"}}}
+
   ;; Subprocess entrypoint the CLI shells out to.
   :run  {:main-opts ["-m" "vtranslate.engine.main"]}
 

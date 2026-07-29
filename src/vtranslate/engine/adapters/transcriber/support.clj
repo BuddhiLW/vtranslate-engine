@@ -16,11 +16,14 @@
                          text — any backend passes check-transcriber BY CONSTRUCTION.
    - `wav-duration-ms` / `read-wav-mono-floats` — JDK-only WAV facts + PCM decode
                          (javax.sound.sampled, no dependency) for the in-process
-                         native backends and duration-spanning fallbacks."
+                         native backends and duration-spanning fallbacks.
+   - `write-wav-mono!`  — the inverse: float samples back to a 16-bit PCM WAV, for
+                         backends whose entry point takes a PATH, not a buffer."
   (:require [clojure.string :as str]
             [hive-dsl.result :as r])
-  (:import [javax.sound.sampled AudioSystem AudioFormat AudioFormat$Encoding]
-           [java.io File]))
+  (:import [javax.sound.sampled AudioSystem AudioFileFormat$Type AudioFormat
+            AudioFormat$Encoding AudioInputStream]
+           [java.io ByteArrayInputStream File]))
 
 (defn audio->path
   "The audio-source is opaque (port.media). At runtime it is the WAV path string
@@ -108,6 +111,26 @@
           (when (and (pos? frames) (pos? rate))
             (long (* 1000.0 (/ frames (double rate)))))))
       (catch Throwable _ nil))))
+
+(defn write-wav-mono!
+  "Write mono float `samples` in [-1.0, 1.0] to `path` as a 16-bit PCM WAV at
+   `sample-rate`. The inverse of read-wav-mono-floats, for backends that take a
+   file path rather than a sample buffer.
+   => (r/ok path) | (r/err :error/asr-failed ...)."
+  [path ^floats samples sample-rate]
+  (r/try-effect* :error/asr-failed
+    (let [n     (alength samples)
+          bytes (byte-array (* 2 n))]
+      (dotimes [i n]
+        (let [clamped (-> (aget samples i) (max -1.0) (min 1.0))
+              s       (int (Math/round (* clamped 32767.0)))]
+          (aset-byte bytes (* 2 i) (unchecked-byte (bit-and s 0xff)))
+          (aset-byte bytes (inc (* 2 i)) (unchecked-byte (bit-and (bit-shift-right s 8) 0xff)))))
+      (let [format (AudioFormat. AudioFormat$Encoding/PCM_SIGNED
+                                 (float sample-rate) 16 1 2 (float sample-rate) false)]
+        (with-open [stream (AudioInputStream. (ByteArrayInputStream. bytes) format n)]
+          (AudioSystem/write stream AudioFileFormat$Type/WAVE (File. ^String (str path)))))
+      (str path))))
 
 (defn read-wav-mono-floats
   "Decode the PCM WAV at `path` into a mono float[] in [-1.0, 1.0] at its native
