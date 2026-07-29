@@ -91,7 +91,10 @@
              (r/let-ok [raw (transcribe-samples model-path use-gpu?
                                                 (slice-samples samples start end)
                                                 language)]
-               (r/ok (into acc (offset-segments (samples->ms start sample-rate) raw))))))))
+               (r/ok (sup/merge-padded-window
+                      acc
+                      (:start-ms span)
+                      (offset-segments (samples->ms start sample-rate) raw))))))))
      (r/ok [])
      spans)
     (transcribe-samples model-path use-gpu? samples language)))

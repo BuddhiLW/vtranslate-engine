@@ -71,6 +71,63 @@
              (or (str/blank? body)
                  (re-find marker-re body))))))))
 
+(def ^:private min-pad-duplicate-run 2)
+
+(def ^:private min-pad-duplicate-ratio 0.5)
+
+(defn- content-words
+  [text]
+  (vec (re-seq #"[\p{L}\p{N}']+" (str/lower-case (str text)))))
+
+(defn- longest-common-run
+  "Length of the longest run of CONSECUTIVE words occurring in both `a` and `b`."
+  [a b]
+  (let [n (count a) m (count b)]
+    (loop [i 0, prev (vec (repeat (inc m) 0)), best 0]
+      (if (= i n)
+        best
+        (let [[row best'] (loop [j 0, row [0], best best]
+                            (if (= j m)
+                              [row best]
+                              (let [v (if (= (nth a i) (nth b j)) (inc (nth prev j)) 0)]
+                                (recur (inc j) (conj row v) (max best v)))))]
+          (recur (inc i) row best'))))))
+
+(defn pad-duplicate?
+  "True when `text` merely RE-TRANSCRIBES speech `previous-text` already carries:
+   at least two consecutive words occur in both AND they account for at least
+   half of `text`. Case- and punctuation-insensitive."
+  [previous-text text]
+  (let [candidate (content-words text)
+        run       (longest-common-run (content-words previous-text) candidate)]
+    (and (>= run min-pad-duplicate-run)
+         (pos? (count candidate))
+         (>= (/ (double run) (count candidate)) min-pad-duplicate-ratio))))
+
+(defn merge-padded-window
+  "Append one padded decode window's `segments` to `acc`, resolving the
+   re-transcription a leading pad produces: while a window segment begins before
+   `span-start-ms` AND repeats speech the tail of `acc` already carries, only the
+   LONGER of the two hypotheses survives — the shorter one is the same utterance
+   truncated at a window boundary. Segment times are absolute ms. A segment that
+   starts inside the pad but carries NEW speech is kept, and so is everything
+   from the first non-duplicate onwards.
+   => [segment ...]"
+  [acc span-start-ms segments]
+  (loop [acc (vec acc), [head & tail :as remaining] (seq segments)]
+    (if (nil? head)
+      acc
+      (let [previous (peek acc)
+            start    (or (:start-ms head) (:start head))]
+        (if (and previous start span-start-ms
+                 (< start span-start-ms)
+                 (pad-duplicate? (:text previous) (:text head)))
+          (if (> (count (content-words (:text head)))
+                 (count (content-words (:text previous))))
+            (recur (conj (pop acc) head) tail)
+            (recur acc tail))
+          (recur (into acc remaining) nil))))))
+
 (defn normalize-segments
   "Coerce raw backend segments into the ITranscriber contract shape: ordered,
    non-overlapping, start<=end, non-blank speech text. Preserves optional

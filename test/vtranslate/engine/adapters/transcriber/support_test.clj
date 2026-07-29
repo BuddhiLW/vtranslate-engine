@@ -68,6 +68,75 @@
       (is (every? (fn [s] (< (:start-ms s) (:end-ms s))) out)
           "no real segment is sheared down to zero extent"))))
 
+(deftest pad-duplicate-recognises-a-re-transcription
+  (testing "a fragment whose words the previous segment already carries"
+    (is (sup/pad-duplicate? "You're a fool for traveling alone so completely unprepared."
+                            "I'm completely unprepared."))
+    (is (sup/pad-duplicate? "So, what brings you to the land?"
+                            "It brings you to the land of the gatekeepers.")))
+  (testing "case and punctuation do not matter"
+    (is (sup/pad-duplicate? "COMPLETELY, UNPREPARED!" "completely unprepared")))
+  (testing "genuinely new speech is not a duplicate"
+    (is (not (sup/pad-duplicate? "It brings you to the land of the gatekeepers."
+                                 "I'm searching for someone."))))
+  (testing "an incidental short phrase in a long segment is not a duplicate"
+    (is (not (sup/pad-duplicate? "he walked up to the door"
+                                 "to the west the whole valley was already burning"))))
+  (testing "a single shared word is never enough"
+    (is (not (sup/pad-duplicate? "someone" "someone")))
+    (is (not (sup/pad-duplicate? "" "anything")))))
+
+;; Grid windows are decoded with :span-pad-ms of leading/trailing context, so
+;; whisper re-hears the tail of the previous window and re-emits it as a segment
+;; of its own. Observed on corpus/sintel/clips/sintel_105-140s.mp4, ggml-medium.
+(deftest padded-windows-keep-one-hypothesis-per-utterance
+  (testing "a re-transcribed FRAGMENT of the previous window is dropped"
+    (is (= ["You're a fool for traveling alone so completely unprepared."
+            "You're lucky your blood's still flowing."]
+           (mapv :text
+                 (sup/merge-padded-window
+                  [{:start-ms 9500 :end-ms 15500
+                    :text "You're a fool for traveling alone so completely unprepared."}]
+                  15000
+                  [{:start-ms 14500 :end-ms 16260 :text "I'm completely unprepared."}
+                   {:start-ms 16260 :end-ms 18740 :text "You're lucky your blood's still flowing."}])))))
+
+  (testing "when the re-transcription is the FULLER hypothesis it replaces the
+            truncated one — the previous window cut the utterance at its boundary"
+    (is (= ["Thank you." "It brings you to the land of the gatekeepers."]
+           (mapv :text
+                 (sup/merge-padded-window
+                  [{:start-ms 19500 :end-ms 22500 :text "Thank you."}
+                   {:start-ms 22500 :end-ms 25240 :text "So, what brings you to the land?"}]
+                  25000
+                  [{:start-ms 24500 :end-ms 30520
+                    :text "It brings you to the land of the gatekeepers."}])))))
+
+  (testing "a segment that merely STARTS inside the pad keeps its new speech"
+    (is (= ["It brings you to the land of the gatekeepers."
+            "I'm searching for someone."
+            "Someone very dear."]
+           (mapv :text
+                 (sup/merge-padded-window
+                  [{:start-ms 24500 :end-ms 30520
+                    :text "It brings you to the land of the gatekeepers."}]
+                  30000
+                  [{:start-ms 29900 :end-ms 31460 :text "I'm searching for someone."}
+                   {:start-ms 31460 :end-ms 33700 :text "Someone very dear."}])))))
+
+  (testing "only the LEADING pad is suspect — a repeat starting after the span
+            boundary is real dialogue"
+    (is (= 3 (count (sup/merge-padded-window
+                     [{:start-ms 16000 :end-ms 19000 :text "Thank you."}]
+                     19000
+                     [{:start-ms 19500 :end-ms 22500 :text "Thank you."}
+                      {:start-ms 22500 :end-ms 25240 :text "So, what brings you to the land?"}])))))
+
+  (testing "the first window has no predecessor, so nothing is dropped"
+    (is (= 1 (count (sup/merge-padded-window
+                     [] 0
+                     [{:start-ms 0 :end-ms 4260 :text "This blade has a dark past."}]))))))
+
 (deftest unit-conversion
   (testing ":s multiplies to ms; :ms passes through; rounding is half-up"
     (is (= 1400 (:end-ms (first (sup/normalize-segments [{:start 0 :end 1.4 :text "x"}] {:unit :s})))))
