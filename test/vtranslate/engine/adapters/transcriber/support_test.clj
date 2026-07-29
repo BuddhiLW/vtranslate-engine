@@ -33,6 +33,41 @@
       (is (= 700 (long (* 1000 (:confidence (last out)))))  ; 0.7 preserved
           "explicit confidence is preserved"))))
 
+(deftest non-speech-markers-are-not-speech
+  (testing "a hypothesis that is entirely a bracketed annotation carries no speech"
+    (doseq [t ["[BLANK_AUDIO]" "[ Silence ]" "(upbeat music)" "*laughs*" "[]" "   "]]
+      (is (sup/non-speech-text? t) (str t " is a non-speech marker"))))
+  (testing "real speech is never mistaken for a marker"
+    (doseq [t ["hello" "[Music] and then he spoke" "he said (quietly) yes"]]
+      (is (not (sup/non-speech-text? t)) (str t " is speech")))))
+
+(deftest blank-audio-markers-are-dropped
+  (testing "whisper's non-speech placeholders never reach the contract"
+    (is (= ["real speech"]
+           (mapv :text (sup/normalize-segments
+                        [{:start-ms 0    :end-ms 1000 :text "[BLANK_AUDIO]"}
+                         {:start-ms 1000 :end-ms 2000 :text "real speech"}
+                         {:start-ms 2000 :end-ms 3000 :text "(silence)"}]
+                        {:unit :ms}))))))
+
+;; Observed shape, ggml-medium + :grid over corpus/sintel/clips/sintel_105-140s.mp4:
+;; whisper labels each silent grid window [BLANK_AUDIO] with a span covering the
+;; whole gap, so the marker's end lands PAST the start of the next window's real
+;; speech. Sheared in that state, genuine dialogue collapses to zero extent and
+;; reached the index as an untimed `[00:00:12.260 --> 00:00:12.260]` chunk.
+(deftest markers-are-dropped-before-the-shear
+  (let [raw [{:start-ms 0     :end-ms 4260  :text "This blade has a dark past."}
+             {:start-ms 4260  :end-ms 12260 :text "[BLANK_AUDIO]"}
+             {:start-ms 10500 :end-ms 12800 :text "It has shed much innocent blood."}]
+        out (sup/normalize-segments raw {:unit :ms})]
+    (testing "the marker never reaches the contract"
+      (is (= ["This blade has a dark past." "It has shed much innocent blood."]
+             (mapv :text out))))
+    (testing "and the speech it straddled keeps its own timing"
+      (is (= [[0 4260] [10500 12800]] (mapv (juxt :start-ms :end-ms) out)))
+      (is (every? (fn [s] (< (:start-ms s) (:end-ms s))) out)
+          "no real segment is sheared down to zero extent"))))
+
 (deftest unit-conversion
   (testing ":s multiplies to ms; :ms passes through; rounding is half-up"
     (is (= 1400 (:end-ms (first (sup/normalize-segments [{:start 0 :end 1.4 :text "x"}] {:unit :s})))))

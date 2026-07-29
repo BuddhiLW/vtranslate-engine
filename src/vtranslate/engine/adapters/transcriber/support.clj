@@ -9,9 +9,11 @@
    - `audio->path`     — bridge the two shapes an audio-source takes: the bare WAV
                          path string CollectMediaPort returns at runtime, and the
                          {:path ...} map the port-contract mock passes.
+   - `non-speech-text?` — is a hypothesis a bracketed non-lexical annotation
+                         ([BLANK_AUDIO], (silence), *laughs*) rather than speech?
    - `normalize-segments` — coerce raw backend segments into the contract shape,
-                         ORDERED, NON-OVERLAPPING, start<=end, non-blank text — so
-                         any backend passes check-transcriber BY CONSTRUCTION.
+                         ORDERED, NON-OVERLAPPING, start<=end, non-blank speech
+                         text — any backend passes check-transcriber BY CONSTRUCTION.
    - `wav-duration-ms` / `read-wav-mono-floats` — JDK-only WAV facts + PCM decode
                          (javax.sound.sampled, no dependency) for the in-process
                          native backends and duration-spanning fallbacks."
@@ -38,10 +40,43 @@
   (when (number? t)
     (max 0 (long (Math/round (double (case unit :s (* 1000.0 t) :ms t)))))))
 
+(def non-speech-markers
+  "Words that mark the ABSENCE of speech when they carry a whole annotation.
+   Matched as whole words, so both [BLANK_AUDIO] and [ blank audio ] qualify,
+   and so does the descriptive form whisper favours, (upbeat music)."
+  #{"blank audio" "silence" "silent" "no speech" "inaudible" "unintelligible"
+    "music" "noise" "applause" "laughter" "laughs" "static"})
+
+(def ^:private annotation-re
+  #"(?s)\A\s*[\[(*](.*)[\])*]\s*\z")
+
+(def ^:private marker-re
+  (re-pattern (str "\\b(?:" (str/join "|" non-speech-markers) ")\\b")))
+
+(defn non-speech-text?
+  "True when `text` carries no transcribed speech: it is blank, or it is ENTIRELY
+   one bracketed/parenthesised/asterisked annotation built from `non-speech-markers`
+   — [BLANK_AUDIO], [ Silence ], (upbeat music), *laughs*. An annotation of any
+   other wording is left alone, so a backend free to emit bracketed hypotheses
+   (the stub transcriber does) is never silently erased."
+  [text]
+  (let [t (some-> text str str/trim)]
+    (boolean
+     (or (str/blank? (str t))
+         (when-let [body (second (re-find annotation-re t))]
+           (let [body (-> body str/lower-case (str/replace #"[^a-z0-9]+" " ") str/trim)]
+             (or (str/blank? body)
+                 (re-find marker-re body))))))))
+
 (defn normalize-segments
   "Coerce raw backend segments into the ITranscriber contract shape: ordered,
-   non-overlapping, start<=end, non-blank text. Preserves optional :language.
-   opts: {:unit :s|:ms (default :ms) :default-confidence 1.0}."
+   non-overlapping, start<=end, non-blank speech text. Preserves optional
+   :language. opts: {:unit :s|:ms (default :ms) :default-confidence 1.0}.
+
+   Non-lexical markers (see `non-speech-text?`) are DROPPED here, BEFORE the
+   overlap shear — the order is load-bearing. A marker whose span covers the
+   silence between two utterances would otherwise push the next real segment's
+   start past its own end, shearing genuine speech down to zero extent."
   ([raw] (normalize-segments raw {}))
   ([raw {:keys [unit default-confidence] :or {unit :ms default-confidence 1.0}}]
    (->> raw
@@ -49,7 +84,7 @@
                 (let [start (->ms (or (:start-ms s) (:start s)) unit)
                       end   (->ms (or (:end-ms s) (:end s)) unit)
                       text  (some-> (:text s) str str/trim)]
-                  (when (and start (seq text))
+                  (when (and start (seq text) (not (non-speech-text? text)))
                     (cond-> {:start-ms   start
                              :end-ms     (max start (or end start))
                              :text       text
