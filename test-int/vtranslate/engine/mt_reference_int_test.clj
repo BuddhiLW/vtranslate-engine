@@ -37,6 +37,22 @@
   (keyword (or (some-> (System/getenv "VT_MT_PROVIDER") str/trim not-empty)
                "venice")))
 
+(defn- env [k] (some-> (System/getenv k) str/trim not-empty))
+
+(def provider-opts
+  "Endpoint/model overrides for the live pass, so the scorecard can be produced
+   against ANY OpenAI-compatible endpoint — a hosted provider or a local one
+   (VT_MT_API_URL=http://localhost:11434/v1/chat/completions). VT_MT_SECRET_ENV
+   names an env var holding the key; a local endpoint that wants none can point
+   it at any always-set variable, since the adapter only needs it non-blank.
+   nil => the provider's own built-in defaults."
+  (let [opts (cond-> {}
+               (env "VT_MT_API_URL")    (assoc :api-url (env "VT_MT_API_URL"))
+               (env "VT_MT_MODEL")      (assoc :model (env "VT_MT_MODEL"))
+               (env "VT_MT_SECRET_ENV") (assoc :secret-env (env "VT_MT_SECRET_ENV")
+                                               :secret-pass nil))]
+    (not-empty opts)))
+
 ;; --- fixtures ---------------------------------------------------------------
 
 (defn- sibling [relative]
@@ -232,7 +248,7 @@
           (into {}
                 (for [lang target-languages]
                   (let [reference   (parse-reference (sintel-subs lang))
-                        translated  (localize-subtitles source lang)]
+                        translated  (localize-subtitles source lang provider-opts)]
                     (testing (str lang ": the pipeline preserves cue alignment")
                       (is (= (count english) (count translated))
                           "one translated cue per source cue")
@@ -247,9 +263,13 @@
                                              (str/join " " reference))}])))]
 
       ;; Printed so a run is auditable — the floors below were set from these.
+      (println (format "[mt-reference] provider=%s endpoint=%s model=%s"
+                       (name provider)
+                       (or (:api-url provider-opts) "<default>")
+                       (or (:model provider-opts) "<default>")))
       (doseq [[lang {:keys [corpus baseline]}] (sort-by key scorecard)]
-        (println (format "[mt-reference] %-8s provider=%-10s chrF=%.3f  untranslated-baseline=%.3f"
-                         lang (name provider) corpus baseline)))
+        (println (format "[mt-reference] %-8s chrF=%.3f  untranslated-baseline=%.3f"
+                         lang corpus baseline)))
 
       (doseq [[lang {:keys [corpus baseline per-cue translated reference]}] scorecard]
         (testing (str lang " is a real translation, not a passthrough")
