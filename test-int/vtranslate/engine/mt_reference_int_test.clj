@@ -40,17 +40,20 @@
 (defn- env [k] (some-> (System/getenv k) str/trim not-empty))
 
 (def provider-opts
-  "Endpoint/model overrides for the live pass, so the scorecard can be produced
-   against ANY OpenAI-compatible endpoint — a hosted provider or a local one
-   (VT_MT_API_URL=http://localhost:11434/v1/chat/completions). VT_MT_SECRET_ENV
-   names an env var holding the key; a local endpoint that wants none can point
-   it at any always-set variable, since the adapter only needs it non-blank.
-   nil => the provider's own built-in defaults."
+  "Endpoint/model/key overrides for the live pass, so the scorecard can be
+   produced against ANY OpenAI-compatible endpoint — a hosted provider or a
+   local one (VT_MT_API_URL=http://localhost:11434/v1/chat/completions).
+   VT_MT_SECRET_ENV names an env var holding the key and VT_MT_SECRET_PASS a
+   passwordstore path; the adapter resolves either itself, so the key value
+   never has to be handled here. A local endpoint that wants no key can point
+   VT_MT_SECRET_ENV at any always-set variable, since the adapter only needs it
+   non-blank. nil => the provider's own built-in defaults."
   (let [opts (cond-> {}
-               (env "VT_MT_API_URL")    (assoc :api-url (env "VT_MT_API_URL"))
-               (env "VT_MT_MODEL")      (assoc :model (env "VT_MT_MODEL"))
-               (env "VT_MT_SECRET_ENV") (assoc :secret-env (env "VT_MT_SECRET_ENV")
-                                               :secret-pass nil))]
+               (env "VT_MT_API_URL")     (assoc :api-url (env "VT_MT_API_URL"))
+               (env "VT_MT_MODEL")       (assoc :model (env "VT_MT_MODEL"))
+               (env "VT_MT_SECRET_ENV")  (assoc :secret-env (env "VT_MT_SECRET_ENV")
+                                                :secret-pass nil)
+               (env "VT_MT_SECRET_PASS") (assoc :secret-pass (env "VT_MT_SECRET_PASS")))]
     (not-empty opts)))
 
 ;; --- fixtures ---------------------------------------------------------------
@@ -68,6 +71,25 @@
 ;; different granularity and cannot be aligned cue-for-cue, so they are excluded.
 (def target-languages
   ["es" "pt" "de" "ru" "zh-hans" "ar"])
+
+(def ship-floors
+  "Absolute {corpus mean-per-cue} chrF floors, per language. nil = NOT YET
+   CALIBRATED for that script, so only the baseline-relative assertion applies.
+
+   chrF counts character n-grams of order 1..6, which is not comparable across
+   writing systems: six characters is roughly one word in Latin/Cyrillic and
+   roughly a clause in Han. Measured here, zh-hans cue \"这把刀有一段黑暗的过去。\"
+   against reference \"这把刀有一段黑暗的历史\" scores 0.737 while the equally correct
+   \"你独自旅行真是太愚蠢了，完全没有准备。\" against the idiomatic
+   \"你毫无准备就孤身前来，真是蠢到家了\" scores 0.097 — the metric is punishing
+   paraphrase, not error. Applying a Latin-derived floor to Han or Arabic would
+   fail a good translation.
+
+   The Latin/Cyrillic numbers have a yardstick: two INDEPENDENT human Spanish
+   references (es vs es-419) score chrF 0.634 against each other, so ~0.6 is the
+   ceiling a provider can reach, and 0.25 sits well below it."
+  {"es" [0.25 0.20] "pt" [0.25 0.20] "de" [0.25 0.20] "ru" [0.25 0.20]
+   "zh-hans" nil "ar" nil})
 
 ;; --- chrF -------------------------------------------------------------------
 ;; Character n-gram F-score. Chosen over BLEU because it needs no tokenizer,
@@ -262,32 +284,36 @@
                            :baseline   (chrf (str/join " " english)
                                              (str/join " " reference))}])))]
 
-      ;; Printed so a run is auditable — the floors below were set from these.
+      ;; Printed so a run is auditable — the floors above were set from these.
       (println (format "[mt-reference] provider=%s endpoint=%s model=%s"
                        (name provider)
                        (or (:api-url provider-opts) "<default>")
                        (or (:model provider-opts) "<default>")))
       (doseq [[lang {:keys [corpus baseline]}] (sort-by key scorecard)]
-        (println (format "[mt-reference] %-8s chrF=%.3f  untranslated-baseline=%.3f"
-                         lang corpus baseline)))
+        (println (format "[mt-reference] %-8s chrF=%.3f  untranslated-baseline=%.3f%s"
+                         lang corpus baseline
+                         (if (ship-floors lang) "" "  (floor not calibrated)"))))
 
       (doseq [[lang {:keys [corpus baseline per-cue translated reference]}] scorecard]
         (testing (str lang " is a real translation, not a passthrough")
           ;; The load-bearing assertion: the output must be closer to the human
           ;; reference than the untranslated English is. It needs no magic
-          ;; constant and holds across providers, models, and prompt changes.
+          ;; constant, holds across providers, models and prompt changes, and is
+          ;; the ONE check that applies to every script.
           (is (> corpus baseline)
               (str lang ": translation (" corpus ") no closer to the reference "
                    "than the untranslated source (" baseline ")"))
           (is (not= translated (take (count translated) english))
-              (str lang ": output is identical to the English input")))
-
-        (testing (str lang " is good enough to be worth shipping")
-          ;; Floor, not a target: two independent human translations of the same
-          ;; line typically land around chrF 0.4-0.6, so 0.25 catches a provider
-          ;; that has degraded into garbage without failing on stylistic drift.
-          (is (> corpus 0.25) (str lang ": corpus chrF " corpus " below floor"))
-          (is (> (mean per-cue) 0.20)
-              (str lang ": mean per-cue chrF " (mean per-cue) " below floor"))
+              (str lang ": output is identical to the English input"))
           (is (every? seq translated) (str lang ": some cue came back empty"))
-          (is (= (count reference) (count per-cue))))))))
+          (is (= (count reference) (count per-cue))))
+
+        (when-let [[corpus-floor cue-floor] (ship-floors lang)]
+          (testing (str lang " is good enough to be worth shipping")
+            ;; Floor, not a target: catches a provider that has degraded into
+            ;; garbage without failing on stylistic drift.
+            (is (> corpus corpus-floor)
+                (str lang ": corpus chrF " corpus " below floor " corpus-floor))
+            (is (> (mean per-cue) cue-floor)
+                (str lang ": mean per-cue chrF " (mean per-cue)
+                     " below floor " cue-floor))))))))
