@@ -4,10 +4,14 @@
  :wrong-length
  {:error :error/translation-failed,
   :reason "model returned wrong shape/length",
-  :expected 3},
+  :expected 3,
+  :repairable? true},
  :non-string
  {:error :error/translation-failed,
   :reason "model returned wrong shape/length",
-  :expected 2},
+  :expected 2,
+  :repairable? true},
  :unparseable
- {:error :error/translation-failed, :reason "unparseable model output"}}
+ {:error :error/translation-failed,
+  :reason "unparseable model output",
+  :repairable? true}}

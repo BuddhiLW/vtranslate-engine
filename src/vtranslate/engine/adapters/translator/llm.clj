@@ -74,21 +74,60 @@
   [v n]
   (and (sequential? v) (= n (count v)) (every? string? v)))
 
+(defn- force-json
+  "Deeply realize a cheshire parse result. cheshire parses a top-level JSON
+   ARRAY LAZILY, so a truncated reply throws on first realization rather than at
+   parse time — outside any guard wrapped around the parse call."
+  [v]
+  (cond
+    (map? v)        (persistent! (reduce-kv (fn [m k x] (assoc! m k (force-json x)))
+                                            (transient {}) v))
+    (sequential? v) (mapv force-json v)
+    :else           v))
+
 (defn- parse-translations
   "Parse the model's reply into a vector of exactly `n` translated strings.
    Accepts a bare JSON array (the contract), or a single-key object wrapping the
-   array (e.g. {\"translations\": [...]}). => (r/ok [...]) | (r/err ...)."
+   array (e.g. {\"translations\": [...]}). A reply that is truncated, unparseable,
+   or does not carry exactly `n` strings is marked :repairable? — re-asking can
+   fix it, unlike an auth or transport failure. => (r/ok [...]) | (r/err ...)."
   [content n]
-  (let [parsed (try (json/parse-string (chat/strip-fences content)) (catch Exception _ ::bad))
+  (let [parsed (try (force-json (json/parse-string (chat/strip-fences content)))
+                    (catch Exception _ ::bad))
         arr    (cond
                  (n-strings? parsed n) (vec parsed)
                  (and (map? parsed) (= 1 (count parsed)) (n-strings? (first (vals parsed)) n))
                  (vec (first (vals parsed))))]
     (cond
-      (= parsed ::bad) (r/err :error/translation-failed {:reason "unparseable model output"})
+      (= parsed ::bad) (r/err :error/translation-failed
+                              {:reason "unparseable model output" :repairable? true})
       (some? arr)      (r/ok arr)
       :else            (r/err :error/translation-failed
-                              {:reason "model returned wrong shape/length" :expected n}))))
+                              {:reason "model returned wrong shape/length"
+                               :expected n :repairable? true}))))
+
+(defn- translate-repairing
+  "Translate `texts` through `run` ([texts] => (r/ok [one string per text])),
+   repairing a REPAIRABLE reply instead of losing the batch: ask again once,
+   and if that still fails split the batch in half and repair each half, down
+   to a single text. The exact-length contract is never relaxed — it is what
+   keeps cues aligned — so a single text that still comes back wrong, and any
+   non-repairable failure (auth, transport), propagates unchanged.
+   => (r/ok [one string per text]) | (r/err ...)."
+  [run texts]
+  (let [texts   (vec texts)
+        attempt (run texts)]
+    (if (or (r/ok? attempt) (not (:repairable? attempt)))
+      attempt
+      (let [retry (run texts)]
+        (cond
+          (r/ok? retry)          retry
+          (< (count texts) 2)    retry
+          (not (:repairable? retry)) retry
+          :else (let [half (quot (count texts) 2)]
+                  (r/let-ok [a (translate-repairing run (subvec texts 0 half))
+                             b (translate-repairing run (subvec texts half))]
+                    (r/ok (into a b)))))))))
 
 (defrecord LlmTranslator [api-url model secret-env secret-pass]
   p.tr/ITranslator
@@ -96,9 +135,13 @@
     (if (empty? texts)
       (r/ok [])
       (if-let [api-key (chat/resolve-key secret-env secret-pass)]
-        (r/let-ok [content (chat/post-chat :error/translation-failed api-url api-key
-                                           (chat-body model source-language target-language texts opts))]
-          (parse-translations content (count texts)))
+        (translate-repairing
+         (fn [batch]
+           (r/let-ok [content (chat/post-chat :error/translation-failed api-url api-key
+                                              (chat-body model source-language target-language
+                                                         batch opts))]
+             (parse-translations content (count batch))))
+         texts)
         (r/err :error/translation-failed
                {:reason (str "no API key set env " secret-env
                              (when secret-pass (str " or pass " secret-pass)))

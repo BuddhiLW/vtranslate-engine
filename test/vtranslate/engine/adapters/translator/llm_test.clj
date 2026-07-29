@@ -205,6 +205,86 @@
                                                        (count "VT_NO_SUCH_KEY_XYZ"))))
         "the failing env var name is reported")))
 
+;; A model that answers a batch with the wrong number of strings used to cost
+;; the WHOLE language — observed live on ar/zh-hans, non-deterministically.
+
+(defn- recording-run
+  "A `run` for translate-repairing that answers from `script`: a map of batch
+   size -> :ok | :short | :auth-fail. Records every batch it was asked for."
+  [script seen]
+  (fn [texts]
+    (swap! seen conj (vec texts))
+    (case (get script (count texts) :ok)
+      :ok        (r/ok (mapv #(str "T:" %) texts))
+      :short     (r/err :error/translation-failed
+                        {:reason "model returned wrong shape/length" :repairable? true})
+      :auth-fail (r/err :error/translation-failed {:reason "no API key"}))))
+
+(deftest a-wrong-length-reply-is-retried-then-bisected
+  (let [seen (atom [])
+        ;; 4 and 2 always come back short; singles succeed
+        res  (#'llm/translate-repairing (recording-run {4 :short 2 :short} seen)
+                                        ["a" "b" "c" "d"])]
+    (is (= (r/ok ["T:a" "T:b" "T:c" "T:d"]) res)
+        "every cue is translated, in order, despite the batch failing")
+    (is (= [["a" "b" "c" "d"] ["a" "b" "c" "d"]] (take 2 @seen))
+        "the full batch is asked twice before any split")
+    (is (= #{1 2 4} (set (map count @seen)))
+        "it bisects 4 -> 2 -> 1 rather than giving up")))
+
+(deftest a-batch-that-succeeds-on-retry-is-never-split
+  (let [seen  (atom [])
+        calls (atom 0)
+        run   (fn [texts]
+                (swap! seen conj (vec texts))
+                (if (= 1 (swap! calls inc))
+                  (r/err :error/translation-failed
+                         {:reason "wrong length" :repairable? true})
+                  (r/ok (mapv #(str "T:" %) texts))))
+        res   (#'llm/translate-repairing run ["a" "b" "c" "d"])]
+    (is (= (r/ok ["T:a" "T:b" "T:c" "T:d"]) res))
+    (is (= 2 (count @seen)) "one retry was enough — no bisection")))
+
+(deftest a-non-repairable-failure-is-not-retried
+  (let [seen (atom [])
+        res  (#'llm/translate-repairing (recording-run {2 :auth-fail} seen) ["a" "b"])]
+    (is (r/err? res))
+    (is (= 1 (count @seen))
+        "an auth failure is asked ONCE — re-asking cannot fix a missing key")))
+
+(deftest a-single-cue-that-stays-wrong-still-fails-loud
+  (let [seen (atom [])
+        res  (#'llm/translate-repairing (recording-run {1 :short} seen) ["a"])]
+    (is (r/err? res) "the exact-length contract is never relaxed")
+    (is (= :error/translation-failed (:error res)))
+    (is (= 2 (count @seen)) "asked twice, then it gives up rather than guessing")))
+
+(deftest repair-preserves-cue-order-across-a-deep-split
+  (let [seen  (atom [])
+        texts (mapv str (range 8))
+        ;; every multi-cue batch is short, so it splits all the way down
+        res   (#'llm/translate-repairing
+               (recording-run {8 :short 4 :short 2 :short} seen) texts)]
+    (is (= (r/ok (mapv #(str "T:" %) texts)) res)
+        "8 cues come back in their original order after a full bisection")))
+
+;; cheshire parses a top-level JSON ARRAY lazily, so a truncated reply used to
+;; throw JsonEOFException from `count` inside n-strings? — after the try around
+;; the parse had already returned — and escaped as :error/uncaught at the
+;; boundary. Observed live against a local endpoint on zh-hans.
+(deftest a-truncated-reply-is-an-error-not-a-throwable
+  (doseq [truncated ["[\"complete\", \"trunca"
+                     "[\"a\", \"b\""
+                     "{\"translations\": [\"a\", \"b"]]
+    (let [res (#'llm/parse-translations truncated 2)]
+      (is (r/err? res) (str "truncated input must not throw: " (pr-str truncated)))
+      (is (= :error/translation-failed (:error res)))
+      (is (:repairable? res)
+          "a truncated reply is worth re-asking, so it must reach the repair path")))
+
+  (is (= (r/ok ["a" "b"]) (#'llm/parse-translations "[\"a\",\"b\"]" 2))
+      "a well-formed reply is unaffected by forcing"))
+
 ;; =============================================================================
 ;; MUTATION — the count/order guard and its predicate.
 ;; =============================================================================
