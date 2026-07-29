@@ -80,7 +80,8 @@
   "Decode the WAV at `wav-path` with the cached `model-name`. `source-lang` and
    `target-lang` are ISO-639-1 codes or nil; when both are present and differ,
    Canary emits a TRANSLATION. Models that take no language kwargs (Parakeet)
-   are called without them.
+   are called without them. `wav-path` is passed as a PYTHON STR, never a JVM
+   collection — the AED multitask models accept only str/ndarray/Tensor.
    => (r/ok text) | (r/err :error/asr-failed {...}). Fails loud: any load/decode
    throw becomes :error/asr-failed, never a fake transcript."
   ([model-name wav-path source-lang target-lang]
@@ -99,8 +100,6 @@
                       ;; Canary needs BOTH to select a task; with only a source
                       ;; it transcribes, which is the intended default.
                       (and source-lang target-lang) (assoc "target_lang" target-lang))
-             result (if (seq kwargs)
-                      (py/call-attr-kw model "transcribe" [[wav-path]] kwargs)
-                      (py/call-attr model "transcribe" [wav-path]))]
+             result (py/call-attr-kw model "transcribe" [(str wav-path)] kwargs)]
          ;; index on the Python side: the elements are Hypothesis objects
          (hypothesis->text (py/get-item result 0)))))))
