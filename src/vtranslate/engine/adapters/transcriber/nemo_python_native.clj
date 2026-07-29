@@ -48,25 +48,33 @@
   (atom {}))
 
 (defn- model-for
-  "Get-or-create the cached NeMo model. Double-checked under `locking` so a race
-   cannot load the same multi-GB checkpoint twice."
-  [model-name]
-  (or (get @model-cache model-name)
-      (locking model-cache
-        (or (get @model-cache model-name)
-            (let [models (py/import-module "nemo.collections.asr.models")
-                  loaded (py/py. (py/get-attr models "ASRModel")
-                                 from_pretrained model_name model-name)]
-              (swap! model-cache assoc model-name loaded)
-              loaded)))))
+  "Get-or-create the cached NeMo model on `device`. Double-checked under
+   `locking` so a race cannot load the same multi-GB checkpoint twice.
+   `map_location` is passed at LOAD time — NeMo places weights while restoring,
+   so moving the model afterwards is too late to avoid a CUDA OOM."
+  [model-name device]
+  (let [k [model-name device]]
+    (or (get @model-cache k)
+        (locking model-cache
+          (or (get @model-cache k)
+              (let [models (py/import-module "nemo.collections.asr.models")
+                    loaded (py/call-attr-kw (py/get-attr models "ASRModel")
+                                            "from_pretrained" []
+                                            (cond-> {"model_name" model-name}
+                                              device (assoc "map_location" device)))]
+                (swap! model-cache assoc k loaded)
+                loaded))))))
 
 (defn- hypothesis->text
-  "NeMo yields Hypothesis objects (recent) or bare strings (older)."
+  "Text of one NeMo result element. Recent NeMo yields a Hypothesis OBJECT, older
+   versions a bare string. The attribute must be read on the Python side: running
+   py/->jvm over a Hypothesis produces {:type :hypothesis :value <pointer>}, not
+   its fields."
   [hypothesis]
-  (let [value (if (string? hypothesis)
-                hypothesis
-                (or (py/get-attr hypothesis "text") hypothesis))]
-    (str/trim (str value))))
+  (str/trim
+   (str (if (string? hypothesis)
+          hypothesis
+          (py/->jvm (py/get-attr hypothesis "text"))))))
 
 (defn transcribe-file
   "Decode the WAV at `wav-path` with the cached `model-name`. `source-lang` and
@@ -78,14 +86,14 @@
   ([model-name wav-path source-lang target-lang]
    (transcribe-file model-name wav-path source-lang target-lang {}))
   ([model-name wav-path source-lang target-lang
-    {:keys [python-executable library-path]}]
+    {:keys [python-executable library-path device]}]
    (r/try-effect* :error/asr-failed
      (start-interpreter! (or python-executable
                              (System/getProperty "vtranslate.nemo.python")
                              "python3")
                          library-path)
      (py/with-gil
-       (let [model  (model-for model-name)
+       (let [model  (model-for model-name device)
              kwargs (cond-> {}
                       source-lang (assoc "source_lang" source-lang)
                       ;; Canary needs BOTH to select a task; with only a source
@@ -93,6 +101,6 @@
                       (and source-lang target-lang) (assoc "target_lang" target-lang))
              result (if (seq kwargs)
                       (py/call-attr-kw model "transcribe" [[wav-path]] kwargs)
-                      (py/call-attr model "transcribe" [wav-path]))
-             first-hypothesis (first (py/->jvm result))]
-         (hypothesis->text first-hypothesis))))))
+                      (py/call-attr model "transcribe" [wav-path]))]
+         ;; index on the Python side: the elements are Hypothesis objects
+         (hypothesis->text (py/get-item result 0)))))))

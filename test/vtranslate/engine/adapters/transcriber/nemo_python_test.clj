@@ -138,6 +138,38 @@
         (is (r/ok? res))
         (is (= "nvidia/canary-180m-flash" (:model (:ok res))))))))
 
+(deftest derives-the-libpython-beside-the-interpreter
+  (testing "an env layout <env>/bin/python resolves to <env>/lib/libpython3.X.so"
+    (let [env (doto (File. (System/getProperty "java.io.tmpdir")
+                           (str "nemo-env-" (System/nanoTime)))
+                (.mkdirs))
+          bin (doto (File. env "bin") .mkdirs)
+          lib (doto (File. env "lib") .mkdirs)]
+      (try
+        (.createNewFile (File. bin "python"))
+        (.createNewFile (File. lib "libpython3.12.so"))
+        (.createNewFile (File. lib "libpython3.9.so"))
+        (is (= (.getPath (File. lib "libpython3.12.so"))
+               (sut/derive-library-path (.getPath (File. bin "python"))))
+            "the newest minor version wins")
+        (finally
+          (doseq [f (reverse (file-seq env))] (.delete ^File f))))))
+  (testing "nil rather than a guess when there is nothing to derive from"
+    (is (nil? (sut/derive-library-path nil)))
+    (is (nil? (sut/derive-library-path "/no/such/bin/python")))))
+
+;; --- model-backed smoke -----------------------------------------------------
+
+(deftest model-backed-smoke
+  (let [python (System/getenv "VT_NEMO_PYTHON")]
+    (if-not (and (sut/backend-present?) python (.canExecute (File. ^String python)))
+      (is true "SKIP: set VT_NEMO_PYTHON to a Python with nemo_toolkit[asr] installed")
+      (let [res (reg/resolve-transcriber
+                 :parakeet {:transcriber-opts {:python-executable python}})]
+        (is (r/ok? res))
+        (is (= "cpu" (:device (:ok res)))
+            "CPU by default — a shared GPU is routinely too full to load onto")))))
+
 ;; --- the WAV round-trip this adapter leans on -------------------------------
 
 (deftest scratch-wav-round-trips-through-the-support-helpers

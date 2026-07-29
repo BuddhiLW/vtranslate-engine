@@ -45,8 +45,8 @@
 (def model-names
   "Provider key -> the NeMo pretrained model it serves, and whether that model
    can translate (AST) as well as transcribe."
-  {:canary   {:model "nvidia/canary-1b-flash" :translates? true}
-   :parakeet {:model "nvidia/parakeet-tdt-0.6b-v2" :translates? false}})
+  {:canary   {:model "nvidia/canary-1b-flash"      :translates? true  :multilingual? true}
+   :parakeet {:model "nvidia/parakeet-tdt-0.6b-v2" :translates? false :multilingual? false}})
 
 (def default-python
   "Fallback interpreter when config names none. A conda env is the expected
@@ -67,6 +67,30 @@
   [language]
   (some-> language str str/trim not-empty
           (str/split #"-") first str/lower-case not-empty))
+
+(defn derive-library-path
+  "The libpython3.X.so belonging to `python-executable`'s environment, i.e.
+   <env>/lib/libpython3.X.so for <env>/bin/python. Passing the executable ALONE
+   is not enough: libpython-clj then embeds whatever libpython it finds first,
+   and a mismatched one brings its own sys.path — which shows up as
+   `ModuleNotFoundError: No module named 'nemo'` against an env that plainly has
+   it. => path string | nil (nil lets libpython-clj probe for itself)."
+  [python-executable]
+  (when python-executable
+    (let [env-root (some-> (File. ^String python-executable) .getParentFile .getParentFile)
+          lib      (when env-root (File. ^File env-root "lib"))]
+      (when (and lib (.isDirectory lib))
+        ;; ordered by MINOR VERSION, not by name — "3.9" sorts after "3.12"
+        ;; lexicographically, which would pick the older interpreter
+        (let [candidates (->> (.listFiles lib)
+                              (keep (fn [^File f]
+                                      (when-let [[_ minor] (re-matches
+                                                            #"libpython3\.(\d+)\.so"
+                                                            (.getName f))]
+                                        [(parse-long minor) f])))
+                              (sort-by first))]
+          (when-let [[_ ^File chosen] (last candidates)]
+            (.getPath chosen)))))))
 
 (defn- sample-range [sample-rate total-samples pad-ms {:keys [start-ms end-ms]}]
   (let [start-ms (max 0 (- (or start-ms 0) pad-ms))
@@ -135,7 +159,7 @@
                 :end-ms   (samples->ms (alength ^floats samples) sample-rate)
                 :text     text}])))))
 
-(defrecord NemoTranscriber [model target-language span-pad-ms]
+(defrecord NemoTranscriber [model target-language span-pad-ms python-executable library-path device multilingual?]
   p.asr/ITranscriber
   (transcribe [_ audio-source language opts]
     (if-let [path (sup/audio->path audio-source)]
@@ -143,7 +167,20 @@
                  raw (r/guard Throwable
                               (r/err :error/asr-failed
                                      {:reason "nemo python backend failed to load"})
-                       (let [transcribe-fn @(requiring-resolve native-transcribe-sym)]
+                       (let [native (requiring-resolve native-transcribe-sym)
+                             ;; the interpreter + device are adapter state, not
+                             ;; per-span data — bound here so the span loop keeps
+                             ;; the narrow [model path src tgt] contract
+                             ;; an English-only RNNT (Parakeet) raises TypeError
+                             ;; on source_lang/target_lang — the hints are dropped
+                             ;; here rather than silently mis-sent
+                             transcribe-fn (fn [model path source-lang target-lang]
+                                             (native model path
+                                                     (when multilingual? source-lang)
+                                                     (when multilingual? target-lang)
+                                                     {:python-executable python-executable
+                                                      :library-path library-path
+                                                      :device device}))]
                          (transcribe-with-spans transcribe-fn model samples sample-rate
                                                 language
                                                 (or (:target-language opts) target-language)
@@ -157,10 +194,15 @@
   "Gate and build the NeMo transcriber for `provider-key`."
   [provider-key config]
   (let [opts        (get config :transcriber-opts)
-        {:keys [model translates?]} (get model-names provider-key)
+        {:keys [model translates? multilingual?]} (get model-names provider-key)
         model       (or (:model-name opts) model)
         python      (or (:python-executable opts) default-python)
         target      (:target-language opts)
+        ;; A shared workstation GPU is routinely already full (an ollama server
+        ;; alone can hold 5 GB of an 8 GB card), and NeMo raises CUDA OOM at LOAD
+        ;; time. "cpu" is the safe default; set :device "cuda" to opt in.
+        device      (or (:device opts) "cpu")
+        library-path (or (:library-path opts) (derive-library-path python))
         span-pad-ms (long (get opts :span-pad-ms 500))]
     (cond
       (not (backend-present?))
@@ -189,7 +231,7 @@
                              ":target-language] or select :canary for AST")})
 
       :else
-      (r/ok (->NemoTranscriber model target span-pad-ms)))))
+      (r/ok (->NemoTranscriber model target span-pad-ms python library-path device multilingual?)))))
 
 (defmethod reg/resolve-transcriber :canary   [k config] (resolve-nemo k config))
 (defmethod reg/resolve-transcriber :parakeet [k config] (resolve-nemo k config))
