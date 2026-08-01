@@ -72,24 +72,16 @@
 (def target-languages
   ["es" "pt" "de" "ru" "zh-hans" "ar"])
 
-(def ship-floors
-  "Absolute {corpus mean-per-cue} chrF floors, per language. nil = NOT YET
-   CALIBRATED for that script, so only the baseline-relative assertion applies.
+(def ship-ratio-floor
+  "Least acceptable mean-per-cue chrF, in MULTIPLES of the target language's own
+   chance level. Applies to every script: an absolute chrF floor is not
+   comparable across writing systems, a ratio to chance is."
+  2.2)
 
-   chrF counts character n-grams of order 1..6, which is not comparable across
-   writing systems: six characters is roughly one word in Latin/Cyrillic and
-   roughly a clause in Han. Measured here, zh-hans cue \"这把刀有一段黑暗的过去。\"
-   against reference \"这把刀有一段黑暗的历史\" scores 0.737 while the equally correct
-   \"你独自旅行真是太愚蠢了，完全没有准备。\" against the idiomatic
-   \"你毫无准备就孤身前来，真是蠢到家了\" scores 0.097 — the metric is punishing
-   paraphrase, not error. Applying a Latin-derived floor to Han or Arabic would
-   fail a good translation.
-
-   The Latin/Cyrillic numbers have a yardstick: two INDEPENDENT human Spanish
-   references (es vs es-419) score chrF 0.634 against each other, so ~0.6 is the
-   ceiling a provider can reach, and 0.25 sits well below it."
-  {"es" [0.25 0.20] "pt" [0.25 0.20] "de" [0.25 0.20] "ru" [0.25 0.20]
-   "zh-hans" nil "ar" nil})
+(def passthrough-margin
+  "How far above the untranslated-source ratio a shippable translation must sit
+   in languages that share the source's script."
+  1.15)
 
 ;; --- chrF -------------------------------------------------------------------
 ;; Character n-gram F-score. Chosen over BLEU because it needs no tokenizer,
@@ -171,6 +163,31 @@
 (defn- mean [xs]
   (if (seq xs) (/ (reduce + xs) (count xs)) 0.0))
 
+(defn chance-level
+  "Mean chrF of each cue of `cues` against a DIFFERENT cue of the same sequence
+   (rotated by one) — the score two arbitrary sentences of that language reach
+   by sharing its alphabet, morphology and function words.
+   => double in [0.0, 1.0]; 0.0 for fewer than two cues."
+  [cues]
+  (if (< (count cues) 2)
+    0.0
+    (mean (map chrf cues (concat (rest cues) [(first cues)])))))
+
+(defn ratio-to-chance
+  "`cues` scored against `reference`, in multiples of the reference language's
+   chance level. => double; 0.0 when chance cannot be measured."
+  [cues reference]
+  (let [chance (chance-level reference)]
+    (if (pos? chance) (/ (mean (map chrf cues reference)) chance) 0.0)))
+
+(defn ship-floor
+  "Least ratio-to-chance a shippable translation into `reference`'s language must
+   reach, derived from the corpus: the global floor, raised where the untranslated
+   `source` already scores well because it shares the target's script.
+   => double."
+  [source reference]
+  (max ship-ratio-floor (* passthrough-margin (ratio-to-chance source reference))))
+
 ;; --- the metric's own sanity ------------------------------------------------
 ;; Runs offline, so a broken scorer is caught even when the paid suite is off.
 
@@ -188,6 +205,41 @@
   (testing "it works without a tokenizer, on CJK and RTL too"
     (is (= 1.0 (chrf "这把剑有黑暗的过去" "这把剑有黑暗的过去")))
     (is (> (chrf "هذا النصل له ماض مظلم" "هذا النصل له ماضٍ مظلم") 0.5))))
+
+(deftest chance-level-is-script-dependent
+  ;; Runs offline against the corpus's own human references, so the unit the
+  ;; ship floor is expressed in is verified without calling a provider.
+  (let [chance (into {} (for [lang (conj target-languages "es-419")]
+                          [lang (chance-level (parse-reference (sintel-subs lang)))]))]
+    (testing "two arbitrary sentences of one language already share n-grams"
+      (is (every? pos? (vals chance))))
+    (testing "the same chrF number means different things in different scripts"
+      (is (< (chance "zh-hans") (* 0.5 (chance "es")))
+          (str "Han chance " (chance "zh-hans") " should be far below Latin "
+               (chance "es") " — this is why one absolute floor cannot serve both"))
+      (is (< (chance "ar") (chance "ru"))))
+    (let [english (parse-reference (sintel-subs "en"))]
+      (testing "a second INDEPENDENT human reference clears the floor"
+        ;; es vs es-419 are two human translations of the same film: the best a
+        ;; provider could plausibly score, and the sanity check on the floor.
+        (let [es    (parse-reference (sintel-subs "es"))
+              es419 (parse-reference (sintel-subs "es-419"))]
+          (is (> (ratio-to-chance es es419) (ship-floor english es419))
+              (str "human-vs-human Spanish scores only "
+                   (ratio-to-chance es es419) "x chance"))))
+      (testing "the untranslated source never clears the floor it derives"
+        (doseq [lang target-languages]
+          (let [reference (parse-reference (sintel-subs lang))]
+            (is (< (ratio-to-chance english reference)
+                   (ship-floor english reference))
+                (str lang ": the floor cannot discriminate a passthrough")))))
+      (testing "a shared script raises the floor above the global minimum"
+        (is (> (ship-floor english (parse-reference (sintel-subs "es")))
+               ship-ratio-floor)
+            "Latin-script targets must clear more than the global floor")
+        (is (= ship-ratio-floor
+               (ship-floor english (parse-reference (sintel-subs "zh-hans"))))
+            "a target sharing no script with the source keeps the global floor")))))
 
 ;; --- harness proof, no credentials ------------------------------------------
 ;; The scorecard below is only trustworthy if the chain that produces it —
@@ -279,6 +331,7 @@
                     [lang {:translated translated
                            :reference  reference
                            :per-cue    (mapv chrf translated reference)
+                           :chance     (chance-level reference)
                            :corpus     (chrf (str/join " " translated)
                                              (str/join " " reference))
                            :baseline   (chrf (str/join " " english)
@@ -289,10 +342,12 @@
                        (name provider)
                        (or (:api-url provider-opts) "<default>")
                        (or (:model provider-opts) "<default>")))
-      (doseq [[lang {:keys [corpus baseline]}] (sort-by key scorecard)]
-        (println (format "[mt-reference] %-8s chrF=%.3f  untranslated-baseline=%.3f%s"
-                         lang corpus baseline
-                         (if (ship-floors lang) "" "  (floor not calibrated)"))))
+      (doseq [[lang {:keys [corpus baseline per-cue chance]}] (sort-by key scorecard)]
+        (println (format (str "[mt-reference] %-8s chrF=%.3f  per-cue=%.3f  "
+                              "chance=%.3f  x-chance=%.2f  untranslated-baseline=%.3f")
+                         lang corpus (mean per-cue) chance
+                         (if (pos? chance) (/ (mean per-cue) chance) 0.0)
+                         baseline)))
 
       (doseq [[lang {:keys [corpus baseline per-cue translated reference]}] scorecard]
         (testing (str lang " is a real translation, not a passthrough")
@@ -308,12 +363,16 @@
           (is (every? seq translated) (str lang ": some cue came back empty"))
           (is (= (count reference) (count per-cue))))
 
-        (when-let [[corpus-floor cue-floor] (ship-floors lang)]
-          (testing (str lang " is good enough to be worth shipping")
-            ;; Floor, not a target: catches a provider that has degraded into
-            ;; garbage without failing on stylistic drift.
-            (is (> corpus corpus-floor)
-                (str lang ": corpus chrF " corpus " below floor " corpus-floor))
-            (is (> (mean per-cue) cue-floor)
-                (str lang ": mean per-cue chrF " (mean per-cue)
-                     " below floor " cue-floor))))))))
+        (testing (str lang " is good enough to be worth shipping")
+          ;; Floor, not a target: catches a provider that has degraded into
+          ;; garbage without failing on stylistic drift. The unit is the
+          ;; language's own chance level, so one rule serves every script.
+          (let [chance (:chance (scorecard lang))
+                ratio  (if (pos? chance) (/ (mean per-cue) chance) 0.0)
+                floor  (ship-floor english reference)]
+            (is (pos? chance)
+                (str lang ": chance level could not be measured from the reference"))
+            (is (> ratio floor)
+                (str lang ": mean per-cue chrF " (mean per-cue) " is only " ratio
+                     "x the " chance " chance level for this language, below the "
+                     floor "x floor"))))))))
