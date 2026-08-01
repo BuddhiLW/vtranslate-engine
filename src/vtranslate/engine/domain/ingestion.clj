@@ -90,12 +90,32 @@
   "Filename extensions that select the parse (no-ASR) ingress."
   #{"srt" "vtt" "ass"})
 
+(def ^:private remote-scheme #"(?i)^(https?|ftps?|rtmpe?|rtsp)://")
+
+(defn remote-source?
+  "Whether `source-uri` names something that must be fetched before it can be
+   probed — it carries a network scheme rather than being a path on disk."
+  [source-uri]
+  (boolean (some->> source-uri str (re-find remote-scheme))))
+
+(defn source-extension
+  "The lowercase filename extension of `source-uri`, or nil. Query and fragment
+   are dropped and only the LAST PATH SEGMENT is considered, so
+   `https://host.tv/watch?v=x` has no extension rather than taking one from the
+   host name."
+  [source-uri]
+  (let [segment (some-> source-uri
+                        str
+                        (str/split #"[?#]" -1) first
+                        (str/split #"/" -1) last)]
+    (when (and segment (str/includes? segment "."))
+      (-> segment (str/split #"\.") last str/lower-case not-empty))))
+
 (defn infer-kind
   "Infer a source's MediaKind from its filename extension: a subtitle extension
    selects :media/subtitle (parse ingress), anything else defaults to
    :media/video (demux + ASR). A plain keyword — make-media-asset validates it."
   [source-uri]
-  (let [ext (some-> source-uri (str/split #"\.") last str/lower-case)]
-    (if (contains? subtitle-extensions ext)
-      :media/subtitle
-      :media/video)))
+  (if (contains? subtitle-extensions (source-extension source-uri))
+    :media/subtitle
+    :media/video))

@@ -8,6 +8,7 @@
             [vtranslate.engine.providers.config :as cfg]
             [vtranslate.engine.api :as api]
             [vtranslate.engine.domain.ingestion :as ing]
+            [vtranslate.engine.port.fetcher :as p.fetch]
             [vtranslate.engine.wiring :as wiring]
             [clojure.string :as str])
   (:gen-class))
@@ -96,18 +97,45 @@
   [spec]
   (or (:asset-kind spec) (ing/infer-kind (:source spec))))
 
+(defn localized-spec
+  "Rewrite `spec` to point at the file a fetch produced, keeping the locator it
+   came from. Pure — the fetch already happened."
+  [spec {:keys [local-path title metadata]}]
+  (cond-> (assoc spec
+                 :source local-path
+                 :source/origin (:source spec))
+    title    (assoc :source/title title)
+    metadata (assoc :source/metadata metadata)))
+
+(defn- resolve-source
+  "Resolve a remote :source to a file on disk before anything downstream sees it.
+   Probe, demux and kind inference all take a path, so this runs ahead of
+   `ingress-kind` — a URL never reaches extension sniffing. A local source passes
+   through untouched, and with no fetch addon loaded a remote one fails loud.
+   => (r/ok spec) | (r/err :error/no-source-fetcher|:error/fetch-* {...})."
+  [spec]
+  (if-not (ing/remote-source? (:source spec))
+    (r/ok spec)
+    (r/let-ok [fetcher (wiring/build-port :fetcher (:config spec))
+               fetched (p.fetch/fetch-media fetcher
+                                            (:source spec)
+                                            (or (get-in spec [:config :fetcher-opts]) {}))]
+      (r/ok (localized-spec spec fetched)))))
+
 (defn run
-  "Boundary: parse spec -> validate -> load adapters -> wire ports -> run-job.
-   Returns a Result. A top-level Throwable guard funnels EVERY escaping throwable
-   into a structured (r/err ...) — native bytedeco Errors (mis-paired/missing
-   natives), malformed-EDN parse failures, temp-file IO — so the subprocess
-   ALWAYS prints a Result and exits cleanly, never dying with a raw stack trace."
+  "Boundary: parse spec -> validate -> load adapters -> resolve a remote source
+   -> wire ports -> run-job. Returns a Result. A top-level Throwable guard funnels
+   EVERY escaping throwable into a structured (r/err ...) — native bytedeco Errors
+   (mis-paired/missing natives), malformed-EDN parse failures, temp-file IO — so
+   the subprocess ALWAYS prints a Result and exits cleanly, never dying with a raw
+   stack trace."
   [args]
   (r/guard Throwable (r/err :error/uncaught {:phase :run})
     (r/let-ok [spec (r/ok (read-spec args))
                spec (validate-spec spec)]
         (let [config (:config spec)]
           (register-adapters! config)
+          (r/let-ok [spec (resolve-source spec)]
           (cond
             (transcription-spec? spec)
             (r/let-ok [ports (wiring/transcription-ports config)] ; Ingress C — ASR only
@@ -119,7 +147,7 @@
 
             :else
             (r/let-ok [ports (wiring/default-ports config)] ; Ingress A — demux + ASR
-              (api/run-job (assoc ports :config config) spec)))))))
+              (api/run-job (assoc ports :config config) spec))))))))
 
 (defn -main [& args]
   (let [result (run args)]

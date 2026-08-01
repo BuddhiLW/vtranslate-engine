@@ -39,6 +39,11 @@
    :composer         (src/coalesce [(src/env "VT_COMPOSER")
                                     (src/file cfg-path [:providers :composer] :type :keyword)]
                                    :type :keyword :required false :default :none)
+   :fetcher          (src/coalesce [(src/env "VT_FETCHER")
+                                    (src/file cfg-path [:providers :fetcher] :type :keyword)]
+                                   :type :keyword :required false)
+   :fetcher-opts     (src/file cfg-path [:fetcher-opts]
+                               :type :map :required false :default {})
    :segmenter-opts   (src/file cfg-path [:segmenter-opts]
                                :type :map :required false :default {})
    :transcriber-opts (src/file cfg-path [:transcriber-opts]
@@ -54,12 +59,13 @@
   "Resolve active provider routing + option maps.
    `overrides` (job-spec :config) win over env/file/default for selected keys.
    => (r/ok {:segmenter kw :transcriber kw|nil :translator kw :composer kw
-             :addons [] :segmenter-opts {} :transcriber-opts {}
-             :translator-opts {} :composer-opts {}})
+             :fetcher kw|nil :addons [] :segmenter-opts {} :transcriber-opts {}
+             :translator-opts {} :composer-opts {} :fetcher-opts {}})
       | (r/err :config/resolution-failed {:errors [...] :partial {...}})."
   ([] (resolve-routing {}))
   ([overrides]
    (di/resolve-config (routing-fields (config-path))
                       (select-keys overrides [:segmenter :transcriber :translator :composer
-                                              :segmenter-opts :transcriber-opts :translator-opts
-                                              :composer-opts :addons]))))
+                                              :fetcher :segmenter-opts :transcriber-opts
+                                              :translator-opts :composer-opts :fetcher-opts
+                                              :addons]))))

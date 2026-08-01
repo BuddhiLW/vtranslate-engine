@@ -7,6 +7,8 @@
             [vtranslate.engine.providers.config :as cfg]
             [vtranslate.engine.providers.router :as router]
             [vtranslate.engine.providers.composer-registry :as cmp-reg]
+            [vtranslate.engine.providers.fetcher-registry :as fetch-reg]
+            [vtranslate.engine.port.fetcher :as p.fetch]
             [vtranslate.engine.providers.compatibility :as compat]))
 
 (defmulti build-port
@@ -104,3 +106,12 @@
   [_ config]
   (r/let-ok [routing (cfg/resolve-routing config)]
     (router/resolve-active-transcriber routing (merge config routing))))
+
+(defmethod build-port :fetcher
+  ;; No provider selected => the refusing default, so a LOCAL job never pays for
+  ;; a fetch addon it does not need and a REMOTE one fails loud at the boundary.
+  [_ config]
+  (r/let-ok [routing (cfg/resolve-routing config)]
+    (if-let [provider (:fetcher routing)]
+      (fetch-reg/resolve-fetcher provider (merge config routing))
+      (r/ok p.fetch/unavailable))))
