@@ -6,7 +6,8 @@
   (:require [hive-dsl.result :as r]
             [vtranslate.engine.providers.config :as cfg]
             [vtranslate.engine.providers.router :as router]
-            [vtranslate.engine.providers.composer-registry :as cmp-reg]))
+            [vtranslate.engine.providers.composer-registry :as cmp-reg]
+            [vtranslate.engine.providers.compatibility :as compat]))
 
 (defmulti build-port
   "Build a port impl for a port key. Extension point: adapters register methods
@@ -18,16 +19,25 @@
   (r/err :error/adapters-not-wired
          {:port port-key :note "real adapters land at M3"}))
 
+(defn- checked-routing
+  "Resolve routing and validate the transcriber/segmenter pairing.
+   => (r/ok routing) | (r/err :error/incompatible-routing {...})."
+  [config]
+  (r/let-ok [routing (cfg/resolve-routing config)]
+    (compat/check routing)))
+
 (defn default-ports
   "Assemble the ASR ingress port set {:media :segmenter :transcriber :translator
    :renderer :muxer} from `config`. :media/:segmenter come from the ffmpeg +
    grid-stub adapters (loaded only on the :ffmpeg classpath); :transcriber fails
    loud until a real ASR adapter lands. :muxer is nil unless config selects it
-   ([:providers :composer])."
+   ([:providers :composer]). Refuses an incompatible transcriber/segmenter
+   pairing once both adapter nses have loaded their declarations."
   [config]
   (r/let-ok [media        (build-port :media config)
              segmenter    (build-port :segmenter config)
              transcriber  (build-port :transcriber config)
+             _pairing     (checked-routing config)
              translator   (build-port :translator config)
              renderer     (build-port :renderer config)
              muxer        (build-port :composer config)]
@@ -36,11 +46,14 @@
 
 (defn transcription-ports
   "Assemble the ASR-only ingress port set {:media :segmenter :transcriber} from
-   `config`. No translator, renderer, or muxer is built."
+   `config`. No translator, renderer, or muxer is built. Refuses an incompatible
+   transcriber/segmenter pairing once both adapter nses have loaded their
+   declarations."
   [config]
   (r/let-ok [media       (build-port :media config)
              segmenter   (build-port :segmenter config)
-             transcriber (build-port :transcriber config)]
+             transcriber (build-port :transcriber config)
+             _pairing    (checked-routing config)]
     (r/ok {:media media :segmenter segmenter :transcriber transcriber})))
 
 (defmethod build-port :composer

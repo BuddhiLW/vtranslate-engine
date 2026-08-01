@@ -5,7 +5,8 @@
   (:require [hive-dsl.result :as r]
             [vtranslate.engine.adapters.transcriber.support :as sup]
             [vtranslate.engine.port.segmenter :as p.seg]
-            [vtranslate.engine.providers.segmenter-registry :as reg]))
+            [vtranslate.engine.providers.segmenter-registry :as reg]
+            [vtranslate.engine.providers.compatibility :as compat]))
 
 (def ^:private native-speech-probs-sym
   (quote vtranslate.engine.adapters.segmenter.silero-vad-native/speech-probs))
@@ -177,3 +178,5 @@
 (defmethod reg/resolve-segmenter :silero-vad
   [_ config]
   (make-segmenter config))
+
+(defmethod compat/segmentation-produced :silero-vad [_] :utterance)

@@ -33,7 +33,8 @@
             [hive-dsl.result :as r]
             [vtranslate.engine.port.transcriber :as p.asr]
             [vtranslate.engine.adapters.transcriber.support :as sup]
-            [vtranslate.engine.providers.transcriber-registry :as reg])
+            [vtranslate.engine.providers.transcriber-registry :as reg]
+            [vtranslate.engine.providers.compatibility :as compat])
   (:import [java.io File]))
 
 ;; The interop lives ONE ns over so its top-level (require [libpython-clj2.python])
@@ -235,3 +236,7 @@
 
 (defmethod reg/resolve-transcriber :canary   [k config] (resolve-nemo k config))
 (defmethod reg/resolve-transcriber :parakeet [k config] (resolve-nemo k config))
+
+(defmethod compat/segmentation-required :canary   [_] :utterance)
+
+(defmethod compat/segmentation-required :parakeet [_] :utterance)

@@ -10,7 +10,8 @@
             [vtranslate.engine.port.segmenter :as p.seg]
             [vtranslate.engine.providers.config :as cfg]
             [vtranslate.engine.wiring :as wiring]
-            [vtranslate.engine.providers.segmenter-registry :as reg]))
+            [vtranslate.engine.providers.segmenter-registry :as reg]
+            [vtranslate.engine.providers.compatibility :as compat]))
 
 (defn grid-spans
   "Pure: tile [0, duration-ms) into contiguous windows of window-ms, the final
@@ -44,3 +45,5 @@
       (if (contains? #{nil :none} segmenter)
         (r/ok nil)
         (reg/resolve-segmenter segmenter (merge config routing))))))
+
+(defmethod compat/segmentation-produced :grid [_] :fixed-window)
