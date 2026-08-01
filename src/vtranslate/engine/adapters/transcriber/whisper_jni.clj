@@ -79,26 +79,45 @@
 (defn- samples->ms [sample sample-rate]
   (long (Math/round (* 1000.0 (/ (double sample) sample-rate)))))
 
+(defn- report!
+  "Emit one progress line on stderr — the channel the CLI streams to the panel.
+   whisper.cpp's own printProgress does not surface through whisper-jni, so this
+   is the only liveness signal a long transcription produces."
+  [msg]
+  (binding [*out* *err*]
+    (println (str "[vtranslate/asr] " msg))
+    (flush)))
+
 (defn- transcribe-with-spans
   [transcribe-samples model-path use-gpu? samples sample-rate language spans span-pad-ms run-opts]
   (if (seq spans)
-    (reduce
-     (fn [acc-res span]
-       (r/let-ok [acc acc-res]
-         (let [[start end] (sample-range sample-rate (alength ^floats samples) span-pad-ms span)]
-           (if (= start end)
-             (r/ok acc)
-             (r/let-ok [raw (transcribe-samples model-path use-gpu?
-                                                (slice-samples samples start end)
-                                                language
-                                                run-opts)]
-               (r/ok (sup/merge-padded-window
-                      acc
-                      (:start-ms span)
-                      (offset-segments (samples->ms start sample-rate) raw))))))))
-     (r/ok [])
-     spans)
-    (transcribe-samples model-path use-gpu? samples language run-opts)))
+    (let [total (count spans)
+          t0    (System/currentTimeMillis)]
+      (report! (str "transcribing " total " spans"))
+      (reduce
+       (fn [acc-res [i span]]
+         (r/let-ok [acc acc-res]
+           (let [[start end] (sample-range sample-rate (alength ^floats samples) span-pad-ms span)]
+             (if (= start end)
+               (r/ok acc)
+               (r/let-ok [raw (transcribe-samples model-path use-gpu?
+                                                  (slice-samples samples start end)
+                                                  language
+                                                  run-opts)]
+                 (report! (format "span %d/%d  audio %.1fs  elapsed %.1fs"
+                                  (inc i) total
+                                  (/ (:start-ms span) 1000.0)
+                                  (/ (- (System/currentTimeMillis) t0) 1000.0)))
+                 (r/ok (sup/merge-padded-window
+                        acc
+                        (:start-ms span)
+                        (offset-segments (samples->ms start sample-rate) raw))))))))
+       (r/ok [])
+       (map-indexed vector spans)))
+    (do
+      (report! (format "transcribing one clip of %.1fs (no VAD spans — no progress until it finishes)"
+                       (/ (alength ^floats samples) (double sample-rate))))
+      (transcribe-samples model-path use-gpu? samples language run-opts))))
 
 (defrecord WhisperLocalTranscriber [model-path use-gpu? span-pad-ms run-opts]
   p.asr/ITranscriber

@@ -58,9 +58,22 @@
         (sleep! wait-ms))
       (reset! last-request-at (now-ms)))))
 
+(def default-request-timeout-s
+  "Per-request ceiling. A batch of subtitle cues through an LLM routinely runs
+   past a minute, and a timeout here discards the whole batch, so this is
+   generous by design. Override with VT_LLM_TIMEOUT_S."
+  300)
+
+(defn request-timeout-s
+  "Per-request timeout in seconds, from VT_LLM_TIMEOUT_S when it parses to a
+   positive number. => long"
+  []
+  (or (some-> (System/getenv "VT_LLM_TIMEOUT_S") str parse-long (as-> n (when (pos? n) n)))
+      default-request-timeout-s))
+
 (defn- chat-request [api-url api-key body]
   (.. (HttpRequest/newBuilder (URI/create api-url))
-      (timeout (Duration/ofSeconds 60))
+      (timeout (Duration/ofSeconds (request-timeout-s)))
       (header "Content-Type" "application/json")
       (header "Authorization" (str "Bearer " api-key))
       (POST (HttpRequest$BodyPublishers/ofString body))

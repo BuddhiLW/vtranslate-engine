@@ -34,10 +34,16 @@
         (do (ffmpeg/burn-hardsub video-source out lines-at opts)
             {:output-uri out})))))
 
+(def default-wrap
+  "Characters per subtitle line before wrapping. Without a wrap a long cue is
+   drawn as one full-width line that runs off both edges."
+  42)
+
 (defn make-composer
-  "Build a HardsubComposer from config's :composer-opts (:font-size, :wrap)."
+  "Build a HardsubComposer from config's :composer-opts (:font-size, :wrap).
+   :font-size absent => scaled to the frame height; :wrap absent => `default-wrap`."
   [config]
-  (->HardsubComposer (get config :composer-opts {})))
+  (->HardsubComposer (merge {:wrap default-wrap} (get config :composer-opts {}))))
 
 (defmethod reg/resolve-composer :hard [_ config]
   (r/ok (make-composer config)))

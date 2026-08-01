@@ -1,10 +1,14 @@
 (ns vtranslate.engine.api
   (:require [hive-dsl.result :as r]
+            [hive-weave.parallel :as wp]
             [vtranslate.engine.domain.job :as job]
             [vtranslate.engine.domain.ingestion :as ing]
             [vtranslate.engine.calc.transcription :as c.tx]
             [vtranslate.engine.calc.translation :as c.tr]
             [vtranslate.engine.calc.rendering :as c.rd]
+            [vtranslate.engine.calc.paths :as c.paths]
+            [vtranslate.engine.calc.cache-key :as ck]
+            [vtranslate.engine.port.transcript-cache :as p.cache]
             [vtranslate.engine.calc.reflow :as c.reflow]
             [vtranslate.engine.calc.subtitle-in :as c.si]
             [vtranslate.engine.calc.subtitle-out :as c.so]
@@ -86,23 +90,52 @@
                                :probe probe
                                :audio audio)))))))
 
-(defn- transcribe-media [{:keys [segmenter transcriber]} state]
+(defn- transcript-cache-key
+  "Identity of this transcription: the audio's CONTENT hash plus every setting
+   that shapes the result. Hashing the file costs well under a second against
+   the minutes ASR takes, and it means a renamed or moved video still hits while
+   a same-sized replacement misses."
+  [{:keys [source source-language]} _probe config]
+  (ck/transcript-key
+   {:content-sha (ck/file-sha source)
+    :provider    (get-in config [:providers :transcriber] (:transcriber config))
+    :model       (get-in config [:transcriber-opts :model-path])
+    :language    source-language
+    :segmenter   (get-in config [:providers :segmenter] (:segmenter config))
+    :span-pad-ms (get-in config [:transcriber-opts :span-pad-ms])}))
+
+(defn- run-asr
+  "Segment, transcribe and build the Transcript. => Result<Transcript>."
+  [{:keys [segmenter transcriber]} {:keys [job-id source-language]} asset probe audio]
+  (r/let-ok [spans (segment-audio segmenter audio probe)
+             asr   (p.asr/transcribe transcriber audio
+                                     (explicit-source-language source-language)
+                                     {:spans spans})]
+    (c.tx/build-transcript {:id (str job-id "-tx") :asset-id (:id asset)
+                            :language (transcript-language source-language)
+                            :segments (:segments asr)})))
+
+(defn- transcribe-media
+  "ASR, or the cached transcript of an identical earlier run. ASR is the only
+   stage that costs minutes, so its result is persisted: a later failure —
+   an expired key, a bad mux — never makes it run twice."
+  [{:keys [transcript-cache] :as resources} state]
   (pf/with-result
     state
     (fn [{:keys [spec asset job probe audio] :as ctx}]
-      (let [{:keys [job-id source-language]} spec]
-        (r/let-ok [spans      (segment-audio segmenter audio probe)
-                   asr        (p.asr/transcribe transcriber audio
-                                                (explicit-source-language source-language)
-                                                {:spans spans})
-                   transcript (c.tx/build-transcript
-                               {:id (str job-id "-tx") :asset-id (:id asset)
-                                :language (transcript-language source-language)
-                                :segments (:segments asr)})
-                   job        (job/advance job)]
-                  (r/ok (assoc ctx
-                               :job (job/link-transcript job (:id transcript))
-                               :transcript transcript)))))))
+      (let [cache (or transcript-cache p.cache/disabled)
+            key   (transcript-cache-key spec probe (:config resources))]
+        (r/let-ok [cached (p.cache/fetch cache key)
+                   transcript (if cached
+                                (r/ok cached)
+                                (r/let-ok [fresh (run-asr resources spec asset probe audio)
+                                           _     (p.cache/store! cache key fresh)]
+                                  (r/ok fresh)))
+                   job (job/advance job)]
+          (r/ok (assoc ctx
+                       :job (job/link-transcript job (:id transcript))
+                       :transcript transcript
+                       :transcript-cached? (boolean cached))))))))
 
 (defn- fold-middleware
   "Fold every middleware registered for `phase` over ctx (r/let-ok
@@ -157,29 +190,82 @@
                      (fn [expected actual]
                        (c.tr/translation-count-error "ordered-translations" expected actual))))))
 
-(defn- translate-transcript [{:keys [translator]} state]
+(defn- lang-suffix
+  "Id suffix distinguishing one target's artefacts from another's. Empty for a
+   single-target job, whose ids must not change."
+  [multi? target-language]
+  (if multi? (str "-" target-language) ""))
+
+(defn- translate-one-target
+  "Translate the single shared transcript into `target-language`.
+   => Result<TranslatedCues>."
+  [tr {:keys [job-id source-language]} transcript target-language multi?]
+  (r/let-ok [targets (translate-segments tr transcript target-language
+                                         (explicit-source-language source-language))]
+    (c.tr/build-translated-cues transcript targets
+                                {:id (str job-id "-tc" (lang-suffix multi? target-language))
+                                 :target-language target-language})))
+
+(def ^:private default-target-concurrency
+  "Target languages translated at once. Each is an independent chain of provider
+   calls, so the bound is about not hammering the provider, not about CPU."
+  3)
+
+(defn- translate-targets
+  "Translate the one shared transcript into every target. Independent per
+   language, so they run under a bounded pool; a timeout or throw surfaces as
+   that target's error rather than a nil, and the FIRST failure fails the job.
+   Order follows `targets`, not completion. => Result<[{:target-language :translated}]>."
+  [tr spec transcript targets config]
+  (let [multi?  (< 1 (count targets))
+        results (wp/bounded-pmap
+                 {:concurrency (or (get-in config [:translator-opts :target-concurrency])
+                                   default-target-concurrency)
+                  :timeout-ms  (or (get-in config [:translator-opts :target-timeout-ms])
+                                   1800000)
+                  :fallback    ::timeout}
+                 (fn [lang]
+                   [lang (translate-one-target tr spec transcript lang multi?)])
+                 targets)]
+    (reduce (fn [acc [lang res]]
+              (r/let-ok [done acc]
+                (cond
+                  (= ::timeout res)
+                  (r/err :error/translation-failed
+                         {:target-language lang :reason "translation timed out"})
+
+                  (r/err? res) res
+
+                  :else
+                  (r/ok (conj done {:target-language lang :translated (:ok res)})))))
+            (r/ok [])
+            (map vector targets (map second results)))))
+
+(defn- translate-transcript
+  "Fan out over every requested target language. The transcript is produced ONCE
+   upstream and reused, because ASR dominates the cost of a job and translation
+   does not. `:translated` stays bound to the first target so a single-target
+   job's result shape is unchanged."
+  [{:keys [translator config]} state]
   (pf/with-result
     state
     (fn [{:keys [spec job transcript] :as ctx}]
-      (let [{:keys [job-id source-language target-language]} spec
-            tr (augment/wrap-opts translator (:translate/opts ctx))]
-        (r/let-ok [targets    (translate-segments tr transcript target-language
-                                                  (explicit-source-language source-language))
-                   translated (c.tr/build-translated-cues
-                               transcript targets
-                               {:id (str job-id "-tc") :target-language target-language})
-                   job        (job/advance job)]
-                  (r/ok (assoc ctx
-                               :job job
-                               :translated translated)))))))
-
-(defn- build-render-track [{:keys [job-id format]} translated]
-  (c.rd/build-subtitle-track translated {:id (str job-id "-sub") :format format}))
+      (let [tr      (augment/wrap-opts translator (:translate/opts ctx))
+            targets (c.tr/normalize-targets spec)]
+        (if (empty? targets)
+          (r/err :error/no-target-language
+                 {:reason "job spec named no target language"})
+          (r/let-ok [outputs (translate-targets tr spec transcript targets config)
+                     job     (job/advance job)]
+            (r/ok (assoc ctx
+                         :job job
+                         :outputs outputs
+                         :translated (:translated (first outputs))))))))))
 
 (def ^:private reserved-result-keys
   "Job-result keys owned by the render stage; middleware :result/extra must not
    overwrite them."
-  [:spec :job :transcript :translated :subtitle-track :rendered])
+  [:spec :job :transcript :translated :subtitle-track :rendered :outputs])
 
 (defn- merge-result-extra
   "Merge middleware :result/extra into the job result. => Result<job-result>;
@@ -191,32 +277,91 @@
       (r/err :error/result-key-clobber {:keys clobbered})
       (r/ok (merge result extra)))))
 
-(defn- render-subtitles [{:keys [renderer]} state]
-  (pf/with-result
-    state
-    (fn [{:keys [spec job transcript translated] :as ctx}]
-      (r/let-ok [track    (build-render-track spec translated)
-                 rendered (p.sub/render-bytes renderer track)
-                 job      (finalize-job job track job/advance)
-                 result   (merge-result-extra {:spec spec
-                                               :job job
-                                               :transcript transcript
-                                               :translated translated
-                                               :subtitle-track track
-                                               :rendered rendered}
-                                              (:result/extra ctx))]
-                (r/ok result)))))
+(defn- render-one-output
+  "Build and render the subtitle track for one translated target.
+   => Result<output> with :subtitle-track and :rendered added."
+  [renderer {:keys [job-id format]} multi? {:keys [target-language translated] :as output}]
+  (r/let-ok [track    (c.rd/build-subtitle-track
+                       translated
+                       {:id (str job-id "-sub" (lang-suffix multi? target-language))
+                        :format format})
+             rendered (p.sub/render-bytes renderer track)]
+    (r/ok (assoc output :subtitle-track track :rendered rendered))))
 
-(defn- compose-video [{:keys [muxer]} state]
+(defn- render-subtitles
+  "Render every target's cues. The first target also populates the flat
+   :subtitle-track / :rendered result keys, so a single-target caller sees
+   exactly what it always did."
+  [{:keys [renderer]} state]
   (pf/with-result
     state
-    (fn [{:keys [spec subtitle-track] :as ctx}]
-      (if muxer
-        (r/let-ok [out (p.comp/compose muxer (:source spec) subtitle-track
-                                       {:output-uri (:output spec)})]
-                  (r/ok (assoc ctx :output-video (or (:output-uris out)
-                                                     (:output-uri out)))))
-        (r/ok ctx)))))
+    (fn [{:keys [spec job transcript outputs] :as ctx}]
+      (r/let-ok [rendered-outputs (reduce
+                                   (fn [acc output]
+                                     (r/let-ok [done acc
+                                                one  (render-one-output
+                                                      renderer spec
+                                                      (< 1 (count outputs)) output)]
+                                       (r/ok (conj done one))))
+                                   (r/ok [])
+                                   outputs)
+                 job      (finalize-job job (:subtitle-track (first rendered-outputs))
+                                        job/advance)
+                 result   (merge-result-extra
+                           {:spec spec
+                            :job job
+                            :transcript transcript
+                            :outputs rendered-outputs
+                            :translated (:translated (first rendered-outputs))
+                            :subtitle-track (:subtitle-track (first rendered-outputs))
+                            :rendered (:rendered (first rendered-outputs))}
+                           (:result/extra ctx))]
+        (r/ok result)))))
+
+(defn- compose-one
+  "Mux one target's track into its own video. With more than one target the
+   output path is tagged with the language, because burning subtitles is
+   per-language by nature and two targets would otherwise write the same file."
+  [muxer {:keys [source output]} multi? {:keys [target-language subtitle-track] :as out}]
+  (r/let-ok [composed (p.comp/compose muxer source subtitle-track
+                                      {:output-uri (if (and multi? output)
+                                                     (c.paths/language-variant
+                                                      output target-language)
+                                                     output)})]
+    (r/ok (assoc out :output-video (or (:output-uris composed)
+                                       (:output-uri composed))))))
+
+(defn- muxed-language?
+  "Whether `target-language` should get a video. `mux-languages` nil means every
+   target; a collection restricts it, so a job can subtitle three languages and
+   burn only one."
+  [mux-languages target-language]
+  (or (nil? mux-languages)
+      (contains? (set (map str mux-languages)) (str target-language))))
+
+(defn- compose-video
+  "Mux the targets a muxer is configured for. :output-video stays bound to the
+   first composed target so a single-target caller sees what it always did."
+  [{:keys [muxer]} state]
+  (pf/with-result
+    state
+    (fn [{:keys [spec outputs] :as ctx}]
+      (if-not muxer
+        (r/ok ctx)
+        (let [wanted (:mux-languages spec)
+              multi? (< 1 (count outputs))]
+          (r/let-ok [composed (reduce
+                               (fn [acc out]
+                                 (r/let-ok [done acc]
+                                   (if (muxed-language? wanted (:target-language out))
+                                     (r/let-ok [one (compose-one muxer spec multi? out)]
+                                       (r/ok (conj done one)))
+                                     (r/ok (conj done out)))))
+                               (r/ok [])
+                               outputs)]
+            (r/ok (assoc ctx
+                         :outputs composed
+                         :output-video (some :output-video composed)))))))))
 
 (def ^:private video-fsm
   (pf/compile-stages
@@ -230,25 +375,36 @@
     (pf/stage :vtranslate.pipeline/compose compose-video)]))
 
 (defn run-job
-  [{:keys [media segmenter transcriber translator renderer muxer config]}
-   {:keys [job-id source source-language target-language asset-kind format output]
+  "Ingress A — demux + ASR + translate + render (+ optional mux).
+   A job may name one `:target-language` or several `:target-languages`; the
+   source is transcribed ONCE either way and each target translates that same
+   transcript. => Result<job-result> carrying :outputs, one entry per language."
+  [{:keys [media segmenter transcriber translator renderer muxer config
+           transcript-cache]}
+   {:keys [job-id source source-language target-language target-languages
+           mux-languages asset-kind format output]
     :or   {asset-kind :media/video format :format/srt}}]
-  (pf/run-pipeline
-   (pf/pipeline {:media media
-                 :segmenter segmenter
-                 :transcriber transcriber
-                 :translator translator
-                 :renderer renderer
-                 :muxer muxer
-                 :config config}
-                video-fsm)
-   {:job-id job-id
-    :source source
-    :source-language source-language
-    :target-language target-language
-    :asset-kind asset-kind
-    :format format
-    :output output}))
+  (let [targets (c.tr/normalize-targets {:target-language target-language
+                                         :target-languages target-languages})]
+    (pf/run-pipeline
+     (pf/pipeline {:media media
+                   :segmenter segmenter
+                   :transcriber transcriber
+                   :translator translator
+                   :renderer renderer
+                   :muxer muxer
+                   :transcript-cache transcript-cache
+                   :config config}
+                  video-fsm)
+     {:job-id job-id
+      :source source
+      :source-language source-language
+      :target-language (or target-language (first targets))
+      :target-languages targets
+      :mux-languages mux-languages
+      :asset-kind asset-kind
+      :format format
+      :output output})))
 
 ;; ---------------------------------------------------------------------------
 ;; Transcription pipeline (ASR-only ingress)

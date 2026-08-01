@@ -1,7 +1,8 @@
 (ns vtranslate.engine.calc.translation
   "Promote (CPPB) — pure: zip a source Transcript with its translated strings
    into a TranslatedCues aggregate for one target language. No IO."
-  (:require [hive-dsl.result :as r]
+  (:require [clojure.string :as str]
+            [hive-dsl.result :as r]
             [vtranslate.engine.shared :as shared]
             [vtranslate.engine.domain.translation :as tr]))
 
@@ -35,6 +36,20 @@
                          (r/ok (tr/begin c0))
                          (map vector segments translations))]
         (tr/complete filled)))))
+
+(defn normalize-targets
+  "The target languages a job asks for, from either `:target-languages` (a
+   collection) or `:target-language` (one). Blanks are dropped and order is
+   preserved with duplicates removed, so the same language is never transcribed
+   for twice. => vector of strings (possibly empty)."
+  [{:keys [target-language target-languages]}]
+  (into []
+        (comp (map #(some-> % str str/trim))
+              (remove str/blank?)
+              (distinct))
+        (if (seq target-languages)
+          target-languages
+          [target-language])))
 
 (defn segment-source-language
   "Resolve one `segment`'s source language through the fallback chain: the segment's

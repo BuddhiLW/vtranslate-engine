@@ -9,6 +9,7 @@
             [vtranslate.engine.providers.composer-registry :as cmp-reg]
             [vtranslate.engine.providers.fetcher-registry :as fetch-reg]
             [vtranslate.engine.port.fetcher :as p.fetch]
+            [vtranslate.engine.port.transcript-cache :as p.cache]
             [vtranslate.engine.providers.compatibility :as compat]))
 
 (defmulti build-port
@@ -30,10 +31,12 @@
 
 (defn default-ports
   "Assemble the ASR ingress port set {:media :segmenter :transcriber :translator
-   :renderer :muxer} from `config`. :media/:segmenter come from the ffmpeg +
-   grid-stub adapters (loaded only on the :ffmpeg classpath); :transcriber fails
-   loud until a real ASR adapter lands. :muxer is nil unless config selects it
-   ([:providers :composer]). Refuses an incompatible transcriber/segmenter
+   :renderer :muxer :transcript-cache} from `config`. :media/:segmenter come from
+   the ffmpeg + grid-stub adapters (loaded only on the :ffmpeg classpath);
+   :transcriber fails loud until a real ASR adapter lands. :muxer is nil unless
+   config selects it ([:providers :composer]). The translator resolves its API
+   key HERE, before the expensive stage, so a keyless job fails in the first
+   second rather than after ASR. Refuses an incompatible transcriber/segmenter
    pairing once both adapter nses have loaded their declarations."
   [config]
   (r/let-ok [media        (build-port :media config)
@@ -42,9 +45,11 @@
              _pairing     (checked-routing config)
              translator   (build-port :translator config)
              renderer     (build-port :renderer config)
-             muxer        (build-port :composer config)]
+             muxer        (build-port :composer config)
+             cache        (build-port :transcript-cache config)]
     (r/ok {:media media :segmenter segmenter :transcriber transcriber
-           :translator translator :renderer renderer :muxer muxer})))
+           :translator translator :renderer renderer :muxer muxer
+           :transcript-cache cache})))
 
 (defn transcription-ports
   "Assemble the ASR-only ingress port set {:media :segmenter :transcriber} from
@@ -106,6 +111,19 @@
   [_ config]
   (r/let-ok [routing (cfg/resolve-routing config)]
     (router/resolve-active-transcriber routing (merge config routing))))
+
+(defmethod build-port :transcript-cache
+  ;; On by default — ASR is the only stage worth minutes, so throwing it away on
+  ;; a downstream failure is the expensive mistake. [:cache :transcripts? false]
+  ;; turns it off; [:cache :dir] relocates it.
+  [_ config]
+  (r/let-ok [routing (cfg/resolve-routing config)]
+    (let [cache-cfg (or (:cache config) (:cache routing))]
+      (if (false? (:transcripts? cache-cfg))
+        (r/ok p.cache/disabled)
+        (r/ok ((requiring-resolve
+                'vtranslate.engine.adapters.transcript-cache.fressian-file/make-cache)
+               (:dir cache-cfg)))))))
 
 (defmethod build-port :fetcher
   ;; No provider selected => the refusing default, so a LOCAL job never pays for

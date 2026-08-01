@@ -7,6 +7,7 @@
             [vtranslate.engine.addons :as addons]
             [vtranslate.engine.providers.config :as cfg]
             [vtranslate.engine.api :as api]
+            [vtranslate.engine.calc.translation :as c.tr]
             [vtranslate.engine.domain.ingestion :as ing]
             [vtranslate.engine.port.fetcher :as p.fetch]
             [vtranslate.engine.wiring :as wiring]
@@ -23,17 +24,18 @@
 
 (defn- validate-spec
   "Boundary smart-ctor: a job spec MUST carry a non-blank :job-id and :source,
-   plus :target-language unless :operation is :transcribe (ASR-only ingress) —
-   a missing :job-id would otherwise silently produce anemic '-asset'/'-tx'/'-sub'
+   plus at least one target language — :target-language or a non-empty
+   :target-languages — unless :operation is :transcribe (ASR-only ingress). A
+   missing :job-id would otherwise silently produce anemic '-asset'/'-tx'/'-sub'
    ids downstream.
    => (r/ok spec) | (r/err :error/invalid-job-spec {:missing [...]})."
   [spec]
-  (let [required (if (transcription-spec? spec)
-                   [:job-id :source]
-                   [:job-id :source :target-language])
-        missing  (vec (for [k required
-                            :when (str/blank? (str (get spec k)))]
-                        k))]
+  (let [missing (cond-> (vec (for [k [:job-id :source]
+                                   :when (str/blank? (str (get spec k)))]
+                               k))
+                  (and (not (transcription-spec? spec))
+                       (empty? (c.tr/normalize-targets spec)))
+                  (conj :target-language))]
     (if (seq missing)
       (r/err :error/invalid-job-spec {:missing missing})
       (r/ok spec))))

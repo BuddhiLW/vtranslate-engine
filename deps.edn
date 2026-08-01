@@ -9,7 +9,9 @@
         io.github.hive-agi/hive-events {:git/tag "v0.5.2" :git/sha "24a58a1"}
 
         ;; DIP filesystem/path effects (IFilesystem / IPathQuery).
-        io.github.hive-agi/hive-system {:git/tag "v0.2.4" :git/sha "0706c57"}
+        ;; 0.3.1 is the first release implementing IFilesystem (mkdirs!/tmpdir!/
+        ;; atomic-write!) — the transcript cache writes through it.
+        io.github.hive-agi/hive-system {:mvn/version "0.3.1"}
 
         ;; Bounded concurrency primitives (bounded-pmap, safe-future, gate). The
         ;; Collect layer fans out over media sources under a hard concurrency
@@ -32,7 +34,12 @@
         ;; JSON for the LLM translator adapters (OpenAI-compatible chat APIs —
         ;; OpenRouter / Venice / OpenAI / ...). java.net.http handles the transport
         ;; (JDK built-in, no dep); cheshire encodes the request + parses the reply.
-        cheshire/cheshire {:mvn/version "5.13.0"}}
+        cheshire/cheshire {:mvn/version "5.13.0"}
+
+        ;; Binary serialization for the transcript cache. ASR is the only stage
+        ;; that costs minutes, so its output is persisted and re-used; fressian
+        ;; round-trips Clojure data compactly without EDN's print/read cost.
+        org.clojure/data.fressian {:mvn/version "1.1.0"}}
 
  :aliases
  {:dev  {:extra-paths ["dev"]

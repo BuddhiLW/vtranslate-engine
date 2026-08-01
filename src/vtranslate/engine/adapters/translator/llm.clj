@@ -34,7 +34,15 @@
   (str "You are a professional subtitle translator. The user message is a JSON "
        "array of subtitle strings. Translate each element from "
        (or src "its source language") " to " tgt ". Keep meaning, tone, and a "
-       "subtitle-appropriate length. Return ONLY a JSON array of translated "
+       "subtitle-appropriate length. "
+       "Translate FULLY into " tgt ": do not leave source-language words in the "
+       "output when " tgt " has an ordinary equivalent, and do not calque the "
+       "source word order. Render common technical and idiomatic vocabulary the "
+       "way a native " tgt " speaker writing for a general audience would. "
+       "Leave a term untranslated ONLY when it is a proper noun (a person, "
+       "company, product or brand) or an acronym with no established "
+       "translation. "
+       "Return ONLY a JSON array of translated "
        "strings the SAME length and order as the input. No prose, no markdown, "
        "no code fences."
        (when context?
@@ -131,10 +139,12 @@
 
 (defrecord LlmTranslator [api-url model secret-env secret-pass]
   p.tr/ITranslator
-  (translate-batch [_ texts source-language target-language opts]
+  (translate-batch [this texts source-language target-language opts]
     (if (empty? texts)
       (r/ok [])
-      (if-let [api-key (chat/resolve-key secret-env secret-pass)]
+      ;; :api-key is attached at build time by resolve-translator; the lazy
+      ;; lookup remains for a record constructed directly.
+      (if-let [api-key (or (:api-key this) (chat/resolve-key secret-env secret-pass))]
         (translate-repairing
          (fn [batch]
            (r/let-ok [content (chat/post-chat :error/translation-failed api-url api-key
@@ -174,5 +184,21 @@
                        (:secret-pass opts)
                        (:secret-pass d)))))
 
-(defmethod reg/resolve-translator :openrouter [k config] (r/ok (make-translator k config)))
-(defmethod reg/resolve-translator :venice     [k config] (r/ok (make-translator k config)))
+(defn resolved
+  "Attach the API key AT BUILD TIME. Resolving lazily at first translate meant a
+   job could spend minutes in ASR and only then discover it had no key — or lose
+   one it did have, when a gpg-agent cache expired mid-run. Failing here also
+   warms the pass cache before the expensive stage.
+   => (r/ok translator) | (r/err :error/translator-unavailable {...})."
+  [t]
+  (if-let [api-key (chat/resolve-key (:secret-env t) (:secret-pass t))]
+    (r/ok (assoc t :api-key api-key))
+    (r/err :error/translator-unavailable
+           {:api-url (:api-url t)
+            :secret-env (:secret-env t)
+            :secret-pass (:secret-pass t)
+            :hint (str "no API key — set env " (:secret-env t)
+                       (when (:secret-pass t) (str " or `pass insert " (:secret-pass t) "`")))})))
+
+(defmethod reg/resolve-translator :openrouter [k config] (resolved (make-translator k config)))
+(defmethod reg/resolve-translator :venice     [k config] (resolved (make-translator k config)))
