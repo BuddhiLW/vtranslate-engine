@@ -80,7 +80,7 @@
   (long (Math/round (* 1000.0 (/ (double sample) sample-rate)))))
 
 (defn- transcribe-with-spans
-  [transcribe-samples model-path use-gpu? samples sample-rate language spans span-pad-ms]
+  [transcribe-samples model-path use-gpu? samples sample-rate language spans span-pad-ms run-opts]
   (if (seq spans)
     (reduce
      (fn [acc-res span]
@@ -90,16 +90,17 @@
              (r/ok acc)
              (r/let-ok [raw (transcribe-samples model-path use-gpu?
                                                 (slice-samples samples start end)
-                                                language)]
+                                                language
+                                                run-opts)]
                (r/ok (sup/merge-padded-window
                       acc
                       (:start-ms span)
                       (offset-segments (samples->ms start sample-rate) raw))))))))
      (r/ok [])
      spans)
-    (transcribe-samples model-path use-gpu? samples language)))
+    (transcribe-samples model-path use-gpu? samples language run-opts)))
 
-(defrecord WhisperLocalTranscriber [model-path use-gpu? span-pad-ms]
+(defrecord WhisperLocalTranscriber [model-path use-gpu? span-pad-ms run-opts]
   p.asr/ITranscriber
   (transcribe [_ audio-source language opts]
     (if-let [path (sup/audio->path audio-source)]
@@ -110,17 +111,34 @@
                        (let [transcribe-samples @(requiring-resolve native-transcribe-sym)]
                          (transcribe-with-spans transcribe-samples model-path use-gpu?
                                                 samples sample-rate language (:spans opts)
-                                                span-pad-ms)))]
+                                                span-pad-ms run-opts)))]
         (r/ok {:segments (sup/normalize-segments raw {:unit :ms})}))
       (r/err :error/asr-failed {:reason "audio-source carries no path"}))))
 
 ;; --- provider registry (OCP self-registration) ------------------------------
 
+(defn available-cores
+  "Logical processors visible to this JVM."
+  []
+  (.availableProcessors (Runtime/getRuntime)))
+
+(defn resolve-threads
+  "How many threads whisper.cpp may use. nil or :auto defers to the adapter
+   default; a number is clamped to [1, available] so a typo can neither
+   oversubscribe the box nor ask for zero. => long | nil"
+  ([requested] (resolve-threads requested (available-cores)))
+  ([requested available]
+   (when (and requested (not= :auto requested))
+     (max 1 (min (long requested) (long available))))))
+
 (defmethod reg/resolve-transcriber :whisper-local
   [_ config]
   (let [model-path  (model-path-for config)
         use-gpu?    (boolean (get-in config [:transcriber-opts :use-gpu?] false))
-        span-pad-ms (long (get-in config [:transcriber-opts :span-pad-ms] 500))]
+        span-pad-ms (long (get-in config [:transcriber-opts :span-pad-ms] 500))
+        run-opts    {:threads (resolve-threads (get-in config [:transcriber-opts :threads]))
+                     :print-progress?
+                     (boolean (get-in config [:transcriber-opts :print-progress?] true))}]
     (cond
       ;; Two distinct unavailability causes, each with its own actionable hint,
       ;; so an operator sees WHICH half is missing (the jar or the weights).
@@ -137,4 +155,4 @@
                                " — download one or set config [:transcriber-opts :model-path]")})
 
       :else
-      (r/ok (->WhisperLocalTranscriber model-path use-gpu? span-pad-ms)))))
+      (r/ok (->WhisperLocalTranscriber model-path use-gpu? span-pad-ms run-opts)))))

@@ -63,33 +63,47 @@
   [language]
   (some-> language str str/trim not-empty (str/split #"-") first str/lower-case not-empty))
 
+(defn default-threads
+  "Threads to give whisper.cpp. Its own default is 4 regardless of the machine,
+   which leaves most of a many-core host idle; two cores are held back for the
+   JVM and the rest of the pipeline."
+  []
+  (max 1 (- (.availableProcessors (Runtime/getRuntime)) 2)))
+
 (defn transcribe-samples
   "Run whisper.cpp over `samples` (16 kHz mono float[]) via the cached context for
    `model-path`, returning RAW hypotheses for support/normalize-segments to shape.
+   `run-opts` may carry :threads and :print-progress?.
    => (r/ok [{:start-ms n :end-ms n :text s} ...]) | (r/err :error/asr-failed {...}).
    Fails loud: a non-zero `full` rc or any interop throw becomes :error/asr-failed,
    never a fake/empty transcript."
-  [model-path use-gpu? ^floats samples language]
-  (r/try-effect* :error/asr-failed
-    (when (nil? samples)
-      (throw (ex-info "no audio samples (nil) — upstream audio decode produced nothing"
-                      {:model-path model-path})))
-    (let [^WhisperJNI w   @jni
-          ^WhisperContext ctx (context-for w model-path use-gpu?)
-          ^WhisperFullParams params (WhisperFullParams.)
-          lang (lang-code language)]
-      (when lang (set! (.-language params) lang))
-      (set! (.-printProgress params) false)
-      (set! (.-printRealtime params) false)
-      (set! (.-printTimestamps params) false)
-      (locking ctx
-        (let [rc (.full w ctx params samples (alength samples))]
-          (when-not (zero? rc)
-            (throw (ex-info "whisper full() returned non-zero"
-                            {:rc rc :model-path model-path})))
-          (let [n (.fullNSegments w ctx)]
-            (mapv (fn [i]
-                    {:start-ms (* 10 (.fullGetSegmentTimestamp0 w ctx i))
-                     :end-ms   (* 10 (.fullGetSegmentTimestamp1 w ctx i))
-                     :text     (.fullGetSegmentText w ctx i)})
-                  (range n))))))))
+  ([model-path use-gpu? ^floats samples language]
+   (transcribe-samples model-path use-gpu? samples language nil))
+  ([model-path use-gpu? ^floats samples language run-opts]
+   (r/try-effect* :error/asr-failed
+     (when (nil? samples)
+       (throw (ex-info "no audio samples (nil) — upstream audio decode produced nothing"
+                       {:model-path model-path})))
+     (let [^WhisperJNI w   @jni
+           ^WhisperContext ctx (context-for w model-path use-gpu?)
+           ^WhisperFullParams params (WhisperFullParams.)
+           lang (lang-code language)
+           threads (long (or (:threads run-opts) (default-threads)))]
+       (when lang (set! (.-language params) lang))
+       (set! (.-nThreads params) (int threads))
+       ;; progress goes to stderr, which is the only signal a caller has that a
+       ;; multi-minute transcription is alive
+       (set! (.-printProgress params) (boolean (get run-opts :print-progress? true)))
+       (set! (.-printRealtime params) false)
+       (set! (.-printTimestamps params) false)
+       (locking ctx
+         (let [rc (.full w ctx params samples (alength samples))]
+           (when-not (zero? rc)
+             (throw (ex-info "whisper full() returned non-zero"
+                             {:rc rc :model-path model-path})))
+           (let [n (.fullNSegments w ctx)]
+             (mapv (fn [i]
+                     {:start-ms (* 10 (.fullGetSegmentTimestamp0 w ctx i))
+                      :end-ms   (* 10 (.fullGetSegmentTimestamp1 w ctx i))
+                      :text     (.fullGetSegmentText w ctx i)})
+                   (range n)))))))))
