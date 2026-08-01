@@ -14,7 +14,9 @@
 
 (def addon-catalog
   {:vtranslate/context {:ns 'vtranslate.context.addon
-                        :classpath/aliases [:addon-context]}})
+                        :classpath/aliases [:addon-context]}
+   :vtranslate/fetch   {:ns 'vtranslate.fetch.addon
+                        :classpath/aliases [:addon-fetch]}})
 
 (declare catalog-id)
 
