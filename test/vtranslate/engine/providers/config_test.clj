@@ -77,11 +77,14 @@
 
 (deftest wiring-builds-translator-with-file-opts
   (require 'vtranslate.engine.adapters.translator.llm)
+  (require 'vtranslate.engine.adapters.support.llm-chat)
   (let [path (temp-config {:providers {:translator :venice}
                            :translator-opts {:api-url "https://custom.venice/chat/completions"
                                              :model "venice-model"
                                              :secret-pass "Venice/api-key"}})]
-    (with-redefs [sut/config-path (constantly path)]
+    (with-redefs [sut/config-path (constantly path)
+                  vtranslate.engine.adapters.support.llm-chat/resolve-key
+                  (constantly "stub-key")]
       (let [res (wiring/build-port :translator {})]
         (is (r/ok? res))
         (is (= "https://custom.venice/chat/completions" (:api-url (:ok res))))
