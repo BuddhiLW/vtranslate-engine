@@ -6,6 +6,7 @@
    Loaded ONLY on the :ffmpeg classpath (delegates to collect.ffmpeg raw avformat)."
   (:require [hive-dsl.result :as r]
             [vtranslate.engine.port.composer :as p.comp]
+            [vtranslate.engine.adapters.composer.support :as support]
             [vtranslate.engine.calc.overlay :as overlay]
             [vtranslate.engine.collect.ffmpeg :as ffmpeg]
             [vtranslate.engine.providers.composer-registry :as reg]
@@ -20,7 +21,7 @@
           cues (overlay/timeline subtitle-track)
           lang (or (:language subtitle-track) "und")]
       (r/try-effect* :error/compose-failed
-        (do (ffmpeg/soft-mux video-source out cues lang)
+        (do (support/atomically out #(ffmpeg/soft-mux video-source % cues lang))
             {:output-uri out})))))
 
 (defn make-composer

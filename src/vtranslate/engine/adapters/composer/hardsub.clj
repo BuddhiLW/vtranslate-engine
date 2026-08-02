@@ -7,6 +7,7 @@
    imports bytedeco)."
   (:require [hive-dsl.result :as r]
             [vtranslate.engine.port.composer :as p.comp]
+            [vtranslate.engine.adapters.composer.support :as support]
             [vtranslate.engine.calc.overlay :as overlay]
             [vtranslate.engine.collect.ffmpeg :as ffmpeg]
             [vtranslate.engine.providers.composer-registry :as reg]
@@ -31,7 +32,7 @@
                        (paths/sibling-output video-source ".subbed.mp4"))
           lines-at (lines-at-fn subtitle-track opts)]
       (r/try-effect* :error/compose-failed
-        (do (ffmpeg/burn-hardsub video-source out lines-at opts)
+        (do (support/atomically out #(ffmpeg/burn-hardsub video-source % lines-at opts))
             {:output-uri out})))))
 
 (def default-wrap
