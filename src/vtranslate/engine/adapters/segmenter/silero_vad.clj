@@ -19,6 +19,7 @@
 (def default-min-speech-ms 250)
 (def default-min-silence-ms 100)
 (def default-speech-pad-ms 30)
+(def default-max-span-ms 30000)
 
 (defn- onnxruntime-present? []
   (try (Class/forName "ai.onnxruntime.OrtEnvironment") true
@@ -70,16 +71,33 @@
                        (min audio-length-samples
                             (+ (:end speech) speech-pad-samples))))))))))
 
+(defn cap-spans
+  "Split spans longer than max-span-ms into bounded consecutive windows, so a
+   saturated VAD (one utterance = one blob) still yields granular progress
+   spans. max-span-ms <= 0 disables capping. => vector of {:start-ms :end-ms}."
+  [max-span-ms spans]
+  (if-not (pos? max-span-ms)
+    (vec spans)
+    (into []
+          (mapcat (fn [{:keys [start-ms end-ms]}]
+                    (loop [s start-ms acc []]
+                      (if (<= (- end-ms s) max-span-ms)
+                        (conj acc {:start-ms s :end-ms end-ms})
+                        (recur (+ s max-span-ms)
+                               (conj acc {:start-ms s :end-ms (+ s max-span-ms)}))))))
+          spans)))
+
 (defn speech-spans-from-probs
   "Pure Silero post-processing over per-window speech probabilities.
    Returns ordered, non-overlapping `{:start-ms :end-ms}` spans."
   [speech-probs {:keys [sample-rate audio-length-samples threshold neg-threshold
-                        min-speech-ms min-silence-ms speech-pad-ms]
+                        min-speech-ms min-silence-ms speech-pad-ms max-span-ms]
                  :or   {threshold default-threshold
                         neg-threshold default-neg-threshold
                         min-speech-ms default-min-speech-ms
                         min-silence-ms default-min-silence-ms
-                        speech-pad-ms default-speech-pad-ms}}]
+                        speech-pad-ms default-speech-pad-ms
+                        max-span-ms default-max-span-ms}}]
   (if-not (and (sample-rate-supported? sample-rate) (nat-int? audio-length-samples))
     []
     (let [window-size         (window-size-samples sample-rate)
@@ -125,10 +143,12 @@
            (mapv (fn [{:keys [start end]}]
                    {:start-ms (samples->ms start sample-rate)
                     :end-ms   (samples->ms end sample-rate)}))
-           (filterv #(< (:start-ms %) (:end-ms %)))))))
+           (filterv #(< (:start-ms %) (:end-ms %)))
+           (cap-spans max-span-ms)))))
 
 (defrecord SileroVadSegmenter [model-path threshold neg-threshold
-                               min-speech-ms min-silence-ms speech-pad-ms]
+                               min-speech-ms min-silence-ms speech-pad-ms
+                               max-span-ms]
   p.seg/ISegmenter
   (segment [_ audio-source _opts]
     (if-let [path (sup/audio->path audio-source)]
@@ -150,7 +170,8 @@
                         :neg-threshold neg-threshold
                         :min-speech-ms min-speech-ms
                         :min-silence-ms min-silence-ms
-                        :speech-pad-ms speech-pad-ms})}))
+                        :speech-pad-ms speech-pad-ms
+                        :max-span-ms max-span-ms})}))
       (r/err :error/segmentation-failed {:reason "audio-source carries no path"}))))
 
 (defn make-segmenter [config]
@@ -173,7 +194,8 @@
              (float (or (:neg-threshold opts) default-neg-threshold))
              (long (or (:min-speech-ms opts) default-min-speech-ms))
              (long (or (:min-silence-ms opts) default-min-silence-ms))
-             (long (or (:speech-pad-ms opts) default-speech-pad-ms)))))))
+             (long (or (:speech-pad-ms opts) default-speech-pad-ms))
+             (long (or (:max-span-ms opts) default-max-span-ms)))))))
 
 (defmethod reg/resolve-segmenter :silero-vad
   [_ config]

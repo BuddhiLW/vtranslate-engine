@@ -28,6 +28,30 @@
            :min-silence-ms 32
            :speech-pad-ms 10}))))
 
+(deftest cap-spans-splits-long-spans-into-bounded-windows
+  (is (= [{:start-ms 0 :end-ms 30000}
+          {:start-ms 30000 :end-ms 60000}
+          {:start-ms 60000 :end-ms 65000}]
+         (sut/cap-spans 30000 [{:start-ms 0 :end-ms 65000}])))
+  (is (= [{:start-ms 5 :end-ms 10}] (sut/cap-spans 30000 [{:start-ms 5 :end-ms 10}]))
+      "short spans pass through untouched")
+  (is (= [{:start-ms 0 :end-ms 65000}] (sut/cap-spans 0 [{:start-ms 0 :end-ms 65000}]))
+      "max-span-ms <= 0 disables capping"))
+
+(deftest speech-spans-from-probs-caps-a-saturated-utterance
+  (is (= [{:start-ms 0 :end-ms 1000}
+          {:start-ms 1000 :end-ms 2000}
+          {:start-ms 2000 :end-ms 3000}
+          {:start-ms 3000 :end-ms 3200}]
+         (sut/speech-spans-from-probs
+          (repeat 100 0.9)
+          {:sample-rate 16000
+           :audio-length-samples (* 100 512)
+           :min-speech-ms 1
+           :speech-pad-ms 0
+           :max-span-ms 1000}))
+      "one continuous high-prob blob becomes bounded windows"))
+
 ;; PROPERTY — for ANY probability sequence the hysteresis FSM yields spans that
 ;; are ordered, non-overlapping, non-empty in duration, and within the clip.
 (defspec speech-spans-invariants 200

@@ -88,6 +88,29 @@
     (println (str "[vtranslate/asr] " msg))
     (flush)))
 
+(def ^:private heartbeat-ms
+  "Silence ceiling per decode call: a heartbeat line fires at least this often
+   while any single window is decoding, so progress never blacks out."
+  15000)
+
+(defn- decode-with-heartbeat
+  "Run the blocking decode thunk in a future, emitting a heartbeat line every
+   heartbeat-ms while it runs. Polls at 1s so a fast decode is never padded
+   out to the heartbeat interval. => the thunk's Result."
+  [label thunk]
+  (let [t0  (System/currentTimeMillis)
+        fut (future (thunk))]
+    (loop [last-report t0]
+      (if (realized? fut)
+        @fut
+        (let [_    (Thread/sleep 1000)
+              now  (System/currentTimeMillis)
+              due? (>= (- now last-report) heartbeat-ms)]
+          (when due?
+            (report! (format "%s still decoding — elapsed %.0fs"
+                             label (/ (- now t0) 1000.0))))
+          (recur (if due? now last-report)))))))
+
 (defn- transcribe-with-spans
   [transcribe-samples model-path use-gpu? samples sample-rate language spans span-pad-ms run-opts]
   (if (seq spans)
@@ -100,10 +123,12 @@
            (let [[start end] (sample-range sample-rate (alength ^floats samples) span-pad-ms span)]
              (if (= start end)
                (r/ok acc)
-               (r/let-ok [raw (transcribe-samples model-path use-gpu?
-                                                  (slice-samples samples start end)
-                                                  language
-                                                  run-opts)]
+               (r/let-ok [raw (decode-with-heartbeat
+                               (format "span %d/%d" (inc i) total)
+                               #(transcribe-samples model-path use-gpu?
+                                                    (slice-samples samples start end)
+                                                    language
+                                                    run-opts))]
                  (report! (format "span %d/%d  audio %.1fs  elapsed %.1fs"
                                   (inc i) total
                                   (/ (:start-ms span) 1000.0)
@@ -115,9 +140,11 @@
        (r/ok [])
        (map-indexed vector spans)))
     (do
-      (report! (format "transcribing one clip of %.1fs (no VAD spans — no progress until it finishes)"
+      (report! (format "transcribing one clip of %.1fs (no VAD spans)"
                        (/ (alength ^floats samples) (double sample-rate))))
-      (transcribe-samples model-path use-gpu? samples language run-opts))))
+      (decode-with-heartbeat
+       "clip"
+       #(transcribe-samples model-path use-gpu? samples language run-opts)))))
 
 (defrecord WhisperLocalTranscriber [model-path use-gpu? span-pad-ms run-opts]
   p.asr/ITranscriber
