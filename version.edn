@@ -1,0 +1,6 @@
+{:lib      io.github.BuddhiLW/vtranslate-engine
+ :minor    1
+ :license  {:name "AGPL-3.0-or-later" :url "https://www.gnu.org/licenses/agpl-3.0.html"}
+ :scm-url  "https://github.com/BuddhiLW/vtranslate-engine"
+ :src-dirs ["src"]
+ :publish  :clojars}

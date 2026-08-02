@@ -62,3 +62,29 @@ jobs:
         with:
           tag_name: ${{ steps.version.outputs.tag }}
           generate_release_notes: true
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      # The official installer touches no API, so it behaves identically on
+      # GitHub and Gitea. `clojure --version` is the assertion.
+      - name: Setup Clojure CLI
+        run: |
+          set -euo pipefail
+          curl -fsSL -o /tmp/clj-install.sh \
+            https://download.clojure.org/install/linux-install-1.12.4.1618.sh
+          chmod +x /tmp/clj-install.sh
+          sudo /tmp/clj-install.sh
+          clojure --version
+
+      # deploy reads version.edn :publish (:clojars) and VERSION. Idempotent —
+      # a version already on Clojars HEAD-checks and skips.
+      - name: Deploy to Clojars
+        if: env.CLOJARS_USERNAME != ''
+        env:
+          CLOJARS_USERNAME: ${{ secrets.CLOJARS_USERNAME }}
+          CLOJARS_PASSWORD: ${{ secrets.CLOJARS_PASSWORD }}
+        run: clojure -T:build deploy
