@@ -2,11 +2,11 @@
  :deps {org.clojure/clojure {:mvn/version "1.12.1"}
 
         ;; ADTs (defadt/adt-case) + Result monad (ok/err/bind/let-ok/try-effect).
-        io.github.hive-agi/hive-dsl    {:git/tag "v0.5.1" :git/sha "335869e"}
+        io.github.hive-agi/hive-dsl    {:mvn/version "0.5.8"}
 
         ;; re-frame-style event/effect pipeline: pure handlers return effects
         ;; AS DATA; IO happens only in reg-fx interpreters (the CPPB boundary).
-        io.github.hive-agi/hive-events {:git/tag "v0.5.2" :git/sha "24a58a1"}
+        io.github.hive-agi/hive-events {:mvn/version "0.5.6"}
 
         ;; DIP filesystem/path effects (IFilesystem / IPathQuery).
         ;; 0.3.1 is the first release implementing IFilesystem (mkdirs!/tmpdir!/
@@ -18,7 +18,7 @@
         ;; bound — each ffmpeg grabber is stateful + holds native memory, so the
         ;; bound is what protects file handles / off-heap allocation. (Already a
         ;; transitive dep of hive-system; pinned explicitly because we use it.)
-        io.github.hive-agi/hive-weave  {:git/tag "v0.2.3" :git/sha "c9510b7"}
+        io.github.hive-agi/hive-weave  {:mvn/version "0.3.1"}
 
         ;; Config DI — typed EDN/env config resolution (provider routing). The
         ;; engine reads ~/.config/vtranslate/config.edn ITSELF (standalone, like
@@ -29,7 +29,7 @@
         ;; release. Pinned to the v0.3.1 release here; the live working copy is
         ;; wired for engine-coupled dev via local.deps.edn (:local/root, gitignored)
         ;; so the LSP sidecar + CI resolve from git without host paths.
-        io.github.hive-agi/hive-di     {:git/tag "v0.3.1" :git/sha "ab63fd0"}
+        io.github.hive-agi/hive-di     {:mvn/version "0.3.1"}
 
         ;; JSON for the LLM translator adapters (OpenAI-compatible chat APIs —
         ;; OpenRouter / Venice / OpenAI / ...). java.net.http handles the transport
