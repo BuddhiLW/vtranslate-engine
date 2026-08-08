@@ -20,7 +20,9 @@
      the classpath throws at import — by design, the boundary requires it lazily."
   (:require [vtranslate.engine.collect.protocols :as p]
             [vtranslate.engine.collect.units :as units]
-            [clojure.string :as string])
+            [clojure.string :as string]
+            [vtranslate.engine.calc.captions :as captions]
+            [vtranslate.engine.calc.encoding :as encoding])
   (:import [org.bytedeco.javacv FFmpegFrameGrabber FFmpegFrameRecorder Frame
             Java2DFrameConverter]
            [org.bytedeco.ffmpeg.global avcodec avformat avutil]
@@ -73,28 +75,33 @@
   []
   (->JavaCvMedia))
 
-(def ^:private box-alpha
-  "Opacity of the plate behind a subtitle line. Enough to carry white text over
-   a bright picture without hiding it."
-  165)
-
 (defn- draw-lines!
-  "Draw `lines` bottom-centered onto BufferedImage `img`: a translucent black
-   plate per line, then white bold text with a black outline. A 1px drop shadow
-   alone is unreadable over light or busy footage."
-  [^BufferedImage img lines ^long font-size]
+  "Draw `lines` centred onto BufferedImage `img`: a translucent plate per line,
+   then text with an outline. An outline alone is unreadable over light or busy
+   footage, which is what the plate is for; a zero plate opacity turns it off.
+
+   `style` carries the caption knobs; size, placement and colour are resolved
+   by calc.captions from the frame's own height, so the same style renders the
+   same way at every resolution."
+  [^BufferedImage img lines style]
   (let [g2 ^Graphics2D (.getGraphics img)
         h  (.getHeight img)
-        w  (.getWidth img)]
+        w  (.getWidth img)
+        resolved  (captions/style style)
+        font-size (captions/font-size-px h style)
+        alpha     (captions/plate-alpha style)
+        {:keys [text outline plate]} (captions/colors style)
+        ->awt     (fn [[r g b] a] (Color. (int r) (int g) (int b) (int a)))]
     (doto g2
       (.setRenderingHint RenderingHints/KEY_ANTIALIASING RenderingHints/VALUE_ANTIALIAS_ON)
-      (.setFont (Font. "SansSerif" Font/BOLD (int font-size))))
+      (.setFont (Font. ^String (:font-family resolved)
+                       (if (:bold? resolved) Font/BOLD Font/PLAIN)
+                       (int font-size))))
     (let [fm      (.getFontMetrics g2)
           line-h  (.getHeight fm)
           ascent  (.getAscent fm)
           descent (.getDescent fm)
           n       (count lines)
-          pad     (int (* 0.06 h))
           box-pad (max 6 (int (* 0.30 font-size)))
           stroke  (max 1 (int (/ font-size 14)))]
       (dorun
@@ -102,47 +109,54 @@
         (fn [i ^String line]
           (let [tw (.stringWidth fm line)
                 x  (int (/ (- w tw) 2))
-                y  (int (- h pad (* (- n 1 i) line-h)))]
-            (.setColor g2 (Color. 0 0 0 box-alpha))
-            (.fillRect g2
-                       (int (- x box-pad))
-                       (int (- y ascent (quot box-pad 2)))
-                       (int (+ tw (* 2 box-pad)))
-                       (int (+ ascent descent box-pad)))
-            (.setColor g2 Color/BLACK)
+                y  (int (captions/baseline-px h style n line-h i))]
+            (when (pos? alpha)
+              (.setColor g2 (->awt plate alpha))
+              (.fillRect g2
+                         (int (- x box-pad))
+                         (int (- y ascent (quot box-pad 2)))
+                         (int (+ tw (* 2 box-pad)))
+                         (int (+ ascent descent box-pad))))
+            (.setColor g2 (->awt outline 255))
             (doseq [dx (range (- stroke) (inc stroke))
                     dy (range (- stroke) (inc stroke))
                     :when (not (and (zero? dx) (zero? dy)))]
               (.drawString g2 line (int (+ x dx)) (int (+ y dy))))
-            (.setColor g2 Color/WHITE)
+            (.setColor g2 (->awt text 255))
             (.drawString g2 line (int x) (int y))))
         lines)))
     (.dispose g2)))
 
 (defn- configure-recorder!
-  "Configure + start `rec` for H.264 video / AAC audio matching grabber `g`."
-  [^FFmpegFrameRecorder rec ^FFmpegFrameGrabber g ^long ach]
+  "Configure + start `rec` for H.264 video / AAC audio.
+
+   Bitrates come from `plan`, never from the encoder's defaults: JavaCV falls
+   back to a rate that visibly destroys anything above SD, so a re-encode that
+   does not set one silently downgrades every video that passes through it."
+  [^FFmpegFrameRecorder rec ^FFmpegFrameGrabber g ^long ach plan]
   (doto rec
     (.setFormat "mp4")
     (.setVideoCodec avcodec/AV_CODEC_ID_H264)
+    (.setVideoBitrate (int (:video-bitrate plan)))
     (.setFrameRate (.getFrameRate g))
     (.setSampleRate (.getSampleRate g))
     (.setAudioChannels (int ach))
     (.setAudioCodec avcodec/AV_CODEC_ID_AAC)
+    (.setAudioBitrate (int (:audio-bitrate plan)))
     (.start)))
 
 (defn- transcode-frames!
   "Copy every frame g->rec, drawing active `lines-at` subtitle lines onto video
    frames that carry any (via the two converters); other frames pass through."
   [^FFmpegFrameGrabber g ^FFmpegFrameRecorder rec
-   ^Java2DFrameConverter grab-conv ^Java2DFrameConverter back-conv lines-at font-size]
+   ^Java2DFrameConverter grab-conv ^Java2DFrameConverter back-conv lines-at style]
   (loop []
     (when-let [^Frame frame (.grab g)]
       (let [lines (when (.image frame)
                     (lines-at (units/us->ms (.timestamp frame))))]
         (if (seq lines)
           (let [img (.convert grab-conv frame)]
-            (draw-lines! img lines font-size)
+            (draw-lines! img lines style)
             (.record rec (.convert back-conv img)))
           (.record rec frame)))
       (recur))))
@@ -157,25 +171,36 @@
   "Burn subtitle lines into `source-uri`, writing an H.264/AAC mp4 to `out-path`.
    `lines-at` maps a frame timestamp (ms) to the lines to draw (nil = none): video
    frames with active lines are re-encoded with Graphics2D text drawn on the
-   decoded picture; all other frames pass through untouched. `:font-size` when
-   absent scales with the frame height. => out-path.
+   decoded picture; all other frames pass through untouched. => out-path.
+
+   `opts` may carry `:quality` (a calc.encoding preset, default `:source`) and
+   any calc.captions style key. Absent, the output matches the input's
+   dimensions and bitrate.
 
    In-process only (bundled bytedeco native). Grabber, recorder and both frame
    converters are released (reverse acquisition order) on every path via with-open.
    This box's ffmpeg has no libass/freetype, so burn-in draws onto decoded frames
    here rather than via an ffmpeg subtitles= filter."
-  [^String source-uri ^String out-path lines-at {:keys [font-size]}]
+  [^String source-uri ^String out-path lines-at opts]
   (with-open [g (FFmpegFrameGrabber. source-uri)]
     (.start g)
-    (let [w   (.getImageWidth g)
-          h   (.getImageHeight g)
-          ach (.getAudioChannels g)
-          fs  (long (or font-size (auto-font-size h)))]
+    (let [w    (.getImageWidth g)
+          h    (.getImageHeight g)
+          ach  (.getAudioChannels g)
+          plan (encoding/plan {:source-width w
+                               :source-height h
+                               :source-video-bitrate (.getVideoBitrate g)
+                               :source-audio-bitrate (.getAudioBitrate g)
+                               :frame-rate (.getFrameRate g)
+                               :quality (get opts :quality :source)})]
       (with-open [grab-conv (Java2DFrameConverter.)
                   back-conv (Java2DFrameConverter.)
-                  rec       (FFmpegFrameRecorder. out-path (int w) (int h) (int ach))]
-        (configure-recorder! rec g ach)
-        (transcode-frames! g rec grab-conv back-conv lines-at fs)
+                  rec       (FFmpegFrameRecorder. out-path
+                                                  (int (:width plan))
+                                                  (int (:height plan))
+                                                  (int ach))]
+        (configure-recorder! rec g ach plan)
+        (transcode-frames! g rec grab-conv back-conv lines-at opts)
         (.stop rec))
       out-path)))
 

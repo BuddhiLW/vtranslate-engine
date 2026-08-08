@@ -1,0 +1,36 @@
+{:downscale-to-720
+ {:width 1280,
+  :height 720,
+  :rescaled? true,
+  :video-bitrate 3555555,
+  :audio-bitrate 192000},
+ :no-upscaling
+ {:width 640,
+  :height 360,
+  :rescaled? false,
+  :video-bitrate 800000,
+  :audio-bitrate 96000},
+ :odd-dimensions
+ {:width 1282,
+  :height 720,
+  :rescaled? true,
+  :video-bitrate 2674701,
+  :audio-bitrate 128000},
+ :source-1080p
+ {:width 1920,
+  :height 1080,
+  :rescaled? false,
+  :video-bitrate 8000000,
+  :audio-bitrate 192000},
+ :source-4k
+ {:width 3840,
+  :height 2160,
+  :rescaled? false,
+  :video-bitrate 45000000,
+  :audio-bitrate 256000},
+ :unknown-source-bitrate
+ {:width 1280,
+  :height 720,
+  :rescaled? false,
+  :video-bitrate 2764800,
+  :audio-bitrate 128000}}

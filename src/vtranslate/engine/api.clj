@@ -321,13 +321,21 @@
 (defn- compose-one
   "Mux one target's track into its own video. With more than one target the
    output path is tagged with the language, because burning subtitles is
-   per-language by nature and two targets would otherwise write the same file."
-  [muxer {:keys [source output]} multi? {:keys [target-language subtitle-track] :as out}]
-  (r/let-ok [composed (p.comp/compose muxer source subtitle-track
-                                      {:output-uri (if (and multi? output)
-                                                     (c.paths/language-variant
-                                                      output target-language)
-                                                     output)})]
+   per-language by nature and two targets would otherwise write the same file.
+
+   The job's caption style and output quality ride along, so how a video looks
+   is a property of the request rather than of the deployment."
+  [muxer {:keys [source output caption quality]} multi?
+   {:keys [target-language subtitle-track] :as out}]
+  (r/let-ok [composed (p.comp/compose
+                       muxer source subtitle-track
+                       (cond-> (or caption {})
+                         quality (assoc :quality quality)
+                         true    (assoc :output-uri
+                                        (if (and multi? output)
+                                          (c.paths/language-variant
+                                           output target-language)
+                                          output))))]
     (r/ok (assoc out :output-video (or (:output-uris composed)
                                        (:output-uri composed))))))
 
@@ -378,11 +386,13 @@
   "Ingress A — demux + ASR + translate + render (+ optional mux).
    A job may name one `:target-language` or several `:target-languages`; the
    source is transcribed ONCE either way and each target translates that same
-   transcript. => Result<job-result> carrying :outputs, one entry per language."
+   transcript. `:caption` carries burn-in style and `:quality` the output
+   preset; both are ignored when no muxer is configured.
+   => Result<job-result> carrying :outputs, one entry per language."
   [{:keys [media segmenter transcriber translator renderer muxer config
            transcript-cache]}
    {:keys [job-id source source-language target-language target-languages
-           mux-languages asset-kind format output]
+           mux-languages asset-kind format output caption quality]
     :or   {asset-kind :media/video format :format/srt}}]
   (let [targets (c.tr/normalize-targets {:target-language target-language
                                          :target-languages target-languages})]
@@ -404,6 +414,8 @@
       :mux-languages mux-languages
       :asset-kind asset-kind
       :format format
+      :caption caption
+      :quality quality
       :output output})))
 
 ;; ---------------------------------------------------------------------------
