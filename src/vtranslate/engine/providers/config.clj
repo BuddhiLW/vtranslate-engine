@@ -15,12 +15,20 @@
             [hive-di.resolve :as di]))
 
 (defn config-path
-  "XDG-correct user-config path: $XDG_CONFIG_HOME/vtranslate/config.edn, else
-   ~/.config/vtranslate/config.edn (better than hive-mcp hardcoded ~/.config)."
-  []
-  (let [base (or (not-empty (System/getenv "XDG_CONFIG_HOME"))
-                 (str (System/getProperty "user.home") "/.config"))]
-    (str base "/vtranslate/config.edn")))
+  "Where the user config file is read from.
+
+   Precedence: explicit `override` > $VTRANSLATE_CONFIG > $XDG_CONFIG_HOME/
+   vtranslate/config.edn > ~/.config/vtranslate/config.edn. An override or
+   VTRANSLATE_CONFIG naming a path that does not exist is still honoured — an
+   absent file resolves to built-in defaults, which is how a caller asks for
+   ambient-free routing. => string"
+  ([] (config-path nil))
+  ([override]
+   (or (not-empty override)
+       (not-empty (System/getenv "VTRANSLATE_CONFIG"))
+       (let [base (or (not-empty (System/getenv "XDG_CONFIG_HOME"))
+                      (str (System/getProperty "user.home") "/.config"))]
+         (str base "/vtranslate/config.edn")))))
 
 (defn- routing-fields
   "Field registry: provider selectors coalesce env > config.edn > default.
@@ -58,13 +66,15 @@
 (defn resolve-routing
   "Resolve active provider routing + option maps.
    `overrides` (job-spec :config) win over env/file/default for selected keys.
+   `:config-path` in `overrides` names the config file to read instead of the
+   ambient one; it selects the source and is never itself a routing key.
    => (r/ok {:segmenter kw :transcriber kw|nil :translator kw :composer kw
              :fetcher kw|nil :addons [] :segmenter-opts {} :transcriber-opts {}
              :translator-opts {} :composer-opts {} :fetcher-opts {}})
       | (r/err :config/resolution-failed {:errors [...] :partial {...}})."
   ([] (resolve-routing {}))
   ([overrides]
-   (di/resolve-config (routing-fields (config-path))
+   (di/resolve-config (routing-fields (config-path (:config-path overrides)))
                       (select-keys overrides [:segmenter :transcriber :translator :composer
                                               :fetcher :segmenter-opts :transcriber-opts
                                               :translator-opts :composer-opts :fetcher-opts
