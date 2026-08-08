@@ -13,7 +13,12 @@
     "=> (r/ok transcript) on a hit, (r/ok nil) on a miss, (r/err ...) if the
      store itself is broken.")
   (store! [this key transcript]
-    "Persist `transcript` under `key`. => (r/ok key) | (r/err ...)."))
+    "Persist `transcript` under `key`. => (r/ok key) | (r/err ...).")
+  (forget! [this key]
+    "Drop one entry. Absent is success. => (r/ok key) | (r/err ...).")
+  (evict! [this older-than-seconds]
+    "Drop every entry untouched for longer than `older-than-seconds`.
+     A non-positive age evicts nothing. => (r/ok removed-count) | (r/err ...)."))
 
 (defn cache?
   "True when `x` satisfies the port."
@@ -23,7 +28,9 @@
 (defrecord NoCache []
   ITranscriptCache
   (fetch [_ _] (r/ok nil))
-  (store! [_ key _] (r/ok key)))
+  (store! [_ key _] (r/ok key))
+  (forget! [_ key] (r/ok key))
+  (evict! [_ _] (r/ok 0)))
 
 (def disabled
   "A cache that never hits and never stores — the correct default when caching is

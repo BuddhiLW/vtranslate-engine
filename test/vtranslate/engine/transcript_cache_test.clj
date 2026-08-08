@@ -10,6 +10,7 @@
             [babashka.fs :as fs]
             [hive-dsl.result :as r]
             [hive-schemas.test :refer [deftrifecta-from-schema]]
+            [vtranslate.engine.adapters.transcript-cache.expiring :as expiring]
             [vtranslate.engine.adapters.transcript-cache.fressian-file :as fressian]
             [vtranslate.engine.calc.cache-key :as ck]
             [vtranslate.engine.port.transcript-cache :as port]))
@@ -91,13 +92,20 @@
 (defrecord StubCache [store]
   port/ITranscriptCache
   (fetch  [_ key] (r/ok (get @store key)))
-  (store! [_ key transcript] (swap! store assoc key transcript) (r/ok key)))
+  (store! [_ key transcript] (swap! store assoc key transcript) (r/ok key))
+  (forget! [_ key] (swap! store dissoc key) (r/ok key))
+  ;; No mtimes to read, so nothing ages here. The contract only requires that
+  ;; an eviction answers with a count.
+  (evict! [_ _] (r/ok 0)))
 
 (defn- implementations
   "Every ITranscriptCache the contract must hold for."
   []
   {:stub    (->StubCache (atom {}))
-   :fressian (fressian/make-cache *dir*)})
+   :fressian (fressian/make-cache *dir*)
+   ;; The TTL decorator must satisfy the same contract as what it wraps: a
+   ;; round-trip through the envelope has to return the transcript unchanged.
+   :expiring (expiring/wrap (->StubCache (atom {})) 3600)})
 
 (def sample-transcript
   "Shaped like a real Transcript: nested maps, keyword keys, vectors, strings
@@ -196,3 +204,55 @@
     (is (r/ok? (port/store! cache "k" sample-transcript)))
     (is (fs/directory? nested) "the adapter creates its own directory")
     (is (= sample-transcript (:ok (port/fetch cache "k"))))))
+
+;; ---------------------------------------------------------------------------
+;; The TTL: how long a transcript is believed, and what happens to the rest.
+;; ---------------------------------------------------------------------------
+
+(deftest a-transcript-inside-its-ttl-is-returned-unchanged
+  (let [clock (atom 1000)
+        cache (expiring/wrap (->StubCache (atom {})) 3600 #(deref clock))]
+    (port/store! cache "k" sample-transcript)
+    (swap! clock + 3599)
+    (is (= sample-transcript (:ok (port/fetch cache "k"))))))
+
+(deftest a-transcript-past-its-ttl-is-a-miss-and-is-dropped
+  (let [backing (atom {})
+        clock   (atom 1000)
+        cache   (expiring/wrap (->StubCache backing) 3600 #(deref clock))]
+    (port/store! cache "k" sample-transcript)
+    (swap! clock + 3601)
+    (is (nil? (:ok (port/fetch cache "k")))
+        "an expired transcript must not be handed back as fresh")
+    (is (empty? @backing)
+        "and reading it is what reclaims it, so a stale entry is not immortal")))
+
+(deftest an-entry-written-before-the-ttl-existed-is-still-honoured
+  (testing "a bare transcript has no recorded age and must not be discarded"
+    (let [backing (atom {"legacy" sample-transcript})
+          cache   (expiring/wrap (->StubCache backing) 3600 (constantly 999999999))]
+      (is (= sample-transcript (:ok (port/fetch cache "legacy")))
+          "the deploy that introduced the envelope must not empty the cache"))))
+
+(deftest no-ttl-means-no-wrapper-at-all
+  (let [bare (->StubCache (atom {}))]
+    (is (identical? bare (expiring/wrap bare 0)))
+    (is (identical? bare (expiring/wrap bare nil)))))
+
+(deftest eviction-removes-only-what-has-aged-out
+  (let [cache (fressian/make-cache *dir*)]
+    (port/store! cache "fresh" sample-transcript)
+    (is (= 0 (:ok (port/evict! cache 3600)))
+        "a just-written entry survives")
+    (is (= 0 (:ok (port/evict! cache 0)))
+        "a zero age evicts nothing rather than everything")
+    (is (some? (:ok (port/fetch cache "fresh"))))
+    (let [file (java.io.File. (str *dir* "/" (ck/cache-file-name "fresh")))]
+      (.setLastModified file (- (System/currentTimeMillis) (* 1000 7200)))
+      (is (= 1 (:ok (port/evict! cache 3600)))
+          "an entry nobody has touched for two hours is reclaimed by mtime")
+      (is (nil? (:ok (port/fetch cache "fresh")))))))
+
+(deftest forgetting-an-absent-entry-is-success
+  (let [cache (fressian/make-cache *dir*)]
+    (is (r/ok? (port/forget! cache "never-written")))))

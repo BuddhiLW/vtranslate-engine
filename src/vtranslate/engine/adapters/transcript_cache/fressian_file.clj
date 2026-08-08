@@ -55,7 +55,28 @@
   (store! [_ key transcript]
     (r/let-ok [_ (hfs/mkdirs! dir)
                _ (hfs/atomic-write! (entry-path dir key) (->bytes transcript))]
-      (r/ok key))))
+      (r/ok key)))
+
+  (forget! [_ key]
+    (r/try-effect* :error/transcript-cache-forget
+      (do (java.nio.file.Files/deleteIfExists
+           (java.nio.file.Path/of ^String (entry-path dir key)
+                                  (into-array String [])))
+          key)))
+
+  (evict! [_ older-than-seconds]
+    (let [age (long (or older-than-seconds 0))]
+      (if-not (pos? age)
+        (r/ok 0)
+        (r/try-effect* :error/transcript-cache-evict
+          (let [cutoff (- (System/currentTimeMillis) (* 1000 age))]
+            (->> (.listFiles (java.io.File. ^String dir))
+                 seq
+                 (filter #(and (.isFile ^java.io.File %)
+                               (.endsWith (.getName ^java.io.File %) ".fressian")
+                               (< (.lastModified ^java.io.File %) cutoff)))
+                 (filter #(.delete ^java.io.File %))
+                 count)))))))
 
 (defn make-cache
   "The production cache. `dir` overrides the XDG location."

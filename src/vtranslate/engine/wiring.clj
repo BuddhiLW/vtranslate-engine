@@ -115,15 +115,19 @@
 (defmethod build-port :transcript-cache
   ;; On by default — ASR is the only stage worth minutes, so throwing it away on
   ;; a downstream failure is the expensive mistake. [:cache :transcripts? false]
-  ;; turns it off; [:cache :dir] relocates it.
+  ;; turns it off; [:cache :dir] relocates it; [:cache :ttl-seconds] bounds how
+  ;; long an entry is believed, and with it how large the directory grows.
   [_ config]
   (r/let-ok [routing (cfg/resolve-routing config)]
     (let [cache-cfg (or (:cache config) (:cache routing))]
       (if (false? (:transcripts? cache-cfg))
         (r/ok p.cache/disabled)
-        (r/ok ((requiring-resolve
-                'vtranslate.engine.adapters.transcript-cache.fressian-file/make-cache)
-               (:dir cache-cfg)))))))
+        (let [make-cache (requiring-resolve
+                          'vtranslate.engine.adapters.transcript-cache.fressian-file/make-cache)
+              wrap-ttl   (requiring-resolve
+                          'vtranslate.engine.adapters.transcript-cache.expiring/wrap)]
+          (r/ok (wrap-ttl (make-cache (:dir cache-cfg))
+                          (:ttl-seconds cache-cfg))))))))
 
 (defmethod build-port :fetcher
   ;; No provider selected => the refusing default, so a LOCAL job never pays for
