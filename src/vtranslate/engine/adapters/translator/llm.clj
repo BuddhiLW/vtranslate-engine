@@ -137,7 +137,7 @@
                              b (translate-repairing run (subvec texts half))]
                     (r/ok (into a b)))))))))
 
-(defrecord LlmTranslator [api-url model secret-env secret-pass]
+(defrecord LlmTranslator [provider api-url model secret-env secret-pass pricing]
   p.tr/ITranslator
   (translate-batch [this texts source-language target-language opts]
     (if (empty? texts)
@@ -145,13 +145,19 @@
       ;; :api-key is attached at build time by resolve-translator; the lazy
       ;; lookup remains for a record constructed directly.
       (if-let [api-key (or (:api-key this) (chat/resolve-key secret-env secret-pass))]
-        (translate-repairing
-         (fn [batch]
-           (r/let-ok [content (chat/post-chat :error/translation-failed api-url api-key
-                                              (chat-body model source-language target-language
-                                                         batch opts))]
-             (parse-translations content (count batch))))
-         texts)
+        (let [active-model (or (:model opts) model)]
+          (translate-repairing
+           (fn [batch]
+             (r/let-ok [content (chat/post-chat
+                                 :error/translation-failed api-url api-key
+                                 (chat-body active-model source-language target-language
+                                            batch opts)
+                                 {:on-attempt (:on-provider-attempt opts)
+                                  :provider provider
+                                  :model active-model
+                                  :pricing (or (:pricing opts) pricing)})]
+               (parse-translations content (count batch))))
+           texts))
         (r/err :error/translation-failed
                {:reason (str "no API key set env " secret-env
                              (when secret-pass (str " or pass " secret-pass)))
@@ -177,12 +183,14 @@
   [provider-key config]
   (let [d    (get provider-defaults provider-key)
         opts (get config :translator-opts)]
-    (->LlmTranslator (or (:api-url opts) (:api-url d))
+    (->LlmTranslator provider-key
+                     (or (:api-url opts) (:api-url d))
                      (or (:model opts) (:model d))
                      (or (:secret-env opts) (:secret-env d))
                      (if (and (map? opts) (contains? opts :secret-pass))
                        (:secret-pass opts)
-                       (:secret-pass d)))))
+                       (:secret-pass d))
+                     (:pricing opts))))
 
 (defn resolved
   "Attach the API key AT BUILD TIME. Resolving lazily at first translate meant a

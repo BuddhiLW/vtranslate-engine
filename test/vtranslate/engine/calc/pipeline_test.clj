@@ -63,6 +63,16 @@
   "test/golden/pipeline-shape.edn"
   pipeline-projection)
 
+(deftest translation-result-preserves-transcript-cache-status
+  (let [res (api/run-job mock-ports {:job-id "j-cache-status"
+                                     :source "/v.mp4"
+                                     :source-language "en"
+                                     :target-language "pt-BR"
+                                     :format :format/srt})]
+    (is (r/ok? res))
+    (is (false? (get-in res [:ok :transcript-cached?]))
+        "the render stage must not drop the fresh/cache status")))
+
 ;; WIRING: cutting phase A — a present segmenter cuts spans (bounded by probed
 ;; duration) and they reach the transcriber as :spans opts; absent => nil.
 (deftest segmenter-feeds-transcriber-spans
@@ -115,6 +125,46 @@
            (mapv :target-text (get-in res [:ok :translated :units]))))
     (is (= ["de" "es" "de"]
            (mapv :source-language (get-in res [:ok :translated :units]))))))
+
+(deftest provider-attempts-cost-and-progress-cross-the-run-boundary
+  (let [events (atom [])
+        ports (assoc mock-ports
+                     :config {:translator-opts {:model "model-1"}}
+                     :on-progress (fn [event] (swap! events conj event))
+                     :translator
+                     (reify p.tr/ITranslator
+                       (translate-batch [_ texts _ _ opts]
+                         ((:on-provider-attempt opts)
+                          {:provider :openrouter
+                           :model (:model opts)
+                           :started-at 10
+                           :finished-at 20
+                           :outcome :succeeded
+                           :usage {:input-tokens 7
+                                   :output-tokens 3
+                                   :total-tokens 10
+                                   :cost-micros 42}
+                           :cost-micros 42})
+                         (r/ok texts))))
+        res (api/run-job ports {:job-id "j-telemetry"
+                                :source "/v.mp4"
+                                :source-language "en"
+                                :target-language "pt-BR"})
+        attempt (first (get-in res [:ok :provider-attempts]))]
+    (is (r/ok? res))
+    (is (= 42 (get-in res [:ok :provider-cost-micros])))
+    (is (= {:input-tokens 7 :output-tokens 3 :total-tokens 10
+            :cost-micros 42}
+           (get-in res [:ok :usage])))
+    (is (= {:job-id "j-telemetry" :attempt 1 :provider :openrouter
+            :model "model-1" :outcome :succeeded}
+           (select-keys attempt [:job-id :attempt :provider :model :outcome])))
+    (is (= [:ingesting :transcribing :translating :rendering :composing :completed]
+           (->> @events
+                (filter #(= :pipeline-progress (:type %)))
+                (mapv :stage))))
+    (is (= attempt
+           (:attempt (first (filter #(= :provider-attempt (:type %)) @events)))))))
 
 ;; Comprehension grounding is an ADDON concern now; its engine integration is
 ;; covered by the generic pre-translate seam test (pipeline/extensions-test) and the

@@ -44,6 +44,45 @@
 (defn- transcript-language [language]
   (if (auto-language? language) "und" language))
 
+(defn- notify-progress! [resources event]
+  (when-let [on-progress (:on-progress resources)]
+    (try
+      (on-progress event)
+      (catch Throwable _ nil))))
+
+(defn- stage-progress! [resources stage percent]
+  (notify-progress! resources {:type :pipeline-progress
+                               :stage stage
+                               :percent percent}))
+
+(defn- record-provider-attempt! [resources job-id attempt]
+  (let [record (assoc attempt
+                      :job-id job-id
+                      :attempt (swap! (:provider-attempt-counter resources) inc))]
+    (swap! (:provider-attempts resources) conj record)
+    (notify-progress! resources {:type :provider-attempt
+                                 :attempt record})))
+
+(defn- provider-usage [attempts]
+  (reduce
+   (fn [usage attempt]
+     (reduce (fn [acc key]
+               (update acc key + (long (or (get-in attempt [:usage key]) 0))))
+             usage
+             [:input-tokens :output-tokens :total-tokens :cost-micros]))
+   {:input-tokens 0 :output-tokens 0 :total-tokens 0 :cost-micros 0}
+   attempts))
+
+(defn- attach-provider-telemetry [result attempts]
+  (let [records (vec (sort-by :attempt @attempts))
+        usage (provider-usage records)
+        telemetry {:provider-attempts records
+                   :provider-cost-micros (:cost-micros usage)
+                   :usage usage}]
+    (if (r/ok? result)
+      (update result :ok merge telemetry)
+      (merge result telemetry))))
+
 ;; ---------------------------------------------------------------------------
 ;; Shared pipeline seams — both the video and subtitle pipelines reuse these
 ;; ---------------------------------------------------------------------------
@@ -99,7 +138,8 @@
   (ck/transcript-key
    {:content-sha (ck/file-sha source)
     :provider    (get-in config [:providers :transcriber] (:transcriber config))
-    :model       (get-in config [:transcriber-opts :model-path])
+    :model       (or (get-in config [:transcriber-opts :model-path])
+                     (get-in config [:transcriber-opts :model]))
     :language    source-language
     :segmenter   (get-in config [:providers :segmenter] (:segmenter config))
     :span-pad-ms (get-in config [:transcriber-opts :span-pad-ms])}))
@@ -120,6 +160,7 @@
    stage that costs minutes, so its result is persisted: a later failure —
    an expired key, a bad mux — never makes it run twice."
   [{:keys [transcript-cache] :as resources} state]
+  (stage-progress! resources :transcribing 25)
   (pf/with-result
     state
     (fn [{:keys [spec asset job probe audio] :as ctx}]
@@ -164,28 +205,36 @@
     state
     (fn [ctx] (fold-middleware :vtranslate.pipeline/post-translate resources ctx))))
 
-(defn- translate-indexed-group [translator target-language [source-language indexed-segments]]
+(defn- translate-indexed-group
+  [translator target-language on-provider-attempt model
+   [source-language indexed-segments]]
   (let [{:keys [indices values]} (batch/group-payload indexed-segments :text)]
     (r/let-ok [targets (p.tr/translate-batch translator values source-language target-language
-                                             {:segment-indices indices})]
+                                             {:segment-indices indices
+                                              :on-provider-attempt on-provider-attempt
+                                              :model model})]
       (batch/zip-indices indices targets
                          (fn [expected actual]
                            (c.tr/translation-count-error source-language expected actual))))))
 
-(defn- collect-translations [translator target-language groups]
+(defn- collect-translations [translator target-language groups on-provider-attempt model]
   (reduce (fn [acc group]
             (r/let-ok [pairs acc
-                       group-pairs (translate-indexed-group translator target-language group)]
+                       group-pairs (translate-indexed-group translator target-language
+                                                           on-provider-attempt model group)]
               (r/ok (into pairs group-pairs))))
           (r/ok [])
           groups))
 
-(defn- translate-segments [translator transcript target-language fallback-source-language]
+(defn- translate-segments
+  [translator transcript target-language fallback-source-language
+   on-provider-attempt model]
   (let [segments (:segments transcript)
         groups   (batch/index-groups
                   segments
                   #(c.tr/segment-source-language transcript fallback-source-language %))]
-    (r/let-ok [pairs (collect-translations translator target-language groups)]
+    (r/let-ok [pairs (collect-translations translator target-language groups
+                                           on-provider-attempt model)]
       (batch/scatter (count segments) pairs
                      (fn [expected actual]
                        (c.tr/translation-count-error "ordered-translations" expected actual))))))
@@ -199,9 +248,11 @@
 (defn- translate-one-target
   "Translate the single shared transcript into `target-language`.
    => Result<TranslatedCues>."
-  [tr {:keys [job-id source-language]} transcript target-language multi?]
+  [tr {:keys [job-id source-language model]} transcript target-language multi?
+   on-provider-attempt]
   (r/let-ok [targets (translate-segments tr transcript target-language
-                                         (explicit-source-language source-language))]
+                                         (explicit-source-language source-language)
+                                         on-provider-attempt model)]
     (c.tr/build-translated-cues transcript targets
                                 {:id (str job-id "-tc" (lang-suffix multi? target-language))
                                  :target-language target-language})))
@@ -216,7 +267,7 @@
    language, so they run under a bounded pool; a timeout or throw surfaces as
    that target's error rather than a nil, and the FIRST failure fails the job.
    Order follows `targets`, not completion. => Result<[{:target-language :translated}]>."
-  [tr spec transcript targets config]
+  [tr spec transcript targets config on-provider-attempt]
   (let [multi?  (< 1 (count targets))
         results (wp/bounded-pmap
                  {:concurrency (or (get-in config [:translator-opts :target-concurrency])
@@ -225,7 +276,8 @@
                                    1800000)
                   :fallback    ::timeout}
                  (fn [lang]
-                   [lang (translate-one-target tr spec transcript lang multi?)])
+                   [lang (translate-one-target tr spec transcript lang multi?
+                                               on-provider-attempt)])
                  targets)]
     (reduce (fn [acc [lang res]]
               (r/let-ok [done acc]
@@ -246,7 +298,8 @@
    upstream and reused, because ASR dominates the cost of a job and translation
    does not. `:translated` stays bound to the first target so a single-target
    job's result shape is unchanged."
-  [{:keys [translator config]} state]
+  [{:keys [translator config] :as resources} state]
+  (stage-progress! resources :translating 60)
   (pf/with-result
     state
     (fn [{:keys [spec job transcript] :as ctx}]
@@ -255,7 +308,9 @@
         (if (empty? targets)
           (r/err :error/no-target-language
                  {:reason "job spec named no target language"})
-          (r/let-ok [outputs (translate-targets tr spec transcript targets config)
+          (r/let-ok [outputs (translate-targets
+                              tr spec transcript targets config
+                              #(record-provider-attempt! resources (:job-id spec) %))
                      job     (job/advance job)]
             (r/ok (assoc ctx
                          :job job
@@ -265,7 +320,8 @@
 (def ^:private reserved-result-keys
   "Job-result keys owned by the render stage; middleware :result/extra must not
    overwrite them."
-  [:spec :job :transcript :translated :subtitle-track :rendered :outputs])
+  [:spec :job :transcript :transcript-cached?
+   :translated :subtitle-track :rendered :outputs])
 
 (defn- merge-result-extra
   "Merge middleware :result/extra into the job result. => Result<job-result>;
@@ -292,10 +348,11 @@
   "Render every target's cues. The first target also populates the flat
    :subtitle-track / :rendered result keys, so a single-target caller sees
    exactly what it always did."
-  [{:keys [renderer]} state]
+  [{:keys [renderer] :as resources} state]
+  (stage-progress! resources :rendering 85)
   (pf/with-result
     state
-    (fn [{:keys [spec job transcript outputs] :as ctx}]
+    (fn [{:keys [spec job transcript transcript-cached? outputs] :as ctx}]
       (r/let-ok [rendered-outputs (reduce
                                    (fn [acc output]
                                      (r/let-ok [done acc
@@ -311,6 +368,7 @@
                            {:spec spec
                             :job job
                             :transcript transcript
+                            :transcript-cached? (boolean transcript-cached?)
                             :outputs rendered-outputs
                             :translated (:translated (first rendered-outputs))
                             :subtitle-track (:subtitle-track (first rendered-outputs))
@@ -350,7 +408,8 @@
 (defn- compose-video
   "Mux the targets a muxer is configured for. :output-video stays bound to the
    first composed target so a single-target caller sees what it always did."
-  [{:keys [muxer]} state]
+  [{:keys [muxer] :as resources} state]
+  (stage-progress! resources :composing 95)
   (pf/with-result
     state
     (fn [{:keys [spec outputs] :as ctx}]
@@ -390,33 +449,42 @@
    preset; both are ignored when no muxer is configured.
    => Result<job-result> carrying :outputs, one entry per language."
   [{:keys [media segmenter transcriber translator renderer muxer config
-           transcript-cache]}
+           transcript-cache on-progress]}
    {:keys [job-id source source-language target-language target-languages
            mux-languages asset-kind format output caption quality]
     :or   {asset-kind :media/video format :format/srt}}]
   (let [targets (c.tr/normalize-targets {:target-language target-language
-                                         :target-languages target-languages})]
-    (pf/run-pipeline
-     (pf/pipeline {:media media
+                                         :target-languages target-languages})
+        attempts (atom [])
+        resources {:media media
                    :segmenter segmenter
                    :transcriber transcriber
                    :translator translator
                    :renderer renderer
                    :muxer muxer
                    :transcript-cache transcript-cache
-                   :config config}
-                  video-fsm)
-     {:job-id job-id
-      :source source
-      :source-language source-language
-      :target-language (or target-language (first targets))
-      :target-languages targets
-      :mux-languages mux-languages
-      :asset-kind asset-kind
-      :format format
-      :caption caption
-      :quality quality
-      :output output})))
+                   :config config
+                   :on-progress on-progress
+                   :provider-attempts attempts
+                   :provider-attempt-counter (atom 0)}]
+    (stage-progress! resources :ingesting 10)
+    (let [result (pf/run-pipeline
+                  (pf/pipeline resources video-fsm)
+                  {:job-id job-id
+                   :source source
+                   :source-language source-language
+                   :target-language (or target-language (first targets))
+                   :target-languages targets
+                   :mux-languages mux-languages
+                   :asset-kind asset-kind
+                   :format format
+                   :model (get-in config [:translator-opts :model])
+                   :caption caption
+                   :quality quality
+                   :output output})]
+      (when (r/ok? result)
+        (stage-progress! resources :completed 100))
+      (attach-provider-telemetry result attempts))))
 
 ;; ---------------------------------------------------------------------------
 ;; Transcription pipeline (ASR-only ingress)
@@ -432,11 +500,13 @@
 (defn- finalize-transcription [_ state]
   (pf/with-result
     state
-    (fn [{:keys [spec job transcript] :as ctx}]
+    (fn [{:keys [spec job transcript transcript-cached?] :as ctx}]
       (r/let-ok [job    (job/complete job)
                  result (merge-result-extra {:spec spec
                                              :job job
-                                             :transcript transcript}
+                                             :transcript transcript
+                                             :transcript-cached?
+                                             (boolean transcript-cached?)}
                                             (:result/extra ctx))]
         (r/ok result)))))
 
@@ -451,13 +521,14 @@
 (defn run-transcription-job
   "ASR-only ingress: ingest + transcribe. No translation, render, or compose.
    => (r/ok {:spec spec :job job :transcript transcript}) | (r/err TranslationError)."
-  [{:keys [media segmenter transcriber config]}
+  [{:keys [media segmenter transcriber transcript-cache config]}
    {:keys [job-id source source-language asset-kind]
     :or   {asset-kind :media/video}}]
   (pf/run-pipeline
    (pf/pipeline {:media media
                  :segmenter segmenter
                  :transcriber transcriber
+                 :transcript-cache transcript-cache
                  :config config}
                 transcription-fsm)
    {:job-id job-id

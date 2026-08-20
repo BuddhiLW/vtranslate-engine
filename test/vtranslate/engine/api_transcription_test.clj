@@ -7,7 +7,19 @@
             [hive-dsl.result :as r]
             [vtranslate.engine.api :as api]
             [vtranslate.engine.port.media :as p.media]
+            [vtranslate.engine.port.transcript-cache :as p.cache]
             [vtranslate.engine.port.transcriber :as p.asr]))
+
+(defrecord MemoryCache [entries]
+  p.cache/ITranscriptCache
+  (fetch [_ key] (r/ok (get @entries key)))
+  (store! [_ key transcript]
+    (swap! entries assoc key transcript)
+    (r/ok key))
+  (forget! [_ key]
+    (swap! entries dissoc key)
+    (r/ok key))
+  (evict! [_ _] (r/ok 0)))
 
 (defn- mock-ports
   ([] (mock-ports (reify p.asr/ITranscriber
@@ -64,3 +76,27 @@
                                             :source-language "en"})]
     (is (r/err? res))
     (is (= :error/asr-failed (:error res)))))
+
+(deftest hosted-asr-model-is-part-of-cache-identity-and-hit-is-reported
+  (let [calls       (atom 0)
+        cache       (->MemoryCache (atom {}))
+        transcriber (reify p.asr/ITranscriber
+                      (transcribe [_ _ _ _]
+                        (swap! calls inc)
+                        (r/ok {:segments [{:start-ms 0 :end-ms 1000
+                                           :text "real speech" :confidence 0.9}]})))
+        run         (fn [job-id model]
+                      (api/run-transcription-job
+                       (assoc (mock-ports transcriber)
+                              :transcript-cache cache
+                              :config {:transcriber :whisper-server
+                                       :transcriber-opts {:model model}})
+                       {:job-id job-id :source "/same-video.mp4"
+                        :source-language "en"}))
+        small       (run "small" "faster-whisper-small")
+        large       (run "large" "faster-whisper-large")
+        large-again (run "large-again" "faster-whisper-large")]
+    (is (= 2 @calls) "changing hosted ASR model misses; repeating it hits")
+    (is (false? (get-in small [:ok :transcript-cached?])))
+    (is (false? (get-in large [:ok :transcript-cached?])))
+    (is (true? (get-in large-again [:ok :transcript-cached?])))))

@@ -11,6 +11,7 @@
   (:import (java.net URI)
            (java.net.http HttpClient HttpRequest HttpRequest$BodyPublishers
                           HttpResponse$BodyHandlers)
+           (java.math RoundingMode)
            (java.time Duration)))
 
 (defonce ^:private last-request-at
@@ -92,32 +93,115 @@
     (:body resp)
     (.body resp)))
 
-(defn- response-content [body]
-  (-> (json/parse-string body true) :choices first :message :content))
+(defn- decimal [value]
+  (when (some? value)
+    (try (bigdec value)
+         (catch Throwable _ nil))))
+
+(defn- token-count [usage & keys]
+  (some #(some-> (get usage %) long) keys))
+
+(defn- usd->micros [usd]
+  (some-> (decimal usd)
+          (.multiply (bigdec 1000000))
+          (.setScale 0 RoundingMode/HALF_UP)
+          long))
+
+(defn- token-price [pricing & keys]
+  (some #(let [value (get pricing %)]
+           (decimal (if (map? value) (:usd value) value)))
+        keys))
+
+(defn- calculated-cost-micros [usage pricing]
+  (let [input  (token-count usage :prompt_tokens :input_tokens)
+        output (token-count usage :completion_tokens :output_tokens)
+        in-rate (token-price pricing :prompt :input :prompt-usd-per-token
+                             :input-usd-per-token)
+        out-rate (token-price pricing :completion :output
+                              :completion-usd-per-token :output-usd-per-token)]
+    (when (and input output in-rate out-rate)
+      (usd->micros (+ (* (bigdec input) in-rate)
+                      (* (bigdec output) out-rate))))))
+
+(defn- normalize-usage [usage pricing]
+  (when (map? usage)
+    (let [input (token-count usage :prompt_tokens :input_tokens)
+          output (token-count usage :completion_tokens :output_tokens)
+          total (or (token-count usage :total_tokens)
+                    (when (and input output) (+ input output)))
+          cost (or (some-> (:cost_micros usage) long)
+                   (usd->micros (:cost usage))
+                   (calculated-cost-micros usage pricing))]
+      (cond-> {}
+        input (assoc :input-tokens input)
+        output (assoc :output-tokens output)
+        total (assoc :total-tokens total)
+        (some? cost) (assoc :cost-micros cost)))))
+
+(defn- response-data [body pricing]
+  (let [payload (json/parse-string body true)]
+    {:content (-> payload :choices first :message :content)
+     :model (:model payload)
+     :usage (normalize-usage (:usage payload) pricing)}))
+
+(defn- report-attempt! [on-attempt common detail]
+  (when on-attempt
+    (on-attempt (merge common detail))))
 
 (defn- post-chat* [api-url api-key body opts]
-  (let [{:keys [max-retries base-delay-ms throttle-ms]}
+  (let [{:keys [max-retries base-delay-ms throttle-ms on-attempt provider model pricing]}
         (merge default-post-opts opts)
         req (chat-request api-url api-key body)]
     (loop [attempt 0]
       (throttle! throttle-ms)
-      (let [resp (send-chat-request req)
+      (let [started-at (now-ms)
+            common {:provider provider
+                    :model model
+                    :request-attempt (inc attempt)
+                    :started-at started-at}
+            resp (try
+                   (send-chat-request req)
+                   (catch Throwable throwable
+                     (report-attempt! on-attempt common
+                                      {:finished-at (now-ms)
+                                       :outcome :failed
+                                       :error-class (str (class throwable))
+                                       :message (.getMessage throwable)})
+                     (throw throwable)))
             code (response-status resp)
             pay (response-body resp)]
         (cond
           (<= 200 code 299)
-          (response-content pay)
+          (let [{:keys [content usage] response-model :model}
+                (response-data pay pricing)]
+            (report-attempt! on-attempt common
+                             {:finished-at (now-ms)
+                              :outcome :succeeded
+                              :http-status code
+                              :model (or response-model model)
+                              :usage usage
+                              :cost-micros (:cost-micros usage)})
+            content)
 
           (and (retryable-status? code) (< attempt max-retries))
           (do
+            (report-attempt! on-attempt common
+                             {:finished-at (now-ms)
+                              :outcome :retryable-failure
+                              :http-status code})
             (sleep! (retry-delay-ms base-delay-ms attempt))
             (recur (inc attempt)))
 
           :else
-          (throw (ex-info (str "chat HTTP " code)
-                          {:status code
-                           :body pay
-                           :attempts (inc attempt)})))))))
+          (do
+            (report-attempt! on-attempt common
+                             {:finished-at (now-ms)
+                              :outcome :failed
+                              :http-status code})
+            (throw (ex-info (str "chat HTTP " code)
+                            {:status code
+                             :body pay
+                             :attempts (inc attempt)}))))))))
 
 (defn post-chat
   "POST a chat-completions `body`, returning the assistant message content.
