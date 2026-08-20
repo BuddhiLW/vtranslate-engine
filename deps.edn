@@ -2,7 +2,7 @@
  :deps {org.clojure/clojure {:mvn/version "1.12.1"}
 
         ;; ADTs (defadt/adt-case) + Result monad (ok/err/bind/let-ok/try-effect).
-        io.github.hive-agi/hive-dsl    {:mvn/version "0.5.8"}
+        io.github.hive-agi/hive-dsl    {:mvn/version "0.5.10"}
 
         ;; re-frame-style event/effect pipeline: pure handlers return effects
         ;; AS DATA; IO happens only in reg-fx interpreters (the CPPB boundary).
@@ -11,7 +11,7 @@
         ;; DIP filesystem/path effects (IFilesystem / IPathQuery).
         ;; 0.3.1 is the first release implementing IFilesystem (mkdirs!/tmpdir!/
         ;; atomic-write!) — the transcript cache writes through it.
-        io.github.hive-agi/hive-system {:mvn/version "0.3.1"}
+        io.github.hive-agi/hive-system {:mvn/version "0.3.2"}
 
         ;; Bounded concurrency primitives (bounded-pmap, safe-future, gate). The
         ;; Collect layer fans out over media sources under a hard concurrency
@@ -29,12 +29,12 @@
         ;; release. Pinned to the v0.3.1 release here; the live working copy is
         ;; wired for engine-coupled dev via local.deps.edn (:local/root, gitignored)
         ;; so the LSP sidecar + CI resolve from git without host paths.
-        io.github.hive-agi/hive-di     {:mvn/version "0.3.1"}
+        io.github.hive-agi/hive-di     {:mvn/version "0.4.1"}
 
         ;; JSON for the LLM translator adapters (OpenAI-compatible chat APIs —
         ;; OpenRouter / Venice / OpenAI / ...). java.net.http handles the transport
         ;; (JDK built-in, no dep); cheshire encodes the request + parses the reply.
-        cheshire/cheshire {:mvn/version "5.13.0"}
+        cheshire/cheshire {:mvn/version "6.2.0"}
 
         ;; Binary serialization for the transcript cache. ASR is the only stage
         ;; that costs minutes, so its output is persisted and re-used; fressian
@@ -44,28 +44,28 @@
  :aliases
  {:dev  {:extra-paths ["dev"]
          :extra-deps {nrepl/nrepl       {:mvn/version "1.7.0"}
-                      cider/cider-nrepl {:mvn/version "0.58.0"}}}
+                      cider/cider-nrepl {:mvn/version "0.62.2"}}}
 
 
   ;; Malli value objects for the kernel VOs + cross-boundary maps.
   ;; NON-RUNTIME: kept OFF :paths [src] so the subprocess core stays malli-free.
   :schemas {:extra-paths ["schemas"]
             :extra-deps {metosin/malli               {:mvn/version "0.20.1"}
-                         io.github.hive-agi/hive-spi  {:mvn/version "0.1.4"}}}
+                         io.github.hive-agi/hive-spi  {:mvn/version "0.1.18"}}}
 
   ;; Optional Typed Clojure check over the schema-derived annotations.
   :typed {:extra-paths ["schemas"]
           :extra-deps {metosin/malli                      {:mvn/version "0.20.1"}
-                       io.github.hive-agi/hive-spi         {:mvn/version "0.1.4"}
+                       io.github.hive-agi/hive-spi         {:mvn/version "0.1.18"}
                        org.typedclojure/typed.clj.checker  {:mvn/version "1.4.0"}}}
   :test {:extra-paths ["test" "schemas"]
          :extra-deps {lambdaisland/kaocha     {:mvn/version "1.91.1392"}
                       org.clojure/test.check  {:mvn/version "1.1.1"}
-                      ;; hive-test 0.3.5 ships golden/mutation/trifecta (also hive-schemas.test dep).
-                      io.github.hive-agi/hive-test    {:mvn/version "0.3.5"}
+                      ;; hive-test 0.3.12 ships golden/mutation/trifecta (also hive-schemas.test dep).
+                      io.github.hive-agi/hive-test    {:mvn/version "0.3.12"}
                       metosin/malli                   {:mvn/version "0.20.1"}
-                      io.github.hive-agi/hive-spi     {:mvn/version "0.1.4"}
-                      io.github.hive-agi/hive-schemas {:mvn/version "0.1.2"}}
+                      io.github.hive-agi/hive-spi     {:mvn/version "0.1.18"}
+                      io.github.hive-agi/hive-schemas {:mvn/version "0.1.11"}}
          :main-opts ["-m" "kaocha.runner"]}
 
   ;; M5 — ffmpeg via bytedeco JavaCV (in-process, no system ffmpeg). Only the
@@ -74,10 +74,10 @@
   ;; opencv/leptonica/openblas natives for every OS (multi-GB). For other
   ;; platforms swap the :classifier (macosx-arm64, windows-x86_64, ...) or use
   ;; org.bytedeco/ffmpeg-platform. javacv<->ffmpeg pairing CONFIRMED on linux:
-  ;; javacv 1.5.10 ⟷ ffmpeg 6.1.1-1.5.10, getAudioCodecName/grabSamples verified.
-  :ffmpeg {:extra-deps {org.bytedeco/javacv                {:mvn/version "1.5.10"}
-                        org.bytedeco/ffmpeg$linux-x86_64   {:mvn/version "6.1.1-1.5.10"}
-                        org.bytedeco/javacpp$linux-x86_64  {:mvn/version "1.5.10"}}}
+  ;; javacv 1.5.14 ⟷ ffmpeg 8.1.2-1.5.14, kept on the same JavaCPP line as ONNX.
+  :ffmpeg {:extra-deps {org.bytedeco/javacv                {:mvn/version "1.5.14"}
+                        org.bytedeco/ffmpeg$linux-x86_64   {:mvn/version "8.1.2-1.5.14"}
+                        org.bytedeco/javacpp$linux-x86_64  {:mvn/version "1.5.14"}}}
 
   ;; --- Optional ASR (ITranscriber) native backends ------------------------
   ;; The engine core loads WITHOUT any of these; each adapter lazy-probes its
@@ -94,7 +94,14 @@
   :sherpa {:extra-deps {com.k2fsa.sherpa.onnx/sherpa-onnx {:mvn/version "1.10.30"}}}
 
   ;; Path 3 — ONNX Runtime via bytedeco (same native-loading machinery as JavaCV).
-  :onnx {:extra-deps {org.bytedeco/onnxruntime-platform {:mvn/version "1.18.0-1.5.10"}}}
+  :onnx {:extra-paths ["test-onnx"]
+         :extra-deps {org.bytedeco/onnxruntime {:mvn/version "1.28.0-1.5.14"}
+                       org.bytedeco/onnxruntime$linux-x86_64 {:mvn/version "1.28.0-1.5.14"}
+                       org.bytedeco/javacpp$linux-x86_64 {:mvn/version "1.5.14"}
+                       org.bytedeco/opencl$linux-x86_64 {:mvn/version "3.1-1.5.14"}
+                       org.bytedeco/dnnl$linux-x86_64 {:mvn/version "3.13-1.5.14"}
+                       org.bytedeco/openvino$linux-x86_64 {:mvn/version "2026.2.1-1.5.14"}
+                       com.github.wendykierp/JTransforms {:mvn/version "3.1"}}}
 
   ;; VAD — Silero VAD Java/ONNX Runtime adapter. Activate with
   ;; VTRANSLATE_ENGINE_ALIASES=":ffmpeg:whisper-jni:silero-vad:run" and
@@ -132,15 +139,15 @@
                        {:git/sha "2734b324642afac34fed6803495819343481121f"}}}
   :test-repl {:extra-paths ["test" "schemas"]
  :extra-deps {nrepl/nrepl                      {:mvn/version "1.7.0"}
-              cider/cider-nrepl                {:mvn/version "0.58.0"}
+              cider/cider-nrepl                {:mvn/version "0.62.2"}
               lambdaisland/kaocha              {:mvn/version "1.91.1392"}
               org.clojure/test.check           {:mvn/version "1.1.1"}
-              io.github.hive-agi/hive-test     {:mvn/version "0.3.5"}
+              io.github.hive-agi/hive-test     {:mvn/version "0.3.12"}
               metosin/malli                    {:mvn/version "0.20.1"}
-              io.github.hive-agi/hive-spi       {:mvn/version "0.1.4"}
-              io.github.hive-agi/hive-schemas  {:mvn/version "0.1.2"}}
+              io.github.hive-agi/hive-spi       {:mvn/version "0.1.18"}
+              io.github.hive-agi/hive-schemas  {:mvn/version "0.1.11"}}
  :main-opts ["-m" "nrepl.cmdline" "--middleware" "[cider.nrepl/cider-middleware]"]}
 
   :build {:deps {io.github.clojure/tools.build {:mvn/version "0.10.9"}
-                 slipset/deps-deploy           {:mvn/version "0.2.2"}}
+                 slipset/deps-deploy           {:mvn/version "0.2.5"}}
           :ns-default build}}}
