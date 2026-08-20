@@ -25,4 +25,4 @@
 
  ;; Project-local presets directory
  :presets-path ".hive/presets" 
- :carto {:source-roots ["dev" "model" "schemas" "src" "test" "test-int"]}}
+ :carto {:source-roots ["dev" "model" "schemas" "src" "test" "test-int" "test-onnx"]}}

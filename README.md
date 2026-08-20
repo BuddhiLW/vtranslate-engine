@@ -11,9 +11,9 @@ Two ingress paths:
 - **Ingress A (media, with ASR):** `video/audio → demux audio → ASR → machine-translate → render subtitles (SRT/VTT)`.
 - **Ingress B (subtitle, no ASR):** `subtitle file → parse → (optional reflow) → machine-translate → re-render (SRT/VTT)`.
 
-Ingress B is the **fully runnable** path today (plain classpath, no bytedeco, no
-ASR). Ingress A's media Collect, translate, and render stages are done but the
-path is blocked on a real ASR adapter (the transcriber is still a fail-loud stub).
+Ingress B is fully runnable on the plain classpath. Ingress A is runnable with a
+configured ASR backend; `:onnx-bytedeco` supplies a raw Whisper ONNX path on the
+optional `:onnx` classpath.
 
 ## Domain model (M0) — 5 bounded contexts + shared kernel
 
@@ -65,11 +65,27 @@ Done:
 - **M4** — provider routing (config → registry → router, fail-loud) + translator adapters: `:identity` passthrough terminus and an OpenAI-compatible LLM translator (`:openrouter` / `:venice`, order/count-preserving, key from `pass:` or env).
 - **M5** — Collect: in-process ffmpeg via bytedeco **JavaCV** (probe + audio extract), behind the media port — no bytedeco type crosses the boundary, µs→ms converted at the edge.
 - **M6** — **Ingress B** (no-ASR): subtitle → translate → re-render, runs end-to-end WITHOUT any ASR adapter or bytedeco. Optional pure `calc.reflow` cutting stage (drop-music / merge / cap / split-CPS / snap / re-index).
+- **Raw Whisper ONNX ASR** — JavaCPP ONNX Runtime sessions, Slaney log-mel frontend, cacheless greedy decoder, byte-level BPE, timestamps, chunking, and fail-loud model validation behind `:onnx-bytedeco`.
 
 Not yet:
 
-- **ASR transcriber** — still a fail-loud stub; no real adapter. The transcriber registry/router legitimately exhaust and return `:error/no-transcriber-available` (ASR **never** falls back to a fake transcript). This blocks Ingress A.
 - **`hive-events` JobState FSM** — the pipeline is the `hive-dsl` railway for now.
+
+## Raw ONNX Whisper ASR
+
+The `:onnx-bytedeco` provider expects a cacheless Hugging Face Whisper export in
+one directory:
+
+- `encoder.onnx` with `input_features` -> `last_hidden_state`
+- `decoder.onnx` with `input_ids` + `encoder_hidden_states` -> `logits`
+- `tokenizer.json`
+
+Filenames can be overridden with `:encoder-file`, `:decoder-file`, and
+`:tokenizer-file` under `:transcriber-opts`. Run its native unit suite with
+`clj -M:onnx:test --focus vtranslate.engine.adapters.transcriber.onnx-bytedeco-native-test`.
+Set `VT_ONNX_MODEL_DIR` and `VT_ONNX_WAV` to make that suite execute a real model
+and the reusable `ITranscriber` contract; otherwise the heavyweight smoke is
+skipped. Input WAV must be 16 kHz mono PCM.
 
 ## ffmpeg (Collect, M5)
 
@@ -99,7 +115,7 @@ clj -M:run '{:job-id "j1" :source "in.srt" :source-language "en" :target-languag
 #   default translator is :identity (structural passthrough smoke run); for real MT
 #   set VT_TRANSLATOR=openrouter (or :config {:translator :openrouter} in the spec).
 
-# Ingress A (demux + ASR) needs the :ffmpeg alias for media AND a real ASR adapter
-# (not yet shipped — fails loud with :error/no-transcriber-available until one lands).
-clj -M:ffmpeg:run '{:job-id "j1" :source "in.mp4" :source-language "en" :target-language "pt-BR"}'
+# Raw ONNX Ingress A: configure :transcriber :onnx-bytedeco and model-dir in
+# config.edn, then include both native aliases.
+clj -M:ffmpeg:onnx:run '{:job-id "j1" :source "in.mp4" :source-language "en" :target-language "pt-BR"}'
 ```

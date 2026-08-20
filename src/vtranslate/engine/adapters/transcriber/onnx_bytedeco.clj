@@ -19,9 +19,8 @@
    Capability gate at RESOLVE time (not call time): class present AND a model dir
    configured, else (r/err :error/transcriber-unavailable ...) so the router's
    fallback chain skips this backend cleanly instead of exploding mid-transcode.
-   FAIL LOUD, NEVER FAKE: with the class+model present but the decode pipeline not
-   yet built, transcribe returns (r/err :error/asr-failed ...) — a contract-valid
-   failure, never an empty or fabricated transcript."
+   FAIL LOUD, NEVER FAKE: model layout and native capability are checked before a
+   transcriber is returned; graph or inference failures remain typed ASR errors."
   (:require [clojure.java.io :as io]
             [hive-dsl.result :as r]
             [vtranslate.engine.port.transcriber :as p.asr]
@@ -69,6 +68,16 @@
   [config]
   (some-> (get-in config [:transcriber-opts :model-dir]) str not-empty))
 
+(defn- model-files [dir opts]
+  {:encoder (io/file dir (or (:encoder-file opts) (:encoder default-model-files)))
+   :decoder (io/file dir (or (:decoder-file opts) (:decoder default-model-files)))
+   :tokenizer (io/file dir (or (:tokenizer-file opts) (:tokenizer default-model-files)))})
+
+(defn- missing-model-files [dir opts]
+  (->> (model-files dir opts)
+       (keep (fn [[kind file]] (when-not (.isFile file) [kind (.getPath file)])))
+       (into {})))
+
 ;; --- the adapter ------------------------------------------------------------
 
 (defrecord OnnxBytedecoTranscriber [model-dir opts]
@@ -105,7 +114,8 @@
    hold do we build the record; the actual model FILES are opened lazily by the
    native pipeline on first transcribe."
   [config]
-  (let [dir (model-dir config)]
+  (let [dir (model-dir config)
+        opts (:transcriber-opts config)]
     (cond
       (not (backend-available?))
       (r/err :error/transcriber-unavailable
@@ -125,8 +135,14 @@
              {:provider :onnx-bytedeco
               :hint     (str "configured [:transcriber-opts :model-dir] " dir " is not a directory")})
 
+      (seq (missing-model-files dir opts))
+      (r/err :error/transcriber-unavailable
+             {:provider :onnx-bytedeco
+              :missing (missing-model-files dir opts)
+              :hint "encoder, decoder, and tokenizer files must all exist"})
+
       :else
-      (r/ok (->OnnxBytedecoTranscriber dir (get config :transcriber-opts))))))
+      (r/ok (->OnnxBytedecoTranscriber dir opts)))))
 
 (defmethod reg/resolve-transcriber :onnx-bytedeco
   [_ config]

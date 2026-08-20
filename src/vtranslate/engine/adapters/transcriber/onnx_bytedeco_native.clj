@@ -5,30 +5,27 @@
    the classpath, so the engine core stays loadable with the :onnx alias absent —
    the exact split collect.ffmpeg has from collect.port.
 
-   WHAT IS REAL HERE: the ONNX Runtime session plumbing over bytedeco's C++ Ort::
-   wrappers — Env/SessionOptions lifecycle, opening a Session from a model file,
-   enumerating IO names, building a float input tensor, running a single-input graph
-   and reading its output floats. Those are the load-bearing primitives a Whisper
-   decode is assembled FROM.
-
-   WHAT IS NOT BUILT (the marked integration points): (a) the 80-bin log-mel front
-   end, (b) the autoregressive DECODER loop that steps decoder.onnx token-by-token,
-   (c) the BPE tokenizer/detokenizer + timestamp-token -> segment projection. Until
-   those exist, `transcribe-wav` FAILS LOUD with :error/asr-failed — it NEVER emits
-   a fabricated or empty transcript. The real primitives below are the fill-in
-   surface: wire steps (a)-(c) and swap the honest short-circuit for the pipeline.
+   This namespace owns the complete cacheless Whisper ONNX path: Slaney log-mel,
+   encoder execution, greedy autoregressive decoding, byte-level BPE, timestamp
+   projection, and shared segment normalization.
 
    INTEROP CAUTION: method/overload names below target the bytedeco onnxruntime
-   1.18 presets and are UNVERIFIED in this session (the dep is absent). If any is
+   1.28 / JavaCPP 1.5.14 presets. If any model-specific graph contract is
    off, requiring this ns throws at compile time and the caller degrades it to a
    LOUD :error/asr-failed (see onnx_bytedeco.clj) — a safe failure, never a fake."
-  (:require [hive-dsl.result :as r]
+  (:require [cheshire.core :as json]
+            [clojure.java.io :as io]
+            [clojure.string :as str]
+            [hive-dsl.result :as r]
             [vtranslate.engine.adapters.transcriber.support :as sup])
   (:import [org.bytedeco.onnxruntime Env SessionOptions Session RunOptions
-                                     MemoryInfo Value AllocatorWithDefaultOptions
+                                     OrtAllocator Value AllocatorWithDefaultOptions
                                      ValueVector]
            [org.bytedeco.onnxruntime.global onnxruntime]
-           [org.bytedeco.javacpp BytePointer FloatPointer LongPointer PointerPointer]))
+           [org.bytedeco.javacpp BytePointer FloatPointer LongPointer PointerPointer]
+           [org.jtransforms.fft FloatFFT_1D]
+           [java.io ByteArrayOutputStream]
+           [java.nio.charset StandardCharsets]))
 
 ;; --- ORT environment + session lifecycle (REAL) -----------------------------
 
@@ -76,39 +73,50 @@
 
 (defn io-names
   "The graph's input and output tensor names — needed to key Session.Run. ORT hands
-   names out through an allocator; we copy them into Clojure strings immediately so
-   nothing dangles on the native allocator. => {:inputs [name...] :outputs [name...]}."
+  names out through an allocator; we copy them into Clojure strings immediately so
+  nothing dangles on the native allocator. => {:inputs [name...] :outputs [name...]}."
   [^Session s]
-  (let [alloc (AllocatorWithDefaultOptions.)
+  (let [owned-alloc (AllocatorWithDefaultOptions.)
+        alloc (OrtAllocator. (.asUnownedAllocator owned-alloc))
         pull  (fn [n get-name]
                 (mapv (fn [i]
-                        (-> ^Session s (get-name (long i) alloc) (.get) (.getString)))
+                        (.getString ^BytePointer (get-name s (long i) alloc)))
                       (range n)))]
     {:inputs  (pull (.GetInputCount s)  (fn [^Session s i a] (.GetInputNameAllocated s i a)))
      :outputs (pull (.GetOutputCount s) (fn [^Session s i a] (.GetOutputNameAllocated s i a)))}))
 
 ;; --- tensors (REAL) ---------------------------------------------------------
 
-(def ^:private cpu-memory-info
-  "CPU allocator MemoryInfo, reused for every input tensor (it only names WHERE the
-   backing memory lives). Arena allocator + default mem type = ordinary host RAM."
-  (delay (MemoryInfo/CreateCpu onnxruntime/OrtArenaAllocator onnxruntime/OrtMemTypeDefault)))
+(def ^:private cpu-allocator
+  (delay (AllocatorWithDefaultOptions.)))
+
+(defn- ort-allocator ^OrtAllocator []
+  (OrtAllocator. (.asUnownedAllocator ^AllocatorWithDefaultOptions @cpu-allocator)))
 
 (defn float-tensor
-  "Wrap a Clojure float-array `data` as an ORT float32 input Value of `shape`
-   (a long-seq, row-major). The FloatPointer VIEWS `data`, so the array must outlive
-   the Run call — fine within a single transcribe. `p_data_element_count` is the
-   ELEMENT count (not bytes); we assert it matches the shape product so a mis-shaped
-   mel fails here, not deep in native code."
+  "Copy float-array `data` into an allocator-owned ORT tensor of `shape`."
   ^Value [^floats data shape]
   (let [n      (alength data)
         prod   (long (reduce * 1 shape))
         _      (when (not= n prod)
                  (throw (ex-info "float-tensor: data length != shape product"
                                  {:data-len n :shape (vec shape) :product prod})))
-        fp     (FloatPointer. data)
-        shp    (LongPointer. (long-array shape))]
-    (Value/CreateTensor ^MemoryInfo @cpu-memory-info fp (long n) shp (long (count shape)))))
+        ^longs shape (long-array shape)
+        tensor (Value/CreateTensorFloat (ort-allocator) shape (long (alength shape)))]
+    (.put ^FloatPointer (.GetTensorMutableDataFloat tensor) data)
+    tensor))
+
+(defn long-tensor
+  ^Value [values shape]
+  (let [^longs data (long-array values)
+        ^longs shape (long-array shape)
+        prod (long (reduce * 1 shape))]
+    (when (not= (alength data) prod)
+      (throw (ex-info "long-tensor: data length != shape product"
+                      {:data-len (alength data) :shape (vec shape) :product prod})))
+    (let [tensor (Value/CreateTensorLong (ort-allocator) shape (long (alength shape)))]
+      (.put ^LongPointer (.GetTensorMutableDataLong tensor) data)
+      tensor)))
 
 (defn tensor->floats
   "Copy an ORT float32 output tensor into a Clojure float-array. GetElementCount +
@@ -122,11 +130,41 @@
     (.get (.capacity fp n) out)
     out))
 
+(defn tensor-shape [^Value v]
+  (let [info (.GetTensorTypeAndShapeInfo v)
+        dims (long-array (.GetDimensionsCount info))]
+    (.GetDimensions info dims (alength dims))
+    (vec dims)))
+
+(defn tensor-data [^Value v]
+  {:data (tensor->floats v)
+   :shape (tensor-shape v)})
+
+(defn- name-pointers [names]
+  (let [pointers (PointerPointer. (long (count names)))]
+    (doseq [[index name] (map-indexed vector names)]
+      (.put pointers (long index) (BytePointer. ^String name "UTF-8")))
+    pointers))
+
+(defn run-graph
+  "Run a graph with named input Values and copy the requested float outputs."
+  [^Session s inputs output-names]
+  (let [inputs (vec inputs)
+        values (Value. (long (count inputs)))
+        _ (doseq [[index [_ value]] (map-indexed vector inputs)]
+            (.put (.position values (long index)) ^Value value))
+        _ (.position values 0)
+        ^ValueVector result (.Run s (RunOptions.)
+                                  (name-pointers (mapv first inputs)) values
+                                  (long (count inputs))
+                                  (name-pointers output-names)
+                                  (long (count output-names)))]
+    (mapv (fn [index] (tensor-data (.get result (long index))))
+          (range (count output-names)))))
+
 (defn run1
   "Run a SINGLE-input / SINGLE-output graph: `s`.Run(in-name=in-tensor) -> output
-   floats. Sufficient for the encoder (one 'mel' input -> one hidden-state output).
-   The multi-input DECODER step (input_ids + the encoder hidden states + KV cache)
-   needs the array-of-Values Run overload and is one of the marked TODOs below."
+   floats. The decoder uses the general `run-graph` path."
   ^floats [^Session s ^String in-name ^Value in-tensor ^String out-name]
   (let [run-opts (RunOptions.)
         ins      (doto (PointerPointer. 1) (.put 0 (BytePointer. in-name "UTF-8")))
@@ -134,7 +172,7 @@
         ^ValueVector res (.Run s run-opts ins in-tensor 1 outs 1)]
     (tensor->floats (.get res 0))))
 
-;; --- log-mel front end (INTEGRATION POINT (a) — NOT BUILT) -------------------
+;; --- log-mel front end -------------------------------------------------------
 
 (def whisper-mel-spec
   "The exact Whisper log-mel contract the encoder input expects. Kept as DATA so the
@@ -143,17 +181,241 @@
    frames at hop 160 on 16 kHz; shorter clips are zero-padded, longer clips chunked."
   {:sample-rate 16000 :n-fft 400 :hop 160 :n-mels 80 :chunk-frames 3000 :window :hann})
 
+(defn- hz->mel [hz]
+  (if (< hz 1000.0)
+    (/ hz (/ 200.0 3.0))
+    (+ 15.0 (/ (Math/log (/ hz 1000.0)) (/ (Math/log 6.4) 27.0)))))
+
+(defn- mel->hz [mel]
+  (if (< mel 15.0)
+    (* mel (/ 200.0 3.0))
+    (* 1000.0 (Math/exp (* (/ (Math/log 6.4) 27.0) (- mel 15.0))))))
+
+(defn- mel-filterbank [sample-rate n-fft n-mels]
+  (let [bins (inc (quot n-fft 2))
+        low (hz->mel 0.0)
+        high (hz->mel (/ sample-rate 2.0))
+        points (mapv #(mel->hz (+ low (* (/ (- high low) (inc n-mels)) %)))
+                     (range (+ n-mels 2)))
+        filters (float-array (* n-mels bins))]
+    (dotimes [m n-mels]
+      (let [left (nth points m)
+            center (nth points (inc m))
+            right (nth points (+ m 2))
+            norm (/ 2.0 (- right left))]
+        (dotimes [k bins]
+          (let [freq (* k (/ (double sample-rate) n-fft))
+                weight (cond
+                         (<= left freq center) (/ (- freq left) (- center left))
+                         (< center freq right) (/ (- right freq) (- right center))
+                         :else 0.0)]
+            (aset-float filters (+ (* m bins) k) (float (* norm weight)))))))
+    filters))
+
+(def ^:private whisper-window
+  (delay
+    (let [{:keys [n-fft]} whisper-mel-spec
+          window (float-array n-fft)]
+      (dotimes [i n-fft]
+        (aset-float window i
+                    (float (- 0.5 (* 0.5 (Math/cos (/ (* 2.0 Math/PI i) n-fft)))))))
+      window)))
+
+(def ^:private whisper-filters
+  (delay
+    (let [{:keys [sample-rate n-fft n-mels]} whisper-mel-spec]
+      (mel-filterbank sample-rate n-fft n-mels))))
+
+(defn- reflected-sample [^floats samples index]
+  (let [length (alength samples)
+        index (cond
+                (neg? index) (- index)
+                (>= index length) (- (* 2 length) index 2)
+                :else index)]
+    (if (or (neg? index) (>= index length))
+      0.0
+      (aget samples index))))
+
 (defn log-mel-spectrogram
-  "TODO (integration point a): 16 kHz mono float samples -> [1 n-mels chunk-frames]
-   log-mel, per `whisper-mel-spec`. Steps: Hann-windowed STFT (n-fft 400, hop 160)
-   -> power spectrum -> apply the precomputed 80x201 mel filterbank (ship it as an
-   .npz/edn resource under model-dir; NOT derivable cheaply at runtime) -> log10,
-   clamp to (max - 8.0), scale (+4)/4. Then pad/chunk to 3000 frames and flatten
-   row-major for `float-tensor`. Throws until built so no caller silently proceeds
-   on a bogus (e.g. all-zero) mel."
-  [^floats _samples]
-  (throw (ex-info "onnx-bytedeco log-mel front end not yet implemented"
-                  {:need :mel-filterbank :spec whisper-mel-spec})))
+  "Whisper-compatible Slaney log-mel tensor, flattened as [1,80,3000]."
+  [^floats samples]
+  (let [{:keys [n-fft hop n-mels chunk-frames]} whisper-mel-spec
+        chunk-size (* hop chunk-frames)
+        padded (float-array chunk-size)
+        _ (System/arraycopy samples 0 padded 0 (min chunk-size (alength samples)))
+        bins (inc (quot n-fft 2))
+        fft (FloatFFT_1D. (long n-fft))
+        spectrum (float-array (* 2 n-fft))
+        power (float-array bins)
+        mel (float-array (* n-mels chunk-frames))
+        window ^floats @whisper-window
+        filters ^floats @whisper-filters]
+    (dotimes [frame chunk-frames]
+      (java.util.Arrays/fill spectrum (float 0.0))
+      (dotimes [i n-fft]
+        (aset-float spectrum (* 2 i)
+                    (float (* (reflected-sample padded
+                                                (+ (* frame hop) i (- (quot n-fft 2))))
+                              (aget window i)))))
+      (.complexForward fft spectrum)
+      (dotimes [k bins]
+        (let [re (aget spectrum (* 2 k))
+              im (aget spectrum (inc (* 2 k)))]
+          (aset-float power k (float (+ (* re re) (* im im))))))
+      (dotimes [m n-mels]
+        (loop [k 0, energy 0.0]
+          (if (= k bins)
+            (aset-float mel (+ (* m chunk-frames) frame)
+                        (float (Math/log10 (max 1.0e-10 energy))))
+            (recur (inc k)
+                   (+ energy (* (aget filters (+ (* m bins) k))
+                                (aget power k))))))))
+    (let [peak (reduce max -10.0 (seq mel))
+          floor (- peak 8.0)]
+      (dotimes [i (alength mel)]
+        (aset-float mel i (float (/ (+ (max floor (aget mel i)) 4.0) 4.0))))
+      mel)))
+
+;; --- tokenizer + decoder ----------------------------------------------------
+
+(defn load-tokenizer [path]
+  ;; Token strings are data, not map keys. Keywordizing JSON would turn ordinary
+  ;; BPE pieces into Keywords and break byte decoding (and leak interned symbols).
+  (let [raw (json/parse-string (slurp (io/file path)))
+        vocab (get-in raw ["model" "vocab"])
+        added (into {} (map (juxt #(get % "content") #(get % "id")))
+                    (get raw "added_tokens"))]
+    {:token->id (merge vocab added)
+     :id->token (into {} (map (fn [[token id]] [(long id) token]))
+                     (merge vocab added))
+     :special added}))
+
+(def ^:private byte-decoder
+  (delay
+    (let [visible (vec (concat (range 33 127) (range 161 173) (range 174 256)))
+          missing (remove (set visible) (range 256))
+          codes (concat visible (map-indexed (fn [index _] (+ 256 index)) missing))
+          bytes (concat visible missing)]
+      (zipmap (map char codes) bytes))))
+
+(defn detokenize [{:keys [id->token special]} token-ids]
+  (let [special? (set (keys special))
+        encoded (apply str (remove special? (keep id->token token-ids)))
+        out (ByteArrayOutputStream.)]
+    (doseq [ch encoded]
+      (when-let [b (get @byte-decoder ch)]
+        (.write out (int b))))
+    (str/trim (String. (.toByteArray out) StandardCharsets/UTF_8))))
+
+(defn- timestamp-seconds [token]
+  (some->> token
+           (re-matches #"<\|(\d+(?:\.\d+)?)\|>")
+           second
+           parse-double))
+
+(defn timestamp-segments [tokenizer token-ids duration-s]
+  (let [special-ids (set (vals (:special tokenizer)))]
+    (loop [[token-id & more] token-ids, start nil, text-ids [], segments []]
+      (if token-id
+        (if-let [timestamp (timestamp-seconds (get-in tokenizer [:id->token token-id]))]
+          (if (nil? start)
+            (recur more timestamp [] segments)
+            (let [text (detokenize tokenizer text-ids)
+                  segments (cond-> segments
+                             (seq text) (conj {:start start :end timestamp :text text}))]
+              (recur more timestamp [] segments)))
+          (recur more start
+                 (cond-> text-ids (not (special-ids token-id)) (conj token-id))
+                 segments))
+        (let [text (detokenize tokenizer text-ids)]
+          (cond-> segments
+            (seq text) (conj {:start (or start 0.0)
+                              :end duration-s
+                              :text text})))))))
+
+(defn- required-name [names candidates kind]
+  (or (some (set names) candidates)
+      (throw (ex-info (str "unsupported ONNX " (name kind) " graph")
+                      {:available names :expected candidates}))))
+
+(defn- argmax-last [^floats logits shape]
+  (let [vocab (long (last shape))
+        offset (- (alength logits) vocab)]
+    (loop [index 1, best 0, best-value (aget logits offset)]
+      (if (= index vocab)
+        best
+        (let [value (aget logits (+ offset index))]
+          (if (> value best-value)
+            (recur (inc index) index value)
+            (recur (inc index) best best-value)))))))
+
+(defn- decoder-inputs [names ids encoder]
+  (let [id-name (required-name names ["input_ids" "decoder_input_ids"] :decoder-input)
+        hidden-name (required-name names ["encoder_hidden_states" "encoder_outputs"]
+                                   :encoder-state)
+        basic #{id-name hidden-name}
+        extra (remove basic names)]
+    (when (seq extra)
+      (throw (ex-info "decoder graph requires unsupported cache/mask inputs"
+                      {:unsupported (vec extra)})))
+    [[id-name (long-tensor ids [1 (count ids)])]
+     [hidden-name (float-tensor (:data encoder) (:shape encoder))]]))
+
+(defn decode-loop [decoder encoder tokenizer language opts]
+  (let [{:keys [inputs outputs]} (io-names decoder)
+        logits-name (required-name outputs ["logits" "output"] :decoder-output)
+        special (:special tokenizer)
+        language-token (str "<|" (-> (or language "en") str/lower-case
+                                      (str/split #"-") first) "|>")
+        prompt (->> [(get special "<|startoftranscript|>")
+                     (get special language-token)
+                     (get special "<|transcribe|>")]
+                    (remove nil?) vec)
+        eot (get special "<|endoftext|>")
+        max-new (long (or (:max-new-tokens opts) 448))]
+    (when (empty? prompt)
+      (throw (ex-info "tokenizer lacks Whisper start tokens"
+                      {:language-token language-token})))
+    (loop [ids prompt, generated [], remaining max-new]
+      (if (zero? remaining)
+        generated
+        (let [logits (first (run-graph decoder
+                                       (decoder-inputs inputs ids encoder)
+                                       [logits-name]))
+              token (long (argmax-last (:data logits) (:shape logits)))]
+          (if (= token eot)
+            generated
+            (recur (conj ids token) (conj generated token) (dec remaining))))))))
+
+(defn- model-path [model-dir opts key default-name]
+  (str (io/file model-dir (or (get opts key) default-name))))
+
+(defn- sample-chunks [^floats samples]
+  (let [chunk-size (* (:sample-rate whisper-mel-spec) 30)
+        length (alength samples)]
+    (mapv (fn [offset]
+            (let [size (min chunk-size (- length offset))
+                  chunk (float-array size)]
+              (System/arraycopy samples offset chunk 0 size)
+              {:offset offset :samples chunk}))
+          (range 0 (max 1 length) chunk-size))))
+
+(defn- transcribe-chunk [model-dir tokenizer language opts {:keys [offset samples]}]
+  (let [encoder (session (model-path model-dir opts :encoder-file "encoder.onnx"))
+        decoder (session (model-path model-dir opts :decoder-file "decoder.onnx"))
+        encoder-io (io-names encoder)
+        input-name (required-name (:inputs encoder-io) ["input_features" "mel"] :encoder-input)
+        output-name (required-name (:outputs encoder-io)
+                                   ["last_hidden_state" "output"] :encoder-output)
+        mel (log-mel-spectrogram samples)
+        encoded (first (run-graph encoder
+                                  [[input-name (float-tensor mel [1 80 3000])]]
+                                  [output-name]))
+        tokens (decode-loop decoder encoded tokenizer language opts)
+        duration (/ (alength ^floats samples) 16000.0)
+        offset-s (/ offset 16000.0)]
+    (mapv #(-> % (update :start + offset-s) (update :end + offset-s))
+          (timestamp-segments tokenizer tokens duration))))
 
 ;; --- the pipeline entrypoint ------------------------------------------------
 
@@ -162,27 +424,24 @@
    decoder.onnx + tokenizer.json; `path` is the 16 kHz mono PCM WAV; `language` a
    BCP-47 tag; `opts` the merged config/call opts. Returns the ITranscriber Result.
 
-   The full pipeline, once the three integration points are filled, is:
-
-     (r/let-ok [{:keys [samples]} (sup/read-wav-mono-floats path)          ; DONE (support)
-                mel   (log-mel-spectrogram samples)]                        ; TODO (a)
-       (let [enc-h  (run1 (session (str model-dir \"/encoder.onnx\"))       ; REAL (run1)
-                          \"mel\" (float-tensor mel (whisper-shape)) \"output\")
-             tokens (decode-loop (session (str model-dir \"/decoder.onnx\")) ; TODO (b)
-                                 enc-h (sot-prompt language))                ;   argmax over
-             raw    (detokenize (load-bpe (str model-dir \"/tokenizer.json\")) ; TODO (c)
-                                tokens)]                                     ;   -> [{:start :end :text}...] seconds
-         (r/ok {:segments (sup/normalize-segments raw {:unit :s})})))       ; DONE (support guardrail)
-
-   Steps (a) log-mel, (b) the autoregressive decoder loop, and (c) the BPE
-   tokenizer + <|t_xx.xx|> timestamp-token -> segment projection are NOT built, so
-   we short-circuit with a contract-valid failure BEFORE touching the model — no
-   half-run, no fabricated transcript. This is the ONE line to replace when wiring
-   the fill-in above; the raw segments MUST funnel through sup/normalize-segments
-   (the LSP guardrail) so the output is ordered/non-overlapping/start<=end by
-   construction, exactly like every sibling adapter."
-  [model-dir path _language _opts]
-  (r/err :error/asr-failed
-         {:reason    "onnx-bytedeco decode pipeline not yet implemented"
-          :model-dir model-dir
-          :todo      [:log-mel :decoder-loop :bpe-tokenizer]}))
+   The implementation reads PCM, builds Whisper's log-mel tensor, runs the encoder,
+   greedily steps a cacheless decoder graph, decodes byte-level BPE, projects
+   timestamp tokens, and funnels every segment through the shared LSP guardrail."
+  [model-dir path language opts]
+  (let [wav (sup/read-wav-mono-floats path)]
+    (if (r/err? wav)
+      wav
+      (try
+        (let [{:keys [samples sample-rate]} (:ok wav)]
+          (when (not= 16000 sample-rate)
+            (throw (ex-info "onnx-bytedeco requires 16 kHz PCM"
+                            {:sample-rate sample-rate})))
+          (let [tokenizer (load-tokenizer
+                           (model-path model-dir opts :tokenizer-file "tokenizer.json"))
+                raw (mapcat #(transcribe-chunk model-dir tokenizer language opts %)
+                            (sample-chunks samples))]
+            (r/ok {:segments (sup/normalize-segments raw {:unit :s})})))
+        (catch Throwable throwable
+          (r/err :error/asr-failed
+                 {:reason (or (ex-message throwable) "onnx-bytedeco failed")
+                  :model-dir model-dir}))))))
