@@ -35,7 +35,10 @@
     (is (r/err? res))
     (is (contains? #{:error/adapters-not-wired
                      :error/no-translator-available
-                     :error/transcriber-unavailable}
+                     :error/transcriber-unavailable
+                     ;; With :ffmpeg present the media boundary is genuinely
+                     ;; wired, so the nonexistent fixture is reached first.
+                     :error/source-unreadable}
                    (:error res)))))
 
 ;; register-adapters! is best-effort: a missing optional (:ffmpeg) dep is

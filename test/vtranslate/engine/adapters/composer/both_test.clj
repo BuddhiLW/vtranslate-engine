@@ -54,8 +54,12 @@
     (is (= :error/compose-failed (:error res)))
     (is (empty? @calls) "hard never runs when soft failed")))
 
-(deftest resolve-both-fails-loud-without-soft-and-hard
-  (testing "resolving :both delegates to :soft/:hard; unregistered => unknown-composer"
-    (let [res (reg/resolve-composer :both {})]
-      (is (r/err? res))
-      (is (= :error/unknown-composer (:error res))))))
+(deftest resolve-both-reflects-the-loaded-adapter-set
+  (testing "resolving :both delegates to :soft/:hard without assuming optional natives"
+    (let [res   (reg/resolve-composer :both {})
+          known (set (reg/known))]
+      (if (every? known [:soft :hard])
+        (is (r/ok? res) "native aliases registered both delegates")
+        (do
+          (is (r/err? res))
+          (is (= :error/unknown-composer (:error res))))))))
