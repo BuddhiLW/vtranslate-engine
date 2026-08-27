@@ -17,10 +17,22 @@
 (defonce ^:private last-request-at
   (atom 0))
 
+;; Measured 2026-08-27 against Venice deepseek-v3.2: roughly half of a short
+;; run of jobs died on HTTP 429 "the model is currently overloaded". At the
+;; previous 2 retries / 250ms base the whole budget was 250+500ms — under three
+;; seconds — so a customer's paid job was abandoned while the provider was
+;; still only briefly busy.
+;;
+;; A translation job is BATCH work: nobody is watching a socket, and the job
+;; already carries a hold. Waiting ~30s beats failing, so the budget is
+;; 4 retries at 1s base -> 1+2+4+8s.
 (def ^:private default-post-opts
-  {:max-retries 2
-   :base-delay-ms 250
-   :throttle-ms 250})
+  {:max-retries 4
+   :base-delay-ms 1000
+   :throttle-ms 250
+   ;; Cap on a provider-supplied Retry-After, so a hostile or absurd value
+   ;; cannot park a worker thread indefinitely.
+   :max-retry-after-ms 30000})
 
 (defn- now-ms []
   (System/currentTimeMillis))
@@ -50,6 +62,30 @@
 
 (defn- retry-delay-ms [base-delay-ms attempt]
   (* base-delay-ms (bit-shift-left 1 attempt)))
+
+(defn- header-value
+  "One response header by lower-cased name, or nil. java.net.http headers are
+   already case-insensitive; this only unwraps the Optional."
+  [resp header]
+  (when (instance? java.net.http.HttpResponse resp)
+    (-> ^java.net.http.HttpResponse resp
+        .headers
+        (.firstValue header)
+        (.orElse nil))))
+
+(defn- retry-after-ms
+  "The provider's own Retry-After for this response, in ms, or nil.
+
+   A 429 usually carries one, and it is better information than any backoff we
+   compute: it is the provider saying WHEN it will be ready. Only the
+   delta-seconds form is honoured — the HTTP-date form needs a clock, and this
+   namespace has none. Values are clamped to `cap-ms`."
+  [resp cap-ms]
+  (some-> (header-value resp "retry-after")
+          parse-long
+          (max 0)
+          (* 1000)
+          (min cap-ms)))
 
 (defn- throttle! [throttle-ms]
   (when (pos? throttle-ms)
@@ -107,18 +143,46 @@
           (.setScale 0 RoundingMode/HALF_UP)
           long))
 
-(defn- token-price [pricing & keys]
-  (some #(let [value (get pricing %)]
-           (decimal (if (map? value) (:usd value) value)))
-        keys))
+;; A pricing map states a NUMBER and never its unit, and the two dialects that
+;; reach here disagree: OpenRouter quotes USD per TOKEN under :prompt
+;; /:completion, Venice quotes USD per MILLION tokens under :input/:output.
+;; Reading the second as the first is a 1e6 overcharge that still looks like a
+;; plausible invoice, so each accepted key declares the token count its rate
+;; covers instead of the unit being inferred from the map's shape.
+(def ^:private per-token (bigdec 1))
+(def ^:private per-million (bigdec 1000000))
+
+(def ^:private input-rate-keys
+  [[:prompt per-token]
+   [:input per-million]
+   [:prompt-usd-per-token per-token]
+   [:input-usd-per-token per-token]])
+
+(def ^:private output-rate-keys
+  [[:completion per-token]
+   [:output per-million]
+   [:completion-usd-per-token per-token]
+   [:output-usd-per-token per-token]])
+
+(defn- token-price
+  "USD for ONE token, or nil when `pricing` names no rate.
+
+   `key-units` pairs each accepted key with the number of tokens that key's
+   quoted rate covers, so a per-million quote is scaled down here and every
+   caller may simply multiply by a token count."
+  [pricing key-units]
+  (some (fn [[k tokens-per-unit]]
+          (let [value (get pricing k)
+                rate (decimal (if (map? value) (:usd value) value))]
+            ;; Exact: the divisor is a power of ten, so this never repeats.
+            (some-> rate (/ tokens-per-unit))))
+        key-units))
 
 (defn- calculated-cost-micros [usage pricing]
   (let [input  (token-count usage :prompt_tokens :input_tokens)
         output (token-count usage :completion_tokens :output_tokens)
-        in-rate (token-price pricing :prompt :input :prompt-usd-per-token
-                             :input-usd-per-token)
-        out-rate (token-price pricing :completion :output
-                              :completion-usd-per-token :output-usd-per-token)]
+        in-rate (token-price pricing input-rate-keys)
+        out-rate (token-price pricing output-rate-keys)]
     (when (and input output in-rate out-rate)
       (usd->micros (+ (* (bigdec input) in-rate)
                       (* (bigdec output) out-rate))))))
@@ -149,7 +213,8 @@
     (on-attempt (merge common detail))))
 
 (defn- post-chat* [api-url api-key body opts]
-  (let [{:keys [max-retries base-delay-ms throttle-ms on-attempt provider model pricing]}
+  (let [{:keys [max-retries base-delay-ms throttle-ms on-attempt provider model
+                pricing max-retry-after-ms]}
         (merge default-post-opts opts)
         req (chat-request api-url api-key body)]
     (loop [attempt 0]
@@ -189,7 +254,10 @@
                              {:finished-at (now-ms)
                               :outcome :retryable-failure
                               :http-status code})
-            (sleep! (retry-delay-ms base-delay-ms attempt))
+            ;; The provider's own Retry-After outranks our backoff curve: it
+            ;; knows when it will be ready and we are guessing.
+            (sleep! (or (retry-after-ms resp (or max-retry-after-ms 30000))
+                        (retry-delay-ms base-delay-ms attempt)))
             (recur (inc attempt)))
 
           :else

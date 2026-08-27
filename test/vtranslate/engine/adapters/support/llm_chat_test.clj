@@ -97,3 +97,43 @@
                          :on-attempt (fn [value] (reset! attempt value))})
          (is (= 200 (get-in @attempt [:usage :cost-micros])))
          (is (= 150 (get-in @attempt [:usage :total-tokens])))))))
+
+(deftest pricing-dialects-do-not-share-a-unit
+  ;; Both providers quote a bare number. OpenRouter's is USD per TOKEN,
+  ;; Venice's is USD per MILLION tokens. Collapsing them onto one reading is a
+  ;; 1e6 overcharge that still renders as a plausible invoice, so the two are
+  ;; pinned here against the SAME token counts: whichever way a future edit
+  ;; unifies them, one of these assertions has to move.
+  (let [cost-micros #'sut/calculated-cost-micros
+        usage {:prompt_tokens 1690 :completion_tokens 40}]
+    ;; 1690 * 0.33/1e6 + 40 * 0.48/1e6 = $0.00057690 -> 577 micros.
+    (is (= 577 (cost-micros usage {:input {:usd 0.33} :output {:usd 0.48}})))
+    ;; 1690 * 0.000001 + 40 * 0.000002 = $0.00177 -> 1770 micros.
+    (is (= 1770 (cost-micros usage {:prompt "0.000001" :completion "0.000002"})))
+    ;; An explicitly-named per-token key is never scaled, whatever it sits
+    ;; beside: 1690 * 0.33 + 40 * 0.48 = $576.90. That number is what the
+    ;; Venice dialect used to bill, and it is only correct when the provider
+    ;; really did quote per token.
+    (is (= 576900000
+           (cost-micros usage {:input-usd-per-token "0.33"
+                               :output-usd-per-token "0.48"})))))
+
+(deftest the-retry-budget-outlasts-a-brief-provider-overload
+  ;; Venice answers 429 "the model is currently overloaded" often enough that
+  ;; on 2026-08-27 it killed about half a short run of real jobs. The budget is
+  ;; a POLICY, not an incidental constant: a translation is batch work holding
+  ;; a customer's money, so waiting tens of seconds beats abandoning it.
+  ;;
+  ;; Pinned so that shrinking it back towards the old sub-3-second budget has
+  ;; to be a deliberate edit rather than a tidy-up.
+  (let [{:keys [max-retries base-delay-ms max-retry-after-ms]}
+        @#'sut/default-post-opts
+        delay-for #'sut/retry-delay-ms
+        total (reduce + (map #(delay-for base-delay-ms %) (range max-retries)))]
+    (is (= 4 max-retries))
+    (is (= 1000 base-delay-ms))
+    (is (= 30000 max-retry-after-ms))
+    ;; 1s + 2s + 4s + 8s: long enough that a provider blip is ridden out.
+    (is (= 15000 total))
+    (is (>= total 10000)
+        "a budget under ten seconds abandons jobs the provider would have served")))
