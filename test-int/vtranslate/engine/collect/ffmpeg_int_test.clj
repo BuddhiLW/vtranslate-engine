@@ -29,11 +29,12 @@
      :extract-throws (:error (pm/extract-audio port "/tmp" {}))}))
 
 ;; Corpus probe — real media when present; skips (not fails) without a corpus.
-(deftest javacv-probes-corpus-speech
-  (if-let [pt (dev/corpus-file "speech/pt.mp3")]
+;; Corpus probe — defined ONLY when the corpus is actually present. The bare
+;; (is true) it replaces made an absent corpus indistinguishable from a passing
+;; probe. Set $VT_CORPUS to enable.
+(when-let [pt (dev/corpus-file "speech/pt.mp3")]
+  (deftest javacv-probes-corpus-speech
     (let [res (pm/probe (dev/ffmpeg-port) pt)]
       (is (r/ok? res))
       (is (pos? (:duration-ms (:ok res))))
-      (is (:has-audio? (:ok res))))
-    (testing "corpus absent — skipped (set $VT_CORPUS to enable)"
-      (is true))))
+      (is (:has-audio? (:ok res))))))

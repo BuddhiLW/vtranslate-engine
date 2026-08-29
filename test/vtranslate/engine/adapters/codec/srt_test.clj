@@ -79,10 +79,11 @@
 
 ;; --- SMOKE: parse a real CC-BY multilingual subtitle from the corpus --------
 
-(deftest corpus-parse-smoke
-  (let [f (io/file "../corpus/sintel/subs/sintel.en.srt")]
-    (if-not (.exists f)
-      (is true "corpus fixture absent — smoke test skipped")
+;; Defined ONLY when the corpus fixture is on disk. A stubbed `true` reported a
+;; parsed subtitle that was never read.
+(let [f (io/file "../corpus/sintel/subs/sintel.en.srt")]
+  (when (.exists f)
+    (deftest corpus-parse-smoke
       (let [res  (p.sub/parse codec (slurp f) :format/srt)
             cues (:cues (:ok res))]
         (is (r/ok? res))

@@ -100,12 +100,14 @@
         "the per-span scratch WAV is deleted once the backend has read it")))
 
 (deftest resolve-gates-on-backend-python-and-model
-  (if-not (sut/backend-present?)
+  ;; when-not, not if-not: with the backend present this branch has nothing to
+  ;; say, and an (is true) there would count as a passing assertion for a probe
+  ;; that never ran.
+  (when-not (sut/backend-present?)
     (let [res (reg/resolve-transcriber :canary {})]
       (is (r/err? res))
       (is (= :error/transcriber-unavailable (:error res))
-          "libpython-clj absent (test classpath) => clean SKIP via the fallback chain"))
-    (is true "backend present — absent-probe branch exercised in the default test env"))
+          "libpython-clj absent (test classpath) => clean SKIP via the fallback chain")))
 
   (with-redefs [sut/backend-present? (constantly true)]
     (testing "the interpreter must actually exist"
@@ -160,10 +162,11 @@
 
 ;; --- model-backed smoke -----------------------------------------------------
 
-(deftest model-backed-smoke
-  (let [python (System/getenv "VT_NEMO_PYTHON")]
-    (if-not (and (sut/backend-present?) python (.canExecute (File. ^String python)))
-      (is true "SKIP: set VT_NEMO_PYTHON to a Python with nemo_toolkit[asr] installed")
+;; Defined ONLY when VT_NEMO_PYTHON names an executable interpreter. Stubbing
+;; `true` otherwise counted as a passing assertion for a model never resolved.
+(let [python (System/getenv "VT_NEMO_PYTHON")]
+  (when (and (sut/backend-present?) python (.canExecute (File. ^String python)))
+    (deftest model-backed-smoke
       (let [res (reg/resolve-transcriber
                  :parakeet {:transcriber-opts {:python-executable python}})]
         (is (r/ok? res))

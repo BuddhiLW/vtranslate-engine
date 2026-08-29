@@ -66,12 +66,14 @@
     (is (= :error/asr-failed (:error res)) "a native decode failure aborts the span loop loud")))
 
 (deftest resolve-gates-on-backend-model-key-and-model-dir
-  (if-not (sut/backend-present?)
+  ;; when-not, not if-not: with the backend present this branch has nothing to
+  ;; say, and an (is true) there would count as a passing assertion for a probe
+  ;; that never ran.
+  (when-not (sut/backend-present?)
     (let [res (reg/resolve-transcriber :qwen3-asr {})]
       (is (r/err? res))
       (is (= :error/transcriber-unavailable (:error res))
-          "backend jar absent (test classpath) => clean SKIP via the fallback chain"))
-    (is true "backend present — absent-probe branch exercised in the default test env"))
+          "backend jar absent (test classpath) => clean SKIP via the fallback chain")))
   (with-redefs [sut/backend-present? (constantly true)]
     (let [res (reg/resolve-transcriber :qwen3-asr {:transcriber-opts {:model-key :nope}})]
       (is (r/err? res))
@@ -99,11 +101,12 @@
       (AudioSystem/write ais AudioFileFormat$Type/WAVE f)
       (.getPath f))))
 
-(deftest model-backed-smoke
-  (let [cache (File. (System/getProperty "user.home")
-                     ".cache/raster/models/Qwen--Qwen3-ASR-0.6B-hf")]
-    (if-not (and (sut/backend-present?) (.isDirectory cache))
-      (is true "SKIP: pretrained-rstr dep or cached Qwen3-ASR-0.6B weights absent")
+;; Defined ONLY when the weights are on disk. Stubbing `true` when they are not
+;; reported the model path as covered while nothing was ever loaded.
+(let [cache (File. (System/getProperty "user.home")
+                   ".cache/raster/models/Qwen--Qwen3-ASR-0.6B-hf")]
+  (when (and (sut/backend-present?) (.isDirectory cache))
+    (deftest model-backed-smoke
       (let [res (reg/resolve-transcriber :qwen3-asr {})]
         (is (r/ok? res))
         (let [out (r/let-ok [t res]

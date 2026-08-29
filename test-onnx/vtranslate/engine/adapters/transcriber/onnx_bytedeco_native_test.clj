@@ -32,10 +32,12 @@
             {:start 1.0 :end 2.5 :text "world"}]
            (sut/timestamp-segments tokenizer [10 11 12 13 14] 3.0)))))
 
-(deftest ^:integration real-whisper-export-transcribes-when-configured
-  (let [model-dir (System/getenv "VT_ONNX_MODEL_DIR")
-        wav (System/getenv "VT_ONNX_WAV")]
-    (if (and (seq model-dir) (seq wav))
+;; Defined ONLY when both env vars name a real export and a real wav. A stubbed
+;; `true` counted as a passing assertion for a graph never loaded.
+(let [model-dir (System/getenv "VT_ONNX_MODEL_DIR")
+      wav (System/getenv "VT_ONNX_WAV")]
+  (when (and (seq model-dir) (seq wav))
+    (deftest ^:integration real-whisper-export-transcribes-when-configured
       (let [result (sut/transcribe-wav model-dir wav "en" {:max-new-tokens 64})]
         (is (contains? result :ok) (pr-str result))
         (is (seq (get-in result [:ok :segments])) (pr-str result))
@@ -43,5 +45,4 @@
         (contract/check-transcriber
          (adapter/->OnnxBytedecoTranscriber model-dir {:max-new-tokens 64})
          {:path wav}
-         "en"))
-      (is true "set VT_ONNX_MODEL_DIR and VT_ONNX_WAV for real-graph smoke"))))
+         "en")))))
