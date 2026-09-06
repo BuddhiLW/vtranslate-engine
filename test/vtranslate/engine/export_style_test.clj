@@ -102,6 +102,19 @@
     (is (> (:video-bitrate plan) 3000000)
         "and must not collapse to the encoder's default either")))
 
+(deftest the-encoder-is-told-how-many-processors-it-was-given
+  (testing "a worker with cores gets to use them"
+    (is (= 3 (encoding/encoder-threads 3)))
+    (is (= 8 (encoding/encoder-threads 8))))
+
+  (testing "a machine that will not say still encodes, on one thread"
+    (doseq [unusable [nil 0 -4]]
+      (is (= 1 (encoding/encoder-threads unusable))
+          (str (pr-str unusable) " processors must not stop the burn"))))
+
+  (testing "and a very large host does not buy threads that pay nothing"
+    (is (= encoding/max-encoder-threads (encoding/encoder-threads 128)))))
+
 ;; ---------------------------------------------------------------------------
 ;; Captions: fractions of the frame, so a preview can be honest.
 ;; ---------------------------------------------------------------------------

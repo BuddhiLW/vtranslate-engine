@@ -73,6 +73,19 @@
   (let [rate (long (or source-bitrate 0))]
     (if (pos? rate) rate 128000)))
 
+(def max-encoder-threads
+  "Past this another encoder thread buys little and costs memory."
+  16)
+
+(defn encoder-threads
+  "How many threads the H.264 encoder is told it may use, given how many
+   processors this process was actually given. Nil, zero or negative read as
+   one, so a machine that will not say still encodes."
+  ^long [available]
+  (-> (long (or available 1))
+      (max 1)
+      (min max-encoder-threads)))
+
 (defn plan
   "Everything the recorder needs to return a video at the requested quality.
    => {:width :height :video-bitrate :audio-bitrate :rescaled?}"

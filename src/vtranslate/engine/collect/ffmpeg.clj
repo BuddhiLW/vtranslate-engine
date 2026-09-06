@@ -132,11 +132,17 @@
 
    Bitrates come from `plan`, never from the encoder's defaults: JavaCV falls
    back to a rate that visibly destroys anything above SD, so a re-encode that
-   does not set one silently downgrades every video that passes through it."
+   does not set one silently downgrades every video that passes through it.
+
+   The thread count is set for the same reason. Unset, the encoder takes its
+   own default and a burn on a multi-core worker runs on one of them."
   [^FFmpegFrameRecorder rec ^FFmpegFrameGrabber g ^long ach plan]
   (doto rec
     (.setFormat "mp4")
     (.setVideoCodec avcodec/AV_CODEC_ID_H264)
+    (.setVideoOption "threads"
+                     (str (encoding/encoder-threads
+                           (.availableProcessors (Runtime/getRuntime)))))
     (.setVideoBitrate (int (:video-bitrate plan)))
     (.setFrameRate (.getFrameRate g))
     (.setSampleRate (.getSampleRate g))
