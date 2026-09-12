@@ -1,4 +1,12 @@
 {:paths ["src"]
+
+ ;; vtranslate-context is proprietary and lives in the vtranslate org's own
+ ;; registry. Credentials come from a `vtranslate-gitea` server entry in
+ ;; ~/.m2/settings.xml -- maven pairs credentials to a repository BY ID. Only
+ ;; the :addon-context alias needs it.
+ :mvn/repos {"vtranslate-gitea"
+             {:url "https://gitea.hive-mcp.com/api/packages/vtranslate/maven"}}
+
  :deps {org.clojure/clojure {:mvn/version "1.12.5"}
 
         ;; ADTs (defadt/adt-case) + Result monad (ok/err/bind/let-ok/try-effect).
@@ -150,4 +158,9 @@
 
   :build {:deps {io.github.clojure/tools.build {:mvn/version "0.10.14"}
                  slipset/deps-deploy           {:mvn/version "0.2.5"}}
-          :ns-default build}}}
+          :ns-default build}
+  ;; The proprietary video-KG addon. The catalog in vtranslate.engine.addons
+  ;; has named this alias since the declarative addon flow landed; until now it
+  ;; only existed as a -Sdeps :extra-paths shim the CLI built by hand.
+  :addon-context {:extra-deps {io.github.buddhilw/vtranslate-context
+                               {:mvn/version "0.1.21"}}}}}
