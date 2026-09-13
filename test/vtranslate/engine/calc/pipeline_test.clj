@@ -15,7 +15,8 @@
             [vtranslate.engine.port.media :as p.media]
             [vtranslate.engine.port.transcriber :as p.asr]
             [vtranslate.engine.port.translator :as p.tr]
-            [vtranslate.engine.port.subtitle :as p.sub]))
+            [vtranslate.engine.port.subtitle :as p.sub]
+            [vtranslate.engine.port.composer :as p.comp]))
 
 (def gen-seg
   (gen/fmap (fn [[s d t]] {:start-ms s :end-ms (+ s d) :text t :confidence 0.9})
@@ -162,9 +163,34 @@
     (is (= [:ingesting :transcribing :translating :rendering :composing :completed]
            (->> @events
                 (filter #(= :pipeline-progress (:type %)))
-                (mapv :stage))))
+                (map :stage)
+                dedupe)))
     (is (= attempt
            (:attempt (first (filter #(= :provider-attempt (:type %)) @events)))))))
+
+(deftest long-stages-report-how-far-into-their-work-they-are
+  (let [events (atom [])
+        ports  (assoc mock-ports
+                      :on-progress #(swap! events conj %)
+                      :muxer (reify p.comp/IVideoComposer
+                               (compose [_ _ _ opts]
+                                 (r/ok {:output-uri (:output-uri opts)}))))
+        res    (api/run-job ports {:job-id "j-ticks" :source "/v.mp4"
+                                   :source-language "en"
+                                   :target-languages ["pt-BR" "es" "fr"]
+                                   :output "/out/v.mp4"})
+        counted (fn [stage]
+                  (->> @events
+                       (filter #(and (= stage (:stage %)) (:detail %)))
+                       (map (juxt :percent (comp :done :detail) (comp :total :detail)))))]
+    (is (r/ok? res))
+    (is (= [[68 1 3] [76 2 3] [84 3 3]] (counted :translating))
+        "each finished language moves the bar, in order, and never into rendering")
+    (is (= [[96 1 3] [98 2 3] [99 3 3]] (counted :composing))
+        "each burned video is reported: a burn is most of a burn job's wait")
+    (is (= [:ingesting :transcribing :translating :rendering :composing :completed]
+           (->> @events (filter #(= :pipeline-progress (:type %))) (map :stage) dedupe))
+        "the stages still arrive in order")))
 
 ;; Comprehension grounding is an ADDON concern now; its engine integration is
 ;; covered by the generic pre-translate seam test (pipeline/extensions-test) and the

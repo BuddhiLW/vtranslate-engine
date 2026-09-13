@@ -23,7 +23,8 @@
             [vtranslate.engine.shared :as shared]
             [vtranslate.engine.port.composer :as p.comp]
             [vtranslate.engine.pipeline.extensions :as ext]
-            [vtranslate.engine.adapters.translator.augment :as augment]))
+            [vtranslate.engine.adapters.translator.augment :as augment]
+            [vtranslate.engine.calc.progress :as c.progress]))
 
 ;; ---------------------------------------------------------------------------
 ;; Language helpers
@@ -54,6 +55,15 @@
   (notify-progress! resources {:type :pipeline-progress
                                :stage stage
                                :percent percent}))
+
+(defn- work-progress!
+  "Report that `done` of `total` units of `stage`'s work have finished, as a
+   percent inside the stage's band, with the count itself as `:detail`."
+  [resources stage done total]
+  (notify-progress! resources {:type :pipeline-progress
+                               :stage stage
+                               :percent (c.progress/within-band stage done total)
+                               :detail {:done done :total total}}))
 
 (defn- record-provider-attempt! [resources job-id attempt]
   (let [record (assoc attempt
@@ -266,8 +276,11 @@
   "Translate the one shared transcript into every target. Independent per
    language, so they run under a bounded pool; a timeout or throw surfaces as
    that target's error rather than a nil, and the FIRST failure fails the job.
-   Order follows `targets`, not completion. => Result<[{:target-language :translated}]>."
-  [tr spec transcript targets config on-provider-attempt]
+   Order follows `targets`, not completion. `on-target-done` is called once per
+   target as it finishes, in completion order, so progress can be reported
+   while the others are still running.
+   => Result<[{:target-language :translated}]>."
+  [tr spec transcript targets config on-provider-attempt on-target-done]
   (let [multi?  (< 1 (count targets))
         results (wp/bounded-pmap
                  {:concurrency (or (get-in config [:translator-opts :target-concurrency])
@@ -276,8 +289,10 @@
                                    1800000)
                   :fallback    ::timeout}
                  (fn [lang]
-                   [lang (translate-one-target tr spec transcript lang multi?
-                                               on-provider-attempt)])
+                   (let [translated (translate-one-target tr spec transcript lang multi?
+                                                          on-provider-attempt)]
+                     (on-target-done)
+                     [lang translated]))
                  targets)]
     (reduce (fn [acc [lang res]]
               (r/let-ok [done acc]
@@ -304,13 +319,19 @@
     state
     (fn [{:keys [spec job transcript] :as ctx}]
       (let [tr      (augment/wrap-opts translator (:translate/opts ctx))
-            targets (c.tr/normalize-targets spec)]
+            targets (c.tr/normalize-targets spec)
+            done    (atom 0)]
         (if (empty? targets)
           (r/err :error/no-target-language
                  {:reason "job spec named no target language"})
           (r/let-ok [outputs (translate-targets
                               tr spec transcript targets config
-                              #(record-provider-attempt! resources (:job-id spec) %))
+                              #(record-provider-attempt! resources (:job-id spec) %)
+                              ;; Targets finish concurrently; the lock keeps
+                              ;; each report's count in the order it is sent.
+                              #(locking done
+                                 (work-progress! resources :translating
+                                                 (swap! done inc) (count targets))))
                      job     (job/advance job)]
             (r/ok (assoc ctx
                          :job job
@@ -407,7 +428,10 @@
 
 (defn- compose-video
   "Mux the targets a muxer is configured for. :output-video stays bound to the
-   first composed target so a single-target caller sees what it always did."
+   first composed target so a single-target caller sees what it always did.
+
+   Burning re-encodes the whole video once per language, which makes this the
+   longest stage of a burn job by far, so each finished video is reported."
   [{:keys [muxer] :as resources} state]
   (stage-progress! resources :composing 95)
   (pf/with-result
@@ -416,13 +440,19 @@
       (if-not muxer
         (r/ok ctx)
         (let [wanted (:mux-languages spec)
-              multi? (< 1 (count outputs))]
+              multi? (< 1 (count outputs))
+              total  (count (filter #(muxed-language? wanted (:target-language %))
+                                    outputs))
+              finished (atom 0)]
           (r/let-ok [composed (reduce
                                (fn [acc out]
                                  (r/let-ok [done acc]
                                    (if (muxed-language? wanted (:target-language out))
                                      (r/let-ok [one (compose-one muxer spec multi? out)]
-                                       (r/ok (conj done one)))
+                                       (do (work-progress! resources :composing
+                                                           (swap! finished inc)
+                                                           total)
+                                           (r/ok (conj done one))))
                                      (r/ok (conj done out)))))
                                (r/ok [])
                                outputs)]
