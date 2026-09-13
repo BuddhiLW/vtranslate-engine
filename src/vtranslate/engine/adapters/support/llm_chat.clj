@@ -10,7 +10,7 @@
             [vtranslate.engine.adapters.support.secrets :as secrets])
   (:import (java.net URI)
            (java.net.http HttpClient HttpRequest HttpRequest$BodyPublishers
-                          HttpResponse$BodyHandlers)
+                          HttpResponse$BodyHandlers HttpTimeoutException)
            (java.math RoundingMode)
            (java.time Duration)))
 
@@ -32,7 +32,10 @@
    :throttle-ms 250
    ;; Cap on a provider-supplied Retry-After, so a hostile or absurd value
    ;; cannot park a worker thread indefinitely.
-   :max-retry-after-ms 30000})
+   :max-retry-after-ms 30000
+   ;; A request that stalls past the per-request timeout is sent once more
+   ;; before the batch is given up on.
+   :max-timeout-retries 1})
 
 (defn- now-ms []
   (System/currentTimeMillis))
@@ -214,10 +217,10 @@
 
 (defn- post-chat* [api-url api-key body opts]
   (let [{:keys [max-retries base-delay-ms throttle-ms on-attempt provider model
-                pricing max-retry-after-ms]}
+                pricing max-retry-after-ms max-timeout-retries]}
         (merge default-post-opts opts)
         req (chat-request api-url api-key body)]
-    (loop [attempt 0]
+    (loop [attempt 0 timeouts 0]
       (throttle! throttle-ms)
       (let [started-at (now-ms)
             common {:provider provider
@@ -226,54 +229,68 @@
                     :started-at started-at}
             resp (try
                    (send-chat-request req)
+                   (catch HttpTimeoutException timeout
+                     (let [detail {:finished-at (now-ms)
+                                   :error-class (str (class timeout))
+                                   :message (.getMessage timeout)}]
+                       (if (< timeouts max-timeout-retries)
+                         (do (report-attempt! on-attempt common
+                                              (assoc detail :outcome :retryable-failure))
+                             ::timed-out)
+                         (do (report-attempt! on-attempt common
+                                              (assoc detail :outcome :failed))
+                             (throw timeout)))))
                    (catch Throwable throwable
                      (report-attempt! on-attempt common
                                       {:finished-at (now-ms)
                                        :outcome :failed
                                        :error-class (str (class throwable))
                                        :message (.getMessage throwable)})
-                     (throw throwable)))
-            code (response-status resp)
-            pay (response-body resp)]
-        (cond
-          (<= 200 code 299)
-          (let [{:keys [content usage] response-model :model}
-                (response-data pay pricing)]
-            (report-attempt! on-attempt common
-                             {:finished-at (now-ms)
-                              :outcome :succeeded
-                              :http-status code
-                              :model (or response-model model)
-                              :usage usage
-                              :cost-micros (:cost-micros usage)})
-            content)
+                     (throw throwable)))]
+        (if (= ::timed-out resp)
+          (recur (inc attempt) (inc timeouts))
+          (let [code (response-status resp)
+                pay (response-body resp)]
+            (cond
+              (<= 200 code 299)
+              (let [{:keys [content usage] response-model :model}
+                    (response-data pay pricing)]
+                (report-attempt! on-attempt common
+                                 {:finished-at (now-ms)
+                                  :outcome :succeeded
+                                  :http-status code
+                                  :model (or response-model model)
+                                  :usage usage
+                                  :cost-micros (:cost-micros usage)})
+                content)
 
-          (and (retryable-status? code) (< attempt max-retries))
-          (do
-            (report-attempt! on-attempt common
-                             {:finished-at (now-ms)
-                              :outcome :retryable-failure
-                              :http-status code})
-            ;; The provider's own Retry-After outranks our backoff curve: it
-            ;; knows when it will be ready and we are guessing.
-            (sleep! (or (retry-after-ms resp (or max-retry-after-ms 30000))
-                        (retry-delay-ms base-delay-ms attempt)))
-            (recur (inc attempt)))
+              (and (retryable-status? code) (< attempt max-retries))
+              (do
+                (report-attempt! on-attempt common
+                                 {:finished-at (now-ms)
+                                  :outcome :retryable-failure
+                                  :http-status code})
+                ;; The provider's own Retry-After outranks our backoff curve: it
+                ;; knows when it will be ready and we are guessing.
+                (sleep! (or (retry-after-ms resp (or max-retry-after-ms 30000))
+                            (retry-delay-ms base-delay-ms attempt)))
+                (recur (inc attempt) timeouts))
 
-          :else
-          (do
-            (report-attempt! on-attempt common
-                             {:finished-at (now-ms)
-                              :outcome :failed
-                              :http-status code})
-            (throw (ex-info (str "chat HTTP " code)
-                            {:status code
-                             :body pay
-                             :attempts (inc attempt)}))))))))
+              :else
+              (do
+                (report-attempt! on-attempt common
+                                 {:finished-at (now-ms)
+                                  :outcome :failed
+                                  :http-status code})
+                (throw (ex-info (str "chat HTTP " code)
+                                {:status code
+                                 :body pay
+                                 :attempts (inc attempt)}))))))))))
 
 (defn post-chat
   "POST a chat-completions `body`, returning the assistant message content.
-   Retries retryable HTTP statuses (429 and 5xx) with exponential backoff.
+   Retries retryable HTTP statuses (429 and 5xx) with exponential backoff, and
+   a request that stalled past its timeout `:max-timeout-retries` more times.
    => (r/ok content-string) | (r/err error-kw {:status n :body s :attempts n} | {...})."
   ([error-kw api-url api-key body]
    (post-chat error-kw api-url api-key body nil))

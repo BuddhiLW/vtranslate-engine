@@ -66,3 +66,26 @@
   (r/err :error/translation-failed
          {:segment-id (str id)
           :reason (format "translation count %d != segment count %d" actual expected)}))
+
+(defn target-outcomes
+  "Sort per-target translation results into the targets that finished and the
+   ones that did not, both in `targets` order. `results` holds one Result per
+   target, or `unfinished` for a target the pool stopped waiting on.
+   => {:delivered [{:target-language :translated}]
+       :failed    [{:target-language :error ...}]}"
+  [targets results unfinished]
+  (reduce (fn [acc [lang res]]
+            (cond
+              (= unfinished res)
+              (update acc :failed conj {:target-language lang
+                                        :error :error/translation-failed
+                                        :reason "translation timed out or threw"})
+
+              (r/err? res)
+              (update acc :failed conj (assoc res :target-language lang))
+
+              :else
+              (update acc :delivered conj {:target-language lang
+                                           :translated (:ok res)})))
+          {:delivered [] :failed []}
+          (map vector targets results)))

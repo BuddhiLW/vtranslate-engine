@@ -92,6 +92,51 @@
         (and (r/err? res) (= :error/translation-failed (:error res)))))))
 
 ;; =============================================================================
+;; target-outcomes — every target lands in exactly one bucket, in order
+;; =============================================================================
+
+(def ^:private gen-target-result
+  (gen/one-of [(gen/fmap (fn [t] (r/ok {:units t})) gen/string-alphanumeric)
+               (gen/fmap (fn [why] (r/err :error/translation-failed {:reason why}))
+                         gen/string-alphanumeric)
+               (gen/return ::unfinished)]))
+
+(def ^:private gen-outcomes
+  "Distinct target languages, each paired with one result."
+  (gen/bind (gen/vector-distinct gen-lang {:max-elements 6})
+            (fn [langs]
+              (gen/fmap #(mapv vector langs %)
+                        (gen/vector gen-target-result (count langs))))))
+
+(defspec every-target-is-delivered-or-failed-once 200
+  (prop/for-all [outcomes gen-outcomes]
+    (let [targets (mapv first outcomes)
+          results (mapv second outcomes)
+          {:keys [delivered failed]} (sut/target-outcomes targets results ::unfinished)
+          langs-of (fn [xs] (mapv :target-language xs))]
+      (and (= (count targets) (+ (count delivered) (count failed)))
+           (= (filterv (set (langs-of delivered)) targets) (langs-of delivered))
+           (= (filterv (set (langs-of failed)) targets) (langs-of failed))
+           (every? (comp some? :translated) delivered)
+           (every? (comp keyword? :error) failed)
+           (= (mapv (fn [[_ res]] (r/ok? res))
+                    (filter (fn [[_ res]] (not= ::unfinished res)) outcomes))
+              (mapv (fn [[lang _]] (contains? (set (langs-of delivered)) lang))
+                    (filter (fn [[_ res]] (not= ::unfinished res)) outcomes)))))))
+
+(deftest a-target-the-pool-gave-up-on-is-a-failure-that-names-it
+  (let [{:keys [delivered failed]}
+        (sut/target-outcomes ["pt" "fr" "de"]
+                             [(r/ok :pt-cues) ::gone (r/err :error/translation-failed
+                                                            {:reason "count"})]
+                             ::gone)]
+    (is (= [{:target-language "pt" :translated :pt-cues}] delivered))
+    (is (= ["fr" "de"] (mapv :target-language failed)))
+    (is (= :error/translation-failed (:error (first failed))))
+    (is (= "count" (:reason (second failed)))
+        "a target's own error travels with it")))
+
+;; =============================================================================
 ;; UNIT — failure modes fail loud
 ;; =============================================================================
 

@@ -267,24 +267,32 @@
                                 {:id (str job-id "-tc" (lang-suffix multi? target-language))
                                  :target-language target-language})))
 
-(def ^:private default-target-concurrency
-  "Target languages translated at once. Each is an independent chain of provider
-   calls, so the bound is about not hammering the provider, not about CPU."
-  3)
+(def ^:private max-target-concurrency
+  "Most target languages translated at once. Each is one long provider request
+   per batch, so the bound is about not hammering the provider, not about CPU."
+  7)
+
+(defn- target-concurrency
+  "How many of `targets` translate at once: the configured bound, else every
+   target up to `max-target-concurrency`. => positive long"
+  [config targets]
+  (or (get-in config [:translator-opts :target-concurrency])
+      (max 1 (min max-target-concurrency (count targets)))))
 
 (defn- translate-targets
   "Translate the one shared transcript into every target. Independent per
    language, so they run under a bounded pool; a timeout or throw surfaces as
-   that target's error rather than a nil, and the FIRST failure fails the job.
-   Order follows `targets`, not completion. `on-target-done` is called once per
-   target as it finishes, in completion order, so progress can be reported
-   while the others are still running.
-   => Result<[{:target-language :translated}]>."
+   that target's failure rather than a nil. Order follows `targets`, not
+   completion. `on-target-done` is called once per target as it finishes, in
+   completion order, so progress can be reported while the others are still
+   running. A failed target fails the job, unless
+   `[:translator-opts :deliver-partial?]` is set and another target finished:
+   then the finished ones are delivered and the rest travel as `:failed-targets`.
+   => Result<{:outputs [{:target-language :translated}] :failed-targets [...]}>."
   [tr spec transcript targets config on-provider-attempt on-target-done]
   (let [multi?  (< 1 (count targets))
         results (wp/bounded-pmap
-                 {:concurrency (or (get-in config [:translator-opts :target-concurrency])
-                                   default-target-concurrency)
+                 {:concurrency (target-concurrency config targets)
                   :timeout-ms  (or (get-in config [:translator-opts :target-timeout-ms])
                                    1800000)
                   :fallback    ::timeout}
@@ -292,21 +300,22 @@
                    (let [translated (translate-one-target tr spec transcript lang multi?
                                                           on-provider-attempt)]
                      (on-target-done)
-                     [lang translated]))
-                 targets)]
-    (reduce (fn [acc [lang res]]
-              (r/let-ok [done acc]
-                (cond
-                  (= ::timeout res)
-                  (r/err :error/translation-failed
-                         {:target-language lang :reason "translation timed out"})
+                     translated))
+                 targets)
+        {:keys [delivered failed]} (c.tr/target-outcomes targets results ::timeout)]
+    (cond
+      (empty? failed)
+      (r/ok {:outputs delivered :failed-targets []})
 
-                  (r/err? res) res
+      (and (get-in config [:translator-opts :deliver-partial?]) (seq delivered))
+      (r/ok {:outputs delivered :failed-targets failed})
 
-                  :else
-                  (r/ok (conj done {:target-language lang :translated (:ok res)})))))
-            (r/ok [])
-            (map vector targets (map second results)))))
+      :else
+      (let [{:keys [error] :as first-failure} (first failed)]
+        (r/err error (-> first-failure
+                         (dissoc :error)
+                         (assoc :failed-targets failed
+                                :delivered-targets (mapv :target-language delivered))))))))
 
 (defn- translate-transcript
   "Fan out over every requested target language. The transcript is produced ONCE
@@ -324,25 +333,27 @@
         (if (empty? targets)
           (r/err :error/no-target-language
                  {:reason "job spec named no target language"})
-          (r/let-ok [outputs (translate-targets
-                              tr spec transcript targets config
-                              #(record-provider-attempt! resources (:job-id spec) %)
-                              ;; Targets finish concurrently; the lock keeps
-                              ;; each report's count in the order it is sent.
-                              #(locking done
-                                 (work-progress! resources :translating
-                                                 (swap! done inc) (count targets))))
-                     job     (job/advance job)]
-            (r/ok (assoc ctx
-                         :job job
-                         :outputs outputs
-                         :translated (:translated (first outputs))))))))))
+          (r/let-ok [translated (translate-targets
+                                 tr spec transcript targets config
+                                 #(record-provider-attempt! resources (:job-id spec) %)
+                                 ;; Targets finish concurrently; the lock keeps
+                                 ;; each report's count in the order it is sent.
+                                 #(locking done
+                                    (work-progress! resources :translating
+                                                    (swap! done inc) (count targets))))
+                     job        (job/advance job)]
+            (let [{:keys [outputs failed-targets]} translated]
+              (r/ok (cond-> (assoc ctx
+                                   :job job
+                                   :outputs outputs
+                                   :translated (:translated (first outputs)))
+                      (seq failed-targets) (assoc :failed-targets failed-targets))))))))))
 
 (def ^:private reserved-result-keys
   "Job-result keys owned by the render stage; middleware :result/extra must not
    overwrite them."
   [:spec :job :transcript :transcript-cached?
-   :translated :subtitle-track :rendered :outputs])
+   :translated :subtitle-track :rendered :outputs :failed-targets])
 
 (defn- merge-result-extra
   "Merge middleware :result/extra into the job result. => Result<job-result>;
@@ -373,7 +384,7 @@
   (stage-progress! resources :rendering 85)
   (pf/with-result
     state
-    (fn [{:keys [spec job transcript transcript-cached? outputs] :as ctx}]
+    (fn [{:keys [spec job transcript transcript-cached? outputs failed-targets] :as ctx}]
       (r/let-ok [rendered-outputs (reduce
                                    (fn [acc output]
                                      (r/let-ok [done acc
@@ -386,14 +397,15 @@
                  job      (finalize-job job (:subtitle-track (first rendered-outputs))
                                         job/advance)
                  result   (merge-result-extra
-                           {:spec spec
-                            :job job
-                            :transcript transcript
-                            :transcript-cached? (boolean transcript-cached?)
-                            :outputs rendered-outputs
-                            :translated (:translated (first rendered-outputs))
-                            :subtitle-track (:subtitle-track (first rendered-outputs))
-                            :rendered (:rendered (first rendered-outputs))}
+                           (cond-> {:spec spec
+                                    :job job
+                                    :transcript transcript
+                                    :transcript-cached? (boolean transcript-cached?)
+                                    :outputs rendered-outputs
+                                    :translated (:translated (first rendered-outputs))
+                                    :subtitle-track (:subtitle-track (first rendered-outputs))
+                                    :rendered (:rendered (first rendered-outputs))}
+                             (seq failed-targets) (assoc :failed-targets failed-targets))
                            (:result/extra ctx))]
         (r/ok result)))))
 

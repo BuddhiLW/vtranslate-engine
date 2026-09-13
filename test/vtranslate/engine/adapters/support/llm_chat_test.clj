@@ -1,7 +1,8 @@
 (ns vtranslate.engine.adapters.support.llm-chat-test
   (:require [clojure.test :refer [deftest is]]
             [hive-dsl.result :as r]
-            [vtranslate.engine.adapters.support.llm-chat :as sut]))
+            [vtranslate.engine.adapters.support.llm-chat :as sut])
+  (:import (java.net.http HttpTimeoutException)))
 
 (defn- success-body
   ([content] (success-body content nil))
@@ -137,3 +138,58 @@
     (is (= 15000 total))
     (is (>= total 10000)
         "a budget under ten seconds abandons jobs the provider would have served")))
+
+(defn- stalling-then-ok
+  "A transport that times out `stalls` times, then answers 200."
+  [calls stalls]
+  (fn [_req]
+    (if (<= (swap! calls inc) stalls)
+      (throw (HttpTimeoutException. "request timed out"))
+      {:status 200 :body (success-body "ok")})))
+
+(deftest a-stalled-request-is-sent-once-more
+  ;; Measured 2026-09-13 on job_29cde987: 2 of 12 Venice requests hit the
+  ;; 300 s timeout at request-attempt 1 and were never retried, which failed
+  ;; the whole job. A stall is as transient as a 429 and is retried like one.
+  (let [calls (atom 0)
+        attempts (atom [])]
+    (with-redefs-fn {#'sut/send-chat-request (stalling-then-ok calls 1)
+                     #'sut/throttle! (fn [_] nil)}
+      #(let [res (sut/post-chat :error/translation-failed
+                                "https://example.invalid/chat" "key" "{}"
+                                {:throttle-ms 0
+                                 :on-attempt (fn [a] (swap! attempts conj a))})]
+         (is (= (r/ok "ok") res))
+         (is (= 2 @calls))
+         (is (= [:retryable-failure :succeeded] (mapv :outcome @attempts)))
+         (is (= [1 2] (mapv :request-attempt @attempts))
+             "the retry keeps counting requests")
+         (is (= "class java.net.http.HttpTimeoutException"
+                (:error-class (first @attempts))))))))
+
+(deftest a-second-stall-fails-the-batch
+  (let [calls (atom 0)
+        attempts (atom [])]
+    (with-redefs-fn {#'sut/send-chat-request (stalling-then-ok calls 99)
+                     #'sut/throttle! (fn [_] nil)}
+      #(let [res (sut/post-chat :error/translation-failed
+                                "https://example.invalid/chat" "key" "{}"
+                                {:throttle-ms 0
+                                 :on-attempt (fn [a] (swap! attempts conj a))})]
+         (is (r/err? res))
+         (is (= :error/translation-failed (:error res)))
+         (is (= "class java.net.http.HttpTimeoutException" (:class res)))
+         (is (= 2 @calls) "one retry, not a loop")
+         (is (= [:retryable-failure :failed] (mapv :outcome @attempts)))))))
+
+(deftest timeout-retries-are-their-own-budget
+  ;; A stall must not spend the 429 budget, and max-timeout-retries 0 restores
+  ;; the old fail-on-first-stall behaviour for a caller that wants it.
+  (let [calls (atom 0)]
+    (with-redefs-fn {#'sut/send-chat-request (stalling-then-ok calls 1)
+                     #'sut/throttle! (fn [_] nil)}
+      #(let [res (sut/post-chat :error/translation-failed
+                                "https://example.invalid/chat" "key" "{}"
+                                {:throttle-ms 0 :max-timeout-retries 0})]
+         (is (r/err? res))
+         (is (= 1 @calls))))))
