@@ -1,10 +1,24 @@
 {:paths ["src"]
 
- ;; vtranslate-context is proprietary and lives in the vtranslate org's own
- ;; registry. Credentials come from a `vtranslate-gitea` server entry in
- ;; ~/.m2/settings.xml -- maven pairs credentials to a repository BY ID. Only
- ;; the :addon-context alias needs it.
+ ;; Both ids name the SAME registry, the vtranslate org's own, and both are
+ ;; needed because two different tools look the URL up by two different names.
+ ;;
+ ;;   vtranslate-gitea  RESOLUTION. What :addon-context pulls
+ ;;                     io.github.buddhilw/vtranslate-context from. Credentials
+ ;;                     come from a server entry of this id in
+ ;;                     ~/.m2/settings.xml: maven pairs credentials to a
+ ;;                     repository BY ID.
+ ;;
+ ;;   hive-gitea        PUBLICATION. hive-build's :gitea-source target hardcodes
+ ;;                     this id and reads the URL from THIS FILE only (see
+ ;;                     hive-build.boundary.tools/resolve-repository), never
+ ;;                     from the merged basis. The name says "hive" because the
+ ;;                     fleet's other packages publish to the hive-agi org, but
+ ;;                     the URL is what decides the destination, and here it is
+ ;;                     vtranslate's. Do NOT read the id as the org.
  :mvn/repos {"vtranslate-gitea"
+             {:url "https://gitea.hive-mcp.com/api/packages/vtranslate/maven"}
+             "hive-gitea"
              {:url "https://gitea.hive-mcp.com/api/packages/vtranslate/maven"}}
 
  :deps {org.clojure/clojure {:mvn/version "1.12.5"}
