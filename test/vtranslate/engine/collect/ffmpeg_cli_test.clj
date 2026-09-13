@@ -29,7 +29,10 @@
     (exec! [_ argv]
       (swap! calls conj argv)
       (when missing? (throw (IOException. "No such file or directory")))
-      (when (zero? exit) (spit (last argv) "encoded\n"))
+      ;; Only a burn names an output; `-version` must not leave a file
+      ;; called "-version" in the working directory.
+      (when (and (zero? exit) (some #{"-i"} argv))
+        (spit (last argv) "encoded\n"))
       {:exit exit :stderr stderr})
     (capture! [_ argv]
       (swap! calls conj argv)
