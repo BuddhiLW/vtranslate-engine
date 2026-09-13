@@ -93,20 +93,27 @@
         (multisource-cues "multisource/multisource.en.srt")
         (timeline)))
 
-(deftest manifest-cue-counts-match-parsed-srt
-  (let [report (cue-count-report)]
-    (is (seq report))
-    (is (every? :ok? report) (pr-str (remove :ok? report)))))
+;; Defined ONLY when the corpus fixture is on disk, the same way srt-test
+;; guards its own. The corpus is a SIBLING of this repo (../corpus), not part
+;; of it, so a checkout that has only the engine — every CI runner — cannot
+;; slurp it. Unguarded, these three raised FileNotFoundException as uncaught
+;; errors, which read as a broken engine rather than as an absent fixture.
+(when (.exists manifest-path)
 
-(deftest multisource-timing-follows-ground-truth
-  (testing "source-language and English reference SRTs stay aligned to timeline"
-    (doseq [relative-path ["multisource/multisource.src.srt"
-                           "multisource/multisource.en.srt"]]
-      (let [report (timing-report relative-path 20)]
-        (is (= (count (timeline)) (count report)))
-        (is (every? :ok? report) (str relative-path " " (pr-str (remove :ok? report))))))))
+  (deftest manifest-cue-counts-match-parsed-srt
+    (let [report (cue-count-report)]
+      (is (seq report))
+      (is (every? :ok? report) (pr-str (remove :ok? report)))))
 
-(deftest multisource-english-reference-texts-match
-  (let [report (english-reference-report 0.99)]
-    (is (= (count (timeline)) (count report)))
-    (is (every? :ok? report) (pr-str (remove :ok? report)))))
+  (deftest multisource-timing-follows-ground-truth
+    (testing "source-language and English reference SRTs stay aligned to timeline"
+      (doseq [relative-path ["multisource/multisource.src.srt"
+                             "multisource/multisource.en.srt"]]
+        (let [report (timing-report relative-path 20)]
+          (is (= (count (timeline)) (count report)))
+          (is (every? :ok? report) (str relative-path " " (pr-str (remove :ok? report))))))))
+
+  (deftest multisource-english-reference-texts-match
+    (let [report (english-reference-report 0.99)]
+      (is (= (count (timeline)) (count report)))
+      (is (every? :ok? report) (pr-str (remove :ok? report))))))

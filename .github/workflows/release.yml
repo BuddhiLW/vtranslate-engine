@@ -72,9 +72,16 @@ jobs:
       # ~/.m2/settings.xml, so the id in the three places must agree or a
       # deploy cannot pair its URL with its credentials.
       - name: Materialize private-registry credentials
-        if: env.MAVEN_TOKEN != ''
         run: |
           set -euo pipefail
+          if [ -z "${MAVEN_USERNAME:-}" ] || [ -z "${MAVEN_TOKEN:-}" ]; then
+            echo "::error::MAVEN_USERNAME + MAVEN_TOKEN are unset on this" \
+                 "repository. The deploy cannot authenticate to" \
+                 "${MAVEN_URL} and would fail at the upload with a 401." \
+                 "Set both as repository or org secrets; the token must be a" \
+                 "PAT with write:package on the vtranslate org."
+            exit 1
+          fi
           # Mirror the clojure launcher's own resolution: $CLJ_CONFIG, else
           # $XDG_CONFIG_HOME/clojure when that is set, else $HOME/.clojure.
           # $HOME/.config/clojure is a path tools.deps never reads.
