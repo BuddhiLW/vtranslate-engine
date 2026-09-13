@@ -72,4 +72,9 @@
  :composer-opts
  {:font-size 28                              ; burn-in font size in pixels
   :wrap      42                              ; word-wrap width in characters
+  ;; :burn-backend :auto                     ; :auto | :ffmpeg-cli | :javacv
+  ;;                                         ; :auto takes the system ffmpeg (libass + libx264,
+  ;;                                         ; one process) when it answers, else in-process JavaCV
+  ;; :ffmpeg-bin "ffmpeg"                    ; executable for :ffmpeg-cli; ffprobe is taken from beside it
+  ;; :preset "veryfast"                      ; x264 preset for :ffmpeg-cli (ultrafast trades quality for speed)
   }}

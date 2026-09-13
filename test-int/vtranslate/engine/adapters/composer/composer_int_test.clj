@@ -8,6 +8,7 @@
   (:require [clojure.test :refer [deftest is]]
             [hive-test.golden :refer [deftest-golden]]
             [vtranslate.engine.collect.ffmpeg :as ffmpeg]
+            [vtranslate.engine.collect.ffmpeg-cli :as cli]
             [vtranslate.engine.adapters.composer.softmux :as softmux]
             [vtranslate.engine.adapters.composer.hardsub :as hardsub]
             [vtranslate.engine.domain.rendering :as rd]
@@ -99,7 +100,30 @@
 ;; to an H.264 video stream.
 (deftest hardsub-adapter-satisfies-contract
   (let [src      (synth-source! (out-path "src-hard"))
-        composer (hardsub/make-composer {:composer-opts {:font-size 24}})]
+        composer (hardsub/make-composer {:composer-opts {:font-size 24 :burn-backend :javacv}})]
+    (is (= :javacv (:backend composer)))
     (ports/check-composer composer src (sample-track) {:output-uri (out-path "hard-contract")})
     (is (= "h264" (:codec (first (:streams (project-streams (out-path "hard-contract"))))))
         "burned output is H.264 video")))
+
+(def ^:private capable-ffmpeg
+  "A system ffmpeg with libass + libx264 on this box, or nil. PATH first, then
+   the distro binary a Homebrew shim may be shadowing."
+  (delay (first (filter cli/available? ["ffmpeg" "/usr/bin/ffmpeg"]))))
+
+;; LSP: the system-ffmpeg backend satisfies the same contract through the same
+;; adapter, and :auto picks it when the binary is capable. Skipped, not failed,
+;; on a box without such an ffmpeg: the JavaCV path above is the floor.
+(deftest hardsub-cli-backend-satisfies-contract
+  (if-let [bin @capable-ffmpeg]
+    (let [src      (synth-source! (out-path "src-hard-cli"))
+          composer (hardsub/make-composer {:composer-opts {:ffmpeg-bin bin}})]
+      (is (= :ffmpeg-cli (:backend composer)) ":auto takes a capable binary")
+      (ports/check-composer composer src (sample-track) {:output-uri (out-path "hard-cli-contract")})
+      (is (= "h264" (:codec (first (:streams (project-streams (out-path "hard-cli-contract"))))))
+          "burned output is H.264 video"))
+    (println "hardsub-cli-backend-satisfies-contract: no capable ffmpeg on PATH or /usr/bin, skipped")))
+
+(deftest hardsub-auto-falls-back-to-javacv-without-a-capable-binary
+  (let [composer (hardsub/make-composer {:composer-opts {:ffmpeg-bin "/nonexistent/ffmpeg"}})]
+    (is (= :javacv (:backend composer)))))
