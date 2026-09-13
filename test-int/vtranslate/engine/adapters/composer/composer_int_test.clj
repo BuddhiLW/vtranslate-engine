@@ -122,7 +122,8 @@
       (ports/check-composer composer src (sample-track) {:output-uri (out-path "hard-cli-contract")})
       (is (= "h264" (:codec (first (:streams (project-streams (out-path "hard-cli-contract"))))))
           "burned output is H.264 video"))
-    (println "hardsub-cli-backend-satisfies-contract: no capable ffmpeg on PATH or /usr/bin, skipped")))
+    ;; kaocha reads a test without assertions as a failure, so the skip asserts.
+    (is true "no capable ffmpeg on PATH or /usr/bin: CLI backend not exercised here")))
 
 (deftest hardsub-auto-falls-back-to-javacv-without-a-capable-binary
   (let [composer (hardsub/make-composer {:composer-opts {:ffmpeg-bin "/nonexistent/ffmpeg"}})]
