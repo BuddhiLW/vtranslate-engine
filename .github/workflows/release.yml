@@ -1,67 +1,54 @@
-name: Release
+# Patch-bump and publish to the PRIVATE vtranslate Gitea Maven registry.
+#
+# The engine's source is public on GitHub, but its ARTIFACT is published
+# privately: vtranslate-app's worker image resolves it as a pinned
+# io.github.buddhilw/vtranslate-engine coordinate instead of git-cloning this
+# repo at image-build time. That is what lets Dockerfile.worker build from the
+# app repo alone rather than from the vtranslate/ parent.
+#
+# PINNED mode, as across the hive fleet: the tracked ./VERSION file drives
+# deliberate minor/major bumps; CI only ever adds a patch on top of it.
+name: release
 
 on:
   push:
     branches: [main]
+    # A published pom is immutable, so only a change that alters the LIBRARY
+    # mints a version. The suite gates the deploy, so test changes must be able
+    # to trigger a run, and so must this workflow itself.
+    paths:
+      - 'src/**'
+      - 'resources/**'
+      - 'deps.edn'
+      - 'version.edn'
+      - 'test/**'
+      - 'test-int/**'
+      - 'dev/**'
+      - 'tests.edn'
+      - '.github/workflows/**'
   workflow_dispatch:
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 permissions:
   contents: write
 
 jobs:
   release:
-    name: Tag & Release
+    if: ${{ !contains(github.event.head_commit.message, '[skip ci]') }}
     runs-on: ubuntu-latest
+    env:
+      # Not a secret: the registry URL is public, only the credentials are not.
+      # Defaulted here so a missing secret cannot silently retarget a publish.
+      MAVEN_URL: ${{ secrets.MAVEN_URL || 'https://gitea.hive-mcp.com/api/packages/vtranslate/maven' }}
+      MAVEN_USERNAME: ${{ secrets.MAVEN_USERNAME }}
+      MAVEN_TOKEN: ${{ secrets.MAVEN_TOKEN }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-
-      - name: Read version
-        id: version
-        run: |
-          if [ -f VERSION ]; then
-            VERSION=$(cat VERSION | tr -d '[:space:]')
-          else
-            echo "::error::VERSION file not found"
-            exit 1
-          fi
-          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
-          echo "tag=v${VERSION}" >> "$GITHUB_OUTPUT"
-
-      - name: Check if tag exists
-        id: check_tag
-        run: |
-          if git rev-parse "v${{ steps.version.outputs.version }}" >/dev/null 2>&1; then
-            echo "exists=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "exists=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Create tag
-        if: steps.check_tag.outputs.exists == 'false'
-        run: |
-          git tag "${{ steps.version.outputs.tag }}"
-          git push origin "${{ steps.version.outputs.tag }}"
-
-      - name: Check if release exists
-        id: check_release
-        run: |
-          if gh release view "${{ steps.version.outputs.tag }}" >/dev/null 2>&1; then
-            echo "exists=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "exists=false" >> "$GITHUB_OUTPUT"
-          fi
-        env:
-          GH_TOKEN: ${{ github.token }}
-
-      - name: Create GitHub release
-        if: steps.check_release.outputs.exists == 'false'
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ steps.version.outputs.tag }}
-          generate_release_notes: true
 
       - name: Setup Java
         uses: actions/setup-java@v4
@@ -80,11 +67,72 @@ jobs:
           sudo /tmp/clj-install.sh
           clojure --version
 
-      # deploy reads version.edn :publish (:clojars) and VERSION. Idempotent —
-      # a version already on Clojars HEAD-checks and skips.
-      - name: Deploy to Clojars
-        if: env.CLOJARS_USERNAME != ''
-        env:
-          CLOJARS_USERNAME: ${{ secrets.CLOJARS_USERNAME }}
-          CLOJARS_PASSWORD: ${{ secrets.CLOJARS_PASSWORD }}
+      # hive-build's :gitea-source target resolves the repository id
+      # "hive-gitea" against BOTH the user-level :mvn/repos and
+      # ~/.m2/settings.xml, so the id in the three places must agree or a
+      # deploy cannot pair its URL with its credentials.
+      - name: Materialize private-registry credentials
+        if: env.MAVEN_TOKEN != ''
+        run: |
+          set -euo pipefail
+          # Mirror the clojure launcher's own resolution: $CLJ_CONFIG, else
+          # $XDG_CONFIG_HOME/clojure when that is set, else $HOME/.clojure.
+          # $HOME/.config/clojure is a path tools.deps never reads.
+          CLJ_CONFIG="${CLJ_CONFIG:-${XDG_CONFIG_HOME:+$XDG_CONFIG_HOME/clojure}}"
+          CLJ_CONFIG="${CLJ_CONFIG:-$HOME/.clojure}"
+          mkdir -p "$CLJ_CONFIG" "$HOME/.m2"
+          cat > "$CLJ_CONFIG/deps.edn" <<EOF
+          {:mvn/repos {"hive-gitea" {:url "${MAVEN_URL}"}}}
+          EOF
+          cat > "$HOME/.m2/settings.xml" <<EOF
+          <settings>
+            <servers>
+              <server>
+                <id>hive-gitea</id>
+                <username>${MAVEN_USERNAME}</username>
+                <password>${MAVEN_TOKEN}</password>
+              </server>
+            </servers>
+          </settings>
+          EOF
+
+      - name: Test
+        run: clojure -M:test
+
+      # The native suite is the only thing that exercises the real JavaCV
+      # extractor. Its stereo regression test is what stands between a
+      # resampling bug and a worker that silently transcribes nothing.
+      - name: Native integration suite
+        run: clojure -M:dev:test:itest:ffmpeg
+
+      - name: Bump patch version
+        run: clojure -T:build bump :level :patch
+
+      # Deploy BEFORE the tag. Tagging first means a failed deploy still leaves
+      # a pushed tag, so the next run hits "tag already exists" and can never
+      # publish that version again. Publishing first makes a tag mean "this
+      # version is in the registry".
+      - name: Deploy
         run: clojure -T:build deploy
+
+      - name: Commit and tag
+        id: tag
+        run: |
+          set -euo pipefail
+          VER=$(tr -d '\n' < VERSION)
+          git config user.name "vtranslate-ci"
+          git config user.email "ci@vtranslate.local"
+          git add VERSION
+          # [skip ci] stops this push from retriggering the workflow.
+          git commit -m "chore(release): $VER [skip ci]"
+          # Annotated: `git push --follow-tags` ignores lightweight tags,
+          # which would publish the artifact and silently drop the tag.
+          git tag -a "v$VER" -m "release $VER"
+          git push --follow-tags
+          echo "version=$VER" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.tag.outputs.version }}
+          generate_release_notes: true
