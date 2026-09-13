@@ -67,6 +67,15 @@ jobs:
           sudo /tmp/clj-install.sh
           clojure --version
 
+      - name: Test
+        run: clojure -M:test
+
+      # The native suite is the only thing that exercises the real JavaCV
+      # extractor. Its stereo regression test is what stands between a
+      # resampling bug and a worker that silently transcribes nothing.
+      - name: Native integration suite
+        run: clojure -M:dev:test:itest:ffmpeg
+
       # hive-build's :gitea-source target resolves the repository id
       # "hive-gitea" against BOTH the user-level :mvn/repos and
       # ~/.m2/settings.xml, so the id in the three places must agree or a
@@ -102,15 +111,6 @@ jobs:
             </servers>
           </settings>
           EOF
-
-      - name: Test
-        run: clojure -M:test
-
-      # The native suite is the only thing that exercises the real JavaCV
-      # extractor. Its stereo regression test is what stands between a
-      # resampling bug and a worker that silently transcribes nothing.
-      - name: Native integration suite
-        run: clojure -M:dev:test:itest:ffmpeg
 
       - name: Bump patch version
         run: clojure -T:build bump :level :patch
