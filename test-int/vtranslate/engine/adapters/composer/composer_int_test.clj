@@ -100,7 +100,7 @@
 ;; to an H.264 video stream.
 (deftest hardsub-adapter-satisfies-contract
   (let [src      (synth-source! (out-path "src-hard"))
-        composer (hardsub/make-composer {:composer-opts {:font-size 24 :burn-backend :javacv}})]
+        composer (:ok (hardsub/make-composer {:composer-opts {:font-size 24 :burn-backend :javacv}}))]
     (is (= :javacv (:backend composer)))
     (ports/check-composer composer src (sample-track) {:output-uri (out-path "hard-contract")})
     (is (= "h264" (:codec (first (:streams (project-streams (out-path "hard-contract"))))))
@@ -109,7 +109,7 @@
 (def ^:private capable-ffmpeg
   "A system ffmpeg with libass + libx264 on this box, or nil. PATH first, then
    the distro binary a Homebrew shim may be shadowing."
-  (delay (first (filter cli/available? ["ffmpeg" "/usr/bin/ffmpeg"]))))
+  (delay (first (filter #(cli/capable? (cli/ffmpeg-cli %)) ["ffmpeg" "/usr/bin/ffmpeg"]))))
 
 ;; LSP: the system-ffmpeg backend satisfies the same contract through the same
 ;; adapter, and :auto picks it when the binary is capable. Skipped, not failed,
@@ -117,7 +117,7 @@
 (deftest hardsub-cli-backend-satisfies-contract
   (if-let [bin @capable-ffmpeg]
     (let [src      (synth-source! (out-path "src-hard-cli"))
-          composer (hardsub/make-composer {:composer-opts {:ffmpeg-bin bin}})]
+          composer (:ok (hardsub/make-composer {:composer-opts {:ffmpeg-bin bin}}))]
       (is (= :ffmpeg-cli (:backend composer)) ":auto takes a capable binary")
       (ports/check-composer composer src (sample-track) {:output-uri (out-path "hard-cli-contract")})
       (is (= "h264" (:codec (first (:streams (project-streams (out-path "hard-cli-contract"))))))
@@ -126,5 +126,5 @@
     (is true "no capable ffmpeg on PATH or /usr/bin: CLI backend not exercised here")))
 
 (deftest hardsub-auto-falls-back-to-javacv-without-a-capable-binary
-  (let [composer (hardsub/make-composer {:composer-opts {:ffmpeg-bin "/nonexistent/ffmpeg"}})]
+  (let [composer (:ok (hardsub/make-composer {:composer-opts {:ffmpeg-bin "/nonexistent/ffmpeg"}}))]
     (is (= :javacv (:backend composer)))))

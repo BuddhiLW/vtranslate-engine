@@ -67,6 +67,21 @@
   (is (= {:audio-bitrate nil :channels 1} (sut/parse-audio-probe "1,N/A")))
   (is (nil? (sut/parse-audio-probe nil)) "no audio stream"))
 
+(deftest capability-is-read-off-the-listings-as-whole-names
+  (let [filters  " ... subtitles         V->V       Render text subtitles\n TSC overlay VV->V Overlay"
+        encoders " V....D libx264              libx264 H.264\n V....D libopenh264 OpenH264"]
+    (is (true? (sut/lists-name? filters "subtitles")))
+    (is (false? (sut/lists-name? " ... subtitles_extra V->V not it" "subtitles"))
+        "a longer name that starts the same is not the filter")
+    (is (false? (sut/lists-name? nil "subtitles")))
+    (is (true? (sut/capable? {:filters filters :encoders encoders})))
+    (is (false? (sut/capable? {:filters " TSC overlay VV->V" :encoders encoders})) "no libass")
+    (is (false? (sut/capable? {:filters filters :encoders " V....D libopenh264 OpenH264"})) "no x264")
+    (is (false? (sut/capable? {:filters filters})) "a listing the binary never gave")
+    (is (= ["/usr/bin/ffmpeg" "-hide_banner" "-filters"]
+           (sut/listing-args {:bin "/usr/bin/ffmpeg" :listing :filters})))
+    (is (= ["ffmpeg" "-hide_banner" "-encoders"] (sut/listing-args {:listing :encoders})))))
+
 (deftest probe-binary-sits-beside-ffmpeg
   (is (= "ffprobe" (sut/probe-binary "ffmpeg")))
   (is (= "/usr/bin/ffprobe" (sut/probe-binary "/usr/bin/ffmpeg")))

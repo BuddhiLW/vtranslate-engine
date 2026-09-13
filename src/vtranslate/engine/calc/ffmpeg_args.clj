@@ -101,6 +101,37 @@
       {:audio-bitrate (parse-long* br)
        :channels channels})))
 
+(defn listing-args
+  "ffmpeg argv that prints one of its capability listings: :filters or
+   :encoders."
+  [{:keys [bin listing] :or {bin "ffmpeg"}}]
+  [(str bin) "-hide_banner" (case listing
+                              :filters "-filters"
+                              :encoders "-encoders")])
+
+(defn lists-name?
+  "Whether a capability `listing` (the text ffmpeg -filters or -encoders
+   prints) has a row for `name`, as a whole word in the name column. A build
+   without the feature simply omits the row, so this is the capability
+   test; a substring match would take `subtitles_extra` for `subtitles`."
+  [listing name]
+  (boolean (re-find (re-pattern (str "(?m)^\\s*\\S+\\s+" (java.util.regex.Pattern/quote (str name)) "\\s"))
+                    (str listing))))
+
+(def required-capabilities
+  "What the burn needs from an ffmpeg build: libass behind the subtitles
+   filter and the libx264 encoder. The listing each is read from is the key."
+  {:filters ["subtitles"] :encoders ["libx264"]})
+
+(defn capable?
+  "Whether `listings` ({:filters text :encoders text}) carries every
+   required capability. A nil listing (the binary did not answer) fails it."
+  [listings]
+  (every? (fn [[listing names]]
+            (let [text (get listings listing)]
+              (and text (every? #(lists-name? text %) names))))
+          required-capabilities))
+
 (defn probe-binary
   "The ffprobe that ships beside `ffmpeg-bin`: same directory, same suffix,
    so a pinned /usr/bin/ffmpeg probes with /usr/bin/ffprobe and a bare

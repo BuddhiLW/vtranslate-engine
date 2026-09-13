@@ -1,48 +1,27 @@
 (ns vtranslate.engine.adapters.composer.hardsub
   "IVideoComposer that BURNS subtitle cues into the video picture (hardsub),
-   re-encoding H.264/AAC. Self-registers (defmethod resolve-composer :hard).
+   re-encoding H.264/AAC through an IHardsubBurner. Self-registers
+   (defmethod resolve-composer :hard).
 
-   Two burn backends, chosen once at construction by calc.burn from
-   :composer-opts: the system ffmpeg (libass + libx264, one subprocess) when
-   a binary answers, else the in-process JavaCV boundary. Loaded ONLY on the
-   :ffmpeg classpath (delegates to collect.ffmpeg, which imports bytedeco)."
+   Boundary: the burner is chosen once, at wiring, by calc.burn from
+   :composer-opts and one observation (whether the system ffmpeg is
+   capable), then resolved through the burner registry. Requiring both
+   burner adapters here registers them, which is what makes the hardsub
+   composer load ONLY on the :ffmpeg classpath (the JavaCV burner imports
+   bytedeco)."
   (:require [hive-dsl.result :as r]
-            [vtranslate.engine.port.composer :as p.comp]
+            [vtranslate.engine.adapters.burner.ffmpeg-cli :as cli-burner]
+            [vtranslate.engine.adapters.burner.javacv]
             [vtranslate.engine.adapters.composer.support :as support]
             [vtranslate.engine.calc.burn :as burn]
-            [vtranslate.engine.calc.overlay :as overlay]
-            [vtranslate.engine.collect.ffmpeg :as ffmpeg]
-            [vtranslate.engine.collect.ffmpeg-cli :as cli]
-            [vtranslate.engine.providers.composer-registry :as reg]
             [vtranslate.engine.calc.paths :as paths]
-            [vtranslate.engine.calc.captions :as captions]))
+            [vtranslate.engine.collect.ffmpeg-cli :as cli]
+            [vtranslate.engine.port.burner :as p.burner]
+            [vtranslate.engine.port.composer :as p.comp]
+            [vtranslate.engine.providers.burner-registry :as burners]
+            [vtranslate.engine.providers.composer-registry :as reg]))
 
-(defn- lines-at-fn
-  "Close a rendered SubtitleTrack + opts into (fn [t-ms] -> [line ...] | nil): the
-   active cue's lines at a frame timestamp, word-wrapped to the style's :wrap."
-  [track opts]
-  (let [tl   (overlay/timeline track)
-        wrap (:wrap (captions/style opts))]
-    (fn [t-ms]
-      (when-let [lines (overlay/active-lines tl t-ms)]
-        (if wrap
-          (vec (mapcat #(overlay/wrap-line % wrap) lines))
-          lines)))))
-
-(defn- javacv-burn!
-  "(fn [video-source out track style]) over the in-process JavaCV path."
-  [video-source out track style]
-  (ffmpeg/burn-hardsub video-source out (lines-at-fn track style) style))
-
-(defn- cli-burn!
-  "(fn [video-source out track style]) over the system ffmpeg at `bin`. The
-   CLI path wraps text itself from the same :wrap, so it takes the plain
-   timeline rather than the per-frame closure."
-  [bin]
-  (fn [video-source out track style]
-    (cli/burn-hardsub bin video-source out (overlay/timeline track) style)))
-
-(defrecord HardsubComposer [opts backend burn!]
+(defrecord HardsubComposer [opts backend burner]
   p.comp/IVideoComposer
   (compose [_ video-source subtitle-track compose-opts]
     ;; Per-job style wins over the deployment's defaults: caption size and
@@ -51,22 +30,27 @@
           out   (or (:output-uri compose-opts)
                     (paths/sibling-output video-source ".subbed.mp4"))]
       (r/try-effect* :error/compose-failed
-        (do (support/atomically out #(burn! video-source % subtitle-track style))
+        (do (support/atomically out #(p.burner/burn! burner video-source % subtitle-track style))
             {:output-uri out})))))
+
+(defn- ffmpeg-capable?
+  "The one observation the choice needs, made only when :auto asks for it:
+   an explicit backend is honoured without probing."
+  [opts]
+  (and (= :auto (burn/requested opts))
+       (cli/capable? (cli-burner/executables opts))))
 
 (defn make-composer
   "Build a HardsubComposer from config's :composer-opts. Anything absent is
-   filled by calc.captions defaults at draw time. The backend is probed here,
-   once per wiring, not per job: `:backend` on the record says which won."
+   filled by calc.captions defaults at draw time. The backend is chosen and
+   resolved here, once per wiring, not per job; `:backend` on the record
+   says which won. => (r/ok composer) | (r/err ...) when no burner is
+   registered for the chosen backend."
   [config]
   (let [opts    (get config :composer-opts {})
-        bin     (burn/binary opts)
-        backend (burn/choose opts (and (= :auto (burn/requested opts))
-                                       (cli/available? bin)))]
-    (->HardsubComposer opts backend
-                       (case backend
-                         :ffmpeg-cli (cli-burn! bin)
-                         :javacv     javacv-burn!))))
+        backend (burn/choose opts (ffmpeg-capable? opts))]
+    (r/let-ok [burner (burners/resolve-burner backend opts)]
+      (r/ok (->HardsubComposer opts backend burner)))))
 
 (defmethod reg/resolve-composer :hard [_ config]
-  (r/ok (make-composer config)))
+  (make-composer config))
