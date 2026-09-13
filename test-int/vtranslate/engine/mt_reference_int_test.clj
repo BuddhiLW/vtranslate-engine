@@ -67,6 +67,15 @@
 (defn- sintel-subs [lang]
   (str corpus-dir "/sintel/subs/sintel." lang ".srt"))
 
+(def corpus-present?
+  "Whether the human reference subtitles this namespace scores against are on
+   disk. The corpus is a SIBLING of this repo (../corpus), not part of it, so a
+   checkout that has only the engine — every CI runner — cannot read it. The
+   tests that need it are DEFINED only when it is present, the same way
+   ffmpeg-int-test guards its corpus probe: an absent fixture must read as
+   absent, not as a failing engine."
+  (.exists (io/file (sintel-subs "en"))))
+
 ;; The MANIFEST records 26 cues for each of these; he (32) and en-us (110) use a
 ;; different granularity and cannot be aligned cue-for-cue, so they are excluded.
 (def target-languages
@@ -206,40 +215,41 @@
     (is (= 1.0 (chrf "这把剑有黑暗的过去" "这把剑有黑暗的过去")))
     (is (> (chrf "هذا النصل له ماض مظلم" "هذا النصل له ماضٍ مظلم") 0.5))))
 
-(deftest chance-level-is-script-dependent
-  ;; Runs offline against the corpus's own human references, so the unit the
-  ;; ship floor is expressed in is verified without calling a provider.
-  (let [chance (into {} (for [lang (conj target-languages "es-419")]
-                          [lang (chance-level (parse-reference (sintel-subs lang)))]))]
-    (testing "two arbitrary sentences of one language already share n-grams"
-      (is (every? pos? (vals chance))))
-    (testing "the same chrF number means different things in different scripts"
-      (is (< (chance "zh-hans") (* 0.5 (chance "es")))
-          (str "Han chance " (chance "zh-hans") " should be far below Latin "
-               (chance "es") " — this is why one absolute floor cannot serve both"))
-      (is (< (chance "ar") (chance "ru"))))
-    (let [english (parse-reference (sintel-subs "en"))]
-      (testing "a second INDEPENDENT human reference clears the floor"
-        ;; es vs es-419 are two human translations of the same film: the best a
-        ;; provider could plausibly score, and the sanity check on the floor.
-        (let [es    (parse-reference (sintel-subs "es"))
-              es419 (parse-reference (sintel-subs "es-419"))]
-          (is (> (ratio-to-chance es es419) (ship-floor english es419))
-              (str "human-vs-human Spanish scores only "
-                   (ratio-to-chance es es419) "x chance"))))
-      (testing "the untranslated source never clears the floor it derives"
-        (doseq [lang target-languages]
-          (let [reference (parse-reference (sintel-subs lang))]
-            (is (< (ratio-to-chance english reference)
-                   (ship-floor english reference))
-                (str lang ": the floor cannot discriminate a passthrough")))))
-      (testing "a shared script raises the floor above the global minimum"
-        (is (> (ship-floor english (parse-reference (sintel-subs "es")))
-               ship-ratio-floor)
-            "Latin-script targets must clear more than the global floor")
-        (is (= ship-ratio-floor
-               (ship-floor english (parse-reference (sintel-subs "zh-hans"))))
-            "a target sharing no script with the source keeps the global floor")))))
+(when corpus-present?
+  (deftest chance-level-is-script-dependent
+    ;; Runs offline against the corpus's own human references, so the unit the
+    ;; ship floor is expressed in is verified without calling a provider.
+    (let [chance (into {} (for [lang (conj target-languages "es-419")]
+                            [lang (chance-level (parse-reference (sintel-subs lang)))]))]
+      (testing "two arbitrary sentences of one language already share n-grams"
+        (is (every? pos? (vals chance))))
+      (testing "the same chrF number means different things in different scripts"
+        (is (< (chance "zh-hans") (* 0.5 (chance "es")))
+            (str "Han chance " (chance "zh-hans") " should be far below Latin "
+                 (chance "es") " — this is why one absolute floor cannot serve both"))
+        (is (< (chance "ar") (chance "ru"))))
+      (let [english (parse-reference (sintel-subs "en"))]
+        (testing "a second INDEPENDENT human reference clears the floor"
+          ;; es vs es-419 are two human translations of the same film: the best a
+          ;; provider could plausibly score, and the sanity check on the floor.
+          (let [es    (parse-reference (sintel-subs "es"))
+                es419 (parse-reference (sintel-subs "es-419"))]
+            (is (> (ratio-to-chance es es419) (ship-floor english es419))
+                (str "human-vs-human Spanish scores only "
+                     (ratio-to-chance es es419) "x chance"))))
+        (testing "the untranslated source never clears the floor it derives"
+          (doseq [lang target-languages]
+            (let [reference (parse-reference (sintel-subs lang))]
+              (is (< (ratio-to-chance english reference)
+                     (ship-floor english reference))
+                  (str lang ": the floor cannot discriminate a passthrough")))))
+        (testing "a shared script raises the floor above the global minimum"
+          (is (> (ship-floor english (parse-reference (sintel-subs "es")))
+                 ship-ratio-floor)
+              "Latin-script targets must clear more than the global floor")
+          (is (= ship-ratio-floor
+                 (ship-floor english (parse-reference (sintel-subs "zh-hans"))))
+              "a target sharing no script with the source keeps the global floor"))))))
 
 ;; --- harness proof, no credentials ------------------------------------------
 ;; The scorecard below is only trustworthy if the chain that produces it —
@@ -285,30 +295,31 @@
                 "/v1/chat/completions")
      :stop #(.stop http 0)}))
 
-(deftest ^:mt scoring-harness-separates-a-perfect-translation-from-an-untranslated-one
-  (let [source     (sintel-subs "en")
-        english    (parse-reference source)
-        reference  (parse-reference (sintel-subs "pt"))
-        {:keys [url stop]} (oracle-server reference)]
-    (try
-      (let [translated (localize-subtitles source "pt"
-                                           {:api-url    url
-                                            ;; any always-set env var: the adapter
-                                            ;; only needs a non-blank key to call out
-                                            :secret-env "PATH"
-                                            :secret-pass nil})
-            scored     (chrf (str/join " " translated) (str/join " " reference))
-            baseline   (chrf (str/join " " english) (str/join " " reference))]
-        (testing "the ingress preserves cue alignment through a real HTTP provider"
-          (is (= (count english) (count translated)))
-          (is (= (count reference) (count translated))))
-        (testing "a perfect translator scores near 1.0, far above the baseline"
-          (is (> scored 0.95) (str "oracle scored only " scored))
-          (is (> scored baseline)))
-        (testing "and the untranslated baseline is genuinely below the floor
-                  the live proof asserts, so the floor can discriminate"
-          (is (< baseline 0.95))))
-      (finally (stop)))))
+(when corpus-present?
+  (deftest ^:mt scoring-harness-separates-a-perfect-translation-from-an-untranslated-one
+    (let [source     (sintel-subs "en")
+          english    (parse-reference source)
+          reference  (parse-reference (sintel-subs "pt"))
+          {:keys [url stop]} (oracle-server reference)]
+      (try
+        (let [translated (localize-subtitles source "pt"
+                                             {:api-url    url
+                                              ;; any always-set env var: the adapter
+                                              ;; only needs a non-blank key to call out
+                                              :secret-env "PATH"
+                                              :secret-pass nil})
+              scored     (chrf (str/join " " translated) (str/join " " reference))
+              baseline   (chrf (str/join " " english) (str/join " " reference))]
+          (testing "the ingress preserves cue alignment through a real HTTP provider"
+            (is (= (count english) (count translated)))
+            (is (= (count reference) (count translated))))
+          (testing "a perfect translator scores near 1.0, far above the baseline"
+            (is (> scored 0.95) (str "oracle scored only " scored))
+            (is (> scored baseline)))
+          (testing "and the untranslated baseline is genuinely below the floor
+                    the live proof asserts, so the floor can discriminate"
+            (is (< baseline 0.95))))
+        (finally (stop))))))
 
 ;; --- the paid proof ---------------------------------------------------------
 
