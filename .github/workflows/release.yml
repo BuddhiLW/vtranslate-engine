@@ -73,12 +73,15 @@ jobs:
       - name: Native integration suite
         run: clojure -M:dev:test:itest:ffmpeg
 
-      # hive-build's :gitea-source target reads the registry URL from this
-      # repo's OWN deps.edn, under the id it hardcodes ("hive-gitea"), and the
-      # matching credentials from ~/.m2/settings.xml under that same id. Only
-      # the credential half comes from the environment, which is why there is
-      # no MAVEN_URL here: a secret that could retarget a publish is worse than
-      # a URL anyone can read in the manifest.
+      # hive-build's :gitea-source target names the repository "hive-gitea".
+      # Its credentials come from the environment (and settings.xml below),
+      # and once they do, hive-build 0.1.14 takes the URL from MAVEN_URL, not
+      # from deps.edn: with MAVEN_URL unset the URL is nil and deps-deploy
+      # falls back to Clojars, which answers 401 "No deploy token provided".
+      # Every release since the registry move failed exactly that way. The
+      # Deploy step therefore sets MAVEN_URL as a plain value, the same URL
+      # deps.edn declares, never as a secret: a secret that could retarget a
+      # publish is worse than a URL anyone can read in the manifest.
       - name: Materialize private-registry credentials
         run: |
           set -euo pipefail
@@ -111,6 +114,8 @@ jobs:
       # publish that version again. Publishing first makes a tag mean "this
       # version is in the registry".
       - name: Deploy
+        env:
+          MAVEN_URL: https://gitea.hive-mcp.com/api/packages/vtranslate/maven
         run: clojure -T:build deploy
 
       - name: Commit and tag
