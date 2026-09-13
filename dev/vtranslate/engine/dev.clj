@@ -56,6 +56,33 @@
      (AudioSystem/write ais AudioFileFormat$Type/WAVE f)
      (.getPath f))))
 
+(defn stereo-tone-wav
+  "Write `secs` of 48 kHz STEREO 16-bit sine at `hz` as a real WAV via the JDK.
+   Returns the temp path (deleted on JVM exit).
+
+   Deliberately UNLIKE `silent-wav`, which is already 16 kHz mono and so shares
+   both the rate and the channel count of the extractor's target: a fixture that
+   needs no conversion cannot witness a conversion bug. Stereo at a non-target
+   rate is the shape that does, and a TONE rather than silence is what makes the
+   resulting pitch measurable."
+  (^String [] (stereo-tone-wav 2 440))
+  (^String [secs] (stereo-tone-wav secs 440))
+  (^String [secs hz]
+   (let [sr     48000
+         frames (* sr (long secs))
+         buf    (byte-array (* frames 2 2))         ; frames * channels * 2 bytes
+         bb     (doto (java.nio.ByteBuffer/wrap buf)
+                  (.order java.nio.ByteOrder/LITTLE_ENDIAN))]
+     (dotimes [i frames]
+       (let [v (short (* 12000 (Math/sin (* 2 Math/PI hz (/ (double i) sr)))))]
+         (.putShort bb v)                           ; L
+         (.putShort bb v)))                         ; R
+     (let [fmt (AudioFormat. (float sr) 16 2 true false)
+           ais (AudioInputStream. (ByteArrayInputStream. buf) fmt frames)
+           f   (doto (File/createTempFile "vt-stereo-" ".wav") .deleteOnExit)]
+       (AudioSystem/write ais AudioFileFormat$Type/WAVE f)
+       (.getPath f)))))
+
 ;; --- ports (bytedeco resolved lazily) --------------------------------------
 
 (defn ffmpeg-port

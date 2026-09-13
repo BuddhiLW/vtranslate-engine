@@ -163,4 +163,6 @@
   ;; has named this alias since the declarative addon flow landed; until now it
   ;; only existed as a -Sdeps :extra-paths shim the CLI built by hand.
   :addon-context {:extra-deps {io.github.buddhilw/vtranslate-context
-                               {:mvn/version "0.1.21"}}}}}
+                               {:mvn/version "0.1.21"}}}
+  :itest {:extra-paths ["test-int"]
+            :main-opts ["-m" "kaocha.runner" "--config-file" "tests-int.edn"]}}}

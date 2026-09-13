@@ -48,7 +48,18 @@
 
   p/IAudioExtractor
   (extract-audio [_ source-uri out-path {:keys [sample-rate channels]}]
-    (with-open [g (FFmpegFrameGrabber. ^String source-uri)]
+    ;; The GRABBER does the downmix and the rate conversion, NOT the recorder.
+    ;; FFmpegFrameRecorder reads an incoming sample buffer using ITS OWN channel
+    ;; count, so a 48 kHz STEREO frame handed to a 1-channel recorder is taken as
+    ;; twice as many mono samples: the WAV comes out at half speed with its pitch
+    ;; halved. It is still perfectly audible — levels are normal — so nothing
+    ;; downstream notices until whisper's VAD scores the whole track as
+    ;; non-speech and the job dies as :job/asr-failed "no segments produced".
+    ;; Asking the grabber for 16 kHz mono means the frame already matches the
+    ;; recorder and nothing reinterprets anything.
+    (with-open [g (doto (FFmpegFrameGrabber. ^String source-uri)
+                    (.setSampleRate (int sample-rate))
+                    (.setAudioChannels (int channels)))]
       (.start g)
       (with-open [rec (FFmpegFrameRecorder. ^String out-path (int channels))]
         ;; Re-encode decoded audio to signed-16 little-endian PCM in a WAV
