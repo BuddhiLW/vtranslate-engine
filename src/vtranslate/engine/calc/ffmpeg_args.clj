@@ -20,6 +20,34 @@
   (cond-> (str "subtitles=filename=" (filter-escape ass-path))
     rescaled? (str ",scale=" (long width) ":" (long height))))
 
+(def watermark-out-label
+  "The filtergraph label `watermark-graph` leaves the finished video on, and
+   the one `burn-args` maps. Named once, because a graph whose last label is
+   not the mapped one fails with `Output with label 'x' does not exist`."
+  "vid")
+
+(defn watermark-graph
+  "The same chain as `video-filter`, followed by the mark overlaid from a
+   SECOND input. => a -filter_complex value whose result is on
+   `watermark-out-label`.
+
+   An overlaid PNG and not `drawtext`: drawtext needs ffmpeg built with
+   libfreetype AND a font fontconfig can resolve, and neither is something
+   this code can check from here. When either is missing ffmpeg fails the
+   whole graph, so a badge nobody asked to be load-bearing takes the burn down
+   with it. `overlay` is a core filter that is always present.
+
+   The mark goes on AFTER any scale, so it is composited at the pixel size it
+   will be seen at instead of being resampled with the frame.
+
+   The intermediate label is NOT the output one: a label is consumed by the
+   filter that reads it, so naming the subtitled stage `vid` and then feeding
+   it to the overlay leaves nothing called `vid` for -map to find."
+  ^String [plan ass-path [x-expr y-expr]]
+  (str "[0:v]" (video-filter plan ass-path) "[subbed];"
+       "[subbed][1:v]overlay=" x-expr ":" y-expr
+       "[" watermark-out-label "]"))
+
 (def default-preset
   "x264 speed/size trade. veryfast halves the encode time of medium at a
    small bitrate cost; ultrafast is faster still but visibly softer at the
@@ -33,22 +61,39 @@
    and dropped otherwise (-an), because mapping an absent stream fails the
    run. -nostdin keeps a stalled worker from waiting on a terminal. The
    container is named (-f mp4) rather than guessed: `out` is the composer's
-   temp path, which carries no extension."
-  [{:keys [bin source out ass-path plan preset threads audio?]
+   temp path, which carries no extension.
+
+   `watermark` (nil, or {:png path :position [x-expr y-expr]}) adds the
+   VTranslate mark as a second input composited over the frame. It is an
+   argument and not a deployment setting because whether a video carries the
+   mark is a property of the PLAN the job was run under, which only the caller
+   knows.
+
+   With a mark the graph needs -filter_complex and explicit -maps: once a
+   second input exists, ffmpeg's default stream selection is free to take the
+   audio from whichever input it prefers, and the PNG has none."
+  [{:keys [bin source out ass-path plan preset threads audio? watermark]
     :or   {bin "ffmpeg" preset default-preset threads 1 audio? true}}]
-  (-> ["-y" "-nostdin" "-hide_banner" "-loglevel" "error"
-       "-i" (str source)
-       "-vf" (video-filter plan ass-path)
-       "-c:v" "libx264"
-       "-preset" (str preset)
-       "-b:v" (str (long (:video-bitrate plan)))
-       "-pix_fmt" "yuv420p"
-       "-threads" (str (long threads))]
-      (into (if audio?
-              ["-c:a" "aac" "-b:a" (str (long (:audio-bitrate plan)))]
-              ["-an"]))
-      (into ["-movflags" "+faststart" "-f" "mp4" (str out)])
-      (->> (into [(str bin)]))))
+  (let [{:keys [png position]} watermark
+        marked? (boolean png)]
+    (-> ["-y" "-nostdin" "-hide_banner" "-loglevel" "error"
+         "-i" (str source)]
+        (into (when marked? ["-i" (str png)]))
+        (into (if marked?
+                ["-filter_complex" (watermark-graph plan ass-path position)
+                 "-map" (str "[" watermark-out-label "]")]
+                ["-vf" (video-filter plan ass-path)]))
+        (into (when (and marked? audio?) ["-map" "0:a"]))
+        (into ["-c:v" "libx264"
+               "-preset" (str preset)
+               "-b:v" (str (long (:video-bitrate plan)))
+               "-pix_fmt" "yuv420p"
+               "-threads" (str (long threads))])
+        (into (if audio?
+                ["-c:a" "aac" "-b:a" (str (long (:audio-bitrate plan)))]
+                ["-an"]))
+        (into ["-movflags" "+faststart" "-f" "mp4" (str out)])
+        (->> (into [(str bin)])))))
 
 (defn probe-args
   "ffprobe argv for the first stream of `kind` (:video | :audio) in `source`,

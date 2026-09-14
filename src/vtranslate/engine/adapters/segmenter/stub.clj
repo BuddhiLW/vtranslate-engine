@@ -11,7 +11,8 @@
             [vtranslate.engine.providers.config :as cfg]
             [vtranslate.engine.wiring :as wiring]
             [vtranslate.engine.providers.segmenter-registry :as reg]
-            [vtranslate.engine.providers.compatibility :as compat]))
+            [vtranslate.engine.providers.compatibility :as compat]
+            [vtranslate.engine.adapters.segmenter.gap-filled :as gap]))
 
 (defn grid-spans
   "Pure: tile [0, duration-ms) into contiguous windows of window-ms, the final
@@ -44,6 +45,11 @@
     (let [segmenter (:segmenter routing)]
       (if (contains? #{nil :none} segmenter)
         (r/ok nil)
-        (reg/resolve-segmenter segmenter (merge config routing))))))
+        ;; Whatever the segmenter left out is the coverage policy's business:
+        ;; a VAD that rejects speech has no error channel, so an unfilled gap
+        ;; is a silently missing stretch of subtitles. [:segmenter-opts
+        ;; :coverage] :none opts out.
+        (r/let-ok [built (reg/resolve-segmenter segmenter (merge config routing))]
+          (gap/wrap built (merge config routing)))))))
 
 (defmethod compat/segmentation-produced :grid [_] :fixed-window)

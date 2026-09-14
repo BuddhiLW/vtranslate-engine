@@ -8,6 +8,10 @@
   "Fold ASR segment-data maps into a completed Transcript. Boundary ASR data has
    no :index (adapters don't number segments); the promote layer assigns the
    1-based index. Missing per-segment language defaults to transcript language.
+
+   NO segments seals a SILENT transcript rather than failing: media with no
+   speech in it (a music-only film, a silent clip) is a job that finished, not
+   an ASR failure. Callers distinguish the two with `transcription/silent?`.
    => (r/ok Transcript) | (r/err ...)."
   [{:keys [id asset-id language segments]}]
   (r/let-ok [t0     (tx/make-transcript {:id id :asset-id asset-id :language language})
@@ -21,4 +25,6 @@
                                                   :index (inc i)
                                                   :language (or (:language seg) language)))
                                          segments))]
-    (tx/complete filled)))
+    (if (seq (:segments filled))
+      (tx/complete filled)
+      (tx/seal-silent filled))))

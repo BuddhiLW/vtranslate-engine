@@ -178,15 +178,21 @@
 
 (defn- transcribe-one-span
   "Slice `path` to `span`, POST the slice, and return raw verbose_json segments
-   shifted into absolute clip time. The hallucination filter runs here — one
-   bad span cannot poison the merged output."
+   shifted into absolute clip time and confined to the audio the slice actually
+   carried. The hallucination filter runs here — one bad span cannot poison the
+   merged output; so does the window clamp, because a whisper server pads a
+   short slice out to its decode length and can time a hypothesis past the end
+   of the audio it was sent."
   [transcriber path language opts span pad-ms]
-  (r/let-ok [{:keys [bytes offset-ms samples]} (sup/wav-bytes-slice path span pad-ms)]
+  (r/let-ok [{:keys [bytes offset-ms samples sample-rate]} (sup/wav-bytes-slice path span pad-ms)]
     (if (zero? samples)
       (r/ok [])
       (r/let-ok [resp (transcribe-bytes transcriber language opts bytes)]
-        (let [segs (ah/clean (:segments resp) opts)]
-          (r/ok (sup/offset-segments offset-ms segs)))))))
+        (let [segs       (ah/clean (:segments resp) opts)
+              window-end (+ (long offset-ms)
+                            (long (Math/round (* 1000.0 (/ (double samples) sample-rate)))))]
+          (r/ok (sup/clamp-to-window offset-ms window-end
+                                     (sup/offset-segments offset-ms segs))))))))
 
 (defn- transcribe-with-spans
   "Fold the spans, calling `transcribe-one-span` per island and merging the

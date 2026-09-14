@@ -68,6 +68,52 @@
       (is (every? (fn [s] (< (:start-ms s) (:end-ms s))) out)
           "no real segment is sheared down to zero extent"))))
 
+;; Observed shape, ggml-base + :grid (5 s windows, 500 ms pad) over
+;; corpus/multisource/multisource.mp4: the last window carries 2 s of audio and
+;; whisper — which pads every window out to its 30 s decode length — returns a
+;; hypothesis timed [0 4000]. Offset into clip time that segment ends 2 s past
+;; the clip, and the overlap repair used to answer by shearing every later
+;; segment to the same instant: a run of zero-extent cues, i.e. a subtitle
+;; track that stops while the video keeps playing.
+(deftest an-overlong-hypothesis-never-swallows-the-rest
+  (let [raw [{:start-ms 0    :end-ms 7000 :text "one hypothesis timed past its window"}
+             {:start-ms 1000 :end-ms 2000 :text "second utterance"}
+             {:start-ms 3000 :end-ms 4000 :text "third utterance"}
+             {:start-ms 5000 :end-ms 6000 :text "fourth utterance"}]
+        out (sup/normalize-segments raw {:unit :ms})]
+    (testing "every utterance survives with its own timing"
+      (is (= [[0 1000] [1000 2000] [3000 4000] [5000 6000]]
+             (mapv (juxt :start-ms :end-ms) out))))
+    (testing "and none of them is sheared down to zero extent"
+      (is (every? (fn [s] (< (:start-ms s) (:end-ms s))) out)))))
+
+(deftest clamp-confines-a-window-to-the-audio-it-carried
+  (testing "a hypothesis that runs past the window has its end pulled back"
+    (is (= [[14500 16500]]
+           (mapv (juxt :start-ms :end-ms)
+                 (sup/clamp-to-window
+                  14500 16500
+                  [{:start-ms 14500 :end-ms 18500 :text "My speak and day!"}])))))
+  (testing "a hypothesis that starts past the window is pure padding and is dropped"
+    (is (= [] (sup/clamp-to-window
+               14500 16500
+               [{:start-ms 16500 :end-ms 19000 :text "hallucinated tail"}]))))
+  (testing "a hypothesis inside the window is untouched"
+    (is (= [[15000 16000]]
+           (mapv (juxt :start-ms :end-ms)
+                 (sup/clamp-to-window
+                  14500 16500
+                  [{:start-ms 15000 :end-ms 16000 :text "real speech"}])))))
+  (testing "the seconds spelling is clamped in seconds"
+    (is (= [[14.5 16.5]]
+           (mapv (juxt :start :end)
+                 (sup/clamp-to-window
+                  14500 16500
+                  [{:start 14.5 :end 18.5 :text "My speak and day!"}])))))
+  (testing "an empty window yields nothing"
+    (is (= [] (sup/clamp-to-window 16500 16500
+                                   [{:start-ms 16500 :end-ms 17000 :text "x"}])))))
+
 (deftest pad-duplicate-recognises-a-re-transcription
   (testing "a fragment whose words the previous segment already carries"
     (is (sup/pad-duplicate? "You're a fool for traveling alone so completely unprepared."
@@ -161,3 +207,14 @@
 (defspec normalized-output-is-always-contract-shaped 200
   (prop/for-all [raw (gen/vector gen-raw-seg 0 40)]
     (contract-shaped? (sup/normalize-segments raw {:unit :ms}))))
+
+(defspec clamped-segments-never-leave-their-window 200
+  (prop/for-all [lo    gen/nat
+                 width (gen/fmap inc gen/nat)
+                 raw   (gen/vector gen-raw-seg 0 20)]
+    (let [hi  (+ lo width)
+          out (sup/clamp-to-window lo hi (mapv #(update % :start-ms + lo) raw))]
+      (every? (fn [s] (and (<= lo (:start-ms s))
+                           (<= (:start-ms s) (:end-ms s))
+                           (<= (:end-ms s) hi)))
+              out))))
