@@ -128,7 +128,16 @@
   ;; VAD — Silero VAD Java/ONNX Runtime adapter. Activate with
   ;; VTRANSLATE_ENGINE_ALIASES=":ffmpeg:whisper-jni:silero-vad:run" and
   ;; VT_SEGMENTER=silero-vad (plus models/silero_vad.onnx).
-  :silero-vad {:extra-deps {com.microsoft.onnxruntime/onnxruntime {:mvn/version "1.30.0"}}}
+  ;;
+  ;; PINNED, and not a candidate for a routine bump: onnxruntime 1.29.0 and
+  ;; 1.30.0 SIGSEGV the JVM inside OrtSession creation on linux-x86_64 / JDK 25
+  ;; — the engine process dies outright, so a VAD job produces no Result at all,
+  ;; not even an error one. 1.20.0 and 1.22.0 load the same silero_vad.onnx and
+  ;; raise an ordinary OrtException on a bad model instead. Before raising this,
+  ;; run a VAD job end to end (corpus/multisource with :segmenter :silero-vad)
+  ;; and confirm the process survives; a green unit suite proves nothing here,
+  ;; because nothing in it creates an ONNX session.
+  :silero-vad {:extra-deps {com.microsoft.onnxruntime/onnxruntime {:mvn/version "1.22.0"}}}
 
   ;; Path 4 — Panama FFM binds libwhisper.so directly; no dependency, JDK 22+
   ;; foreign API. Point -Dvtranslate.whisper.lib=<libwhisper.so> at your build.

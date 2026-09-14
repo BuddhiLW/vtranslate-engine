@@ -1,7 +1,7 @@
 (ns vtranslate.engine.calc.transcription-test
   "Promote (CPPB) — golden + property + mutation for build-transcript. Projects
    the Transcript aggregate to plain EDN before snapshotting. No IO."
-  (:require [clojure.test :refer [deftest is]]
+  (:require [clojure.test :refer [deftest is testing]]
             [clojure.test.check.generators :as gen]
             [clojure.test.check.properties :as prop]
             [clojure.test.check.clojure-test :refer [defspec]]
@@ -86,10 +86,13 @@
 ;; UNIT — boundary failure modes fail loud
 ;; =============================================================================
 
-(deftest empty-segments-fails-asr
-  (let [res (sut/build-transcript {:id "t" :asset-id "a" :language "en" :segments []})]
-    (is (r/err? res))
-    (is (= :error/asr-failed (:error res)))))
+(deftest empty-segments-seal-a-silent-transcript
+  (testing "media with no speech is a finished job, not an ASR failure"
+    (let [res (sut/build-transcript {:id "t" :asset-id "a" :language "en" :segments []})]
+      (is (r/ok? res))
+      (is (= :transcript/silent (:adt/variant (:status (:ok res)))))
+      (is (tx/silent? (:ok res)))
+      (is (empty? (:segments (:ok res)))))))
 
 (deftest unsupported-transcript-language-fails-loud
   (let [res (sut/build-transcript {:id "t" :asset-id "a" :language "xx"

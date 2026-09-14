@@ -25,7 +25,8 @@
             [vtranslate.engine.port.composer :as p.comp]
             [vtranslate.engine.pipeline.extensions :as ext]
             [vtranslate.engine.adapters.translator.augment :as augment]
-            [vtranslate.engine.calc.progress :as c.progress]))
+            [vtranslate.engine.calc.progress :as c.progress]
+            [vtranslate.engine.domain.transcription :as tx]))
 
 ;; ---------------------------------------------------------------------------
 ;; Language helpers
@@ -393,12 +394,16 @@
 (defn- render-subtitles
   "Render every target's cues. The first target also populates the flat
    :subtitle-track / :rendered result keys, so a single-target caller sees
-   exactly what it always did."
+   exactly what it always did.
+
+   A silent job has no targets to render: it carries :silent? and an EMPTY
+   :rendered, so a caller writing a sidecar file writes an empty subtitle rather
+   than nothing at all, and can tell 'no speech' from 'not run'."
   [{:keys [renderer] :as resources} state]
   (stage-progress! resources :rendering 85)
   (pf/with-result
     state
-    (fn [{:keys [spec job transcript transcript-cached? outputs failed-targets] :as ctx}]
+    (fn [{:keys [spec job transcript transcript-cached? outputs failed-targets silent?] :as ctx}]
       (r/let-ok [rendered-outputs (reduce
                                    (fn [acc output]
                                      (r/let-ok [done acc
@@ -419,6 +424,7 @@
                                     :translated (:translated (first rendered-outputs))
                                     :subtitle-track (:subtitle-track (first rendered-outputs))
                                     :rendered (:rendered (first rendered-outputs))}
+                             silent?              (assoc :silent? true :rendered "")
                              (seq failed-targets) (assoc :failed-targets failed-targets))
                            (:result/extra ctx))]
         (r/ok result)))))
