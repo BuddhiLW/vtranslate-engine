@@ -42,6 +42,7 @@
       {:container   (.getFormat g)
        :duration-ms (units/us->ms (.getLengthInTime g))   ; µs -> ms at the boundary
        :has-audio?  (pos? (.getAudioChannels g))
+       :has-video?  (and (pos? (.getImageWidth g)) (pos? (.getImageHeight g)))
        :audio-codec (.getAudioCodecName g)
        :sample-rate (long (.getSampleRate g))
        :channels    (long (.getAudioChannels g))}))

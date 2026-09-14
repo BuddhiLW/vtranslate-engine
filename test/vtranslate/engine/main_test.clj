@@ -82,6 +82,6 @@
 ;; TOTAL: run never throws — for ANY argv it returns a Result (the process-level
 ;; Throwable guard is the safety net the subprocess transport depends on).
 (props/defprop-total run-is-total
-  (fn [args] (main/run args))
+  (fn [args] (with-in-str "" (main/run args)))
   (gen/vector gen/string-ascii 0 3)
   {:pred result?})

@@ -24,11 +24,11 @@
   {:sample-rate 16000 :channels 1})
 
 (defn to-probe-info
-  "Project a backend probe map onto the domain ProbeInfo value object. Drops the
-   collect-only fields (sample-rate/channels) the domain does not model. Pure —
-   the boundary's narrowing from backend facts to the domain value object."
-  [{:keys [container duration-ms has-audio? audio-codec]}]
-  (ingestion/->ProbeInfo container duration-ms has-audio? audio-codec))
+  "Project backend facts onto ProbeInfo, retaining explicit video capability
+   when supplied. Older backends leave video capability unknown."
+  [{:keys [container duration-ms has-audio? audio-codec] :as facts}]
+  (cond-> (ingestion/->ProbeInfo container duration-ms has-audio? audio-codec)
+    (contains? facts :has-video?) (assoc :has-video? (:has-video? facts))))
 
 (defn- ensure-source
   "=> (r/ok source-uri) when the path exists, else a not-found error."
