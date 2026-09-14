@@ -146,7 +146,15 @@
    Non-lexical markers (see `non-speech-text?`) are DROPPED here, BEFORE the
    overlap shear — the order is load-bearing. A marker whose span covers the
    silence between two utterances would otherwise push the next real segment's
-   start past its own end, shearing genuine speech down to zero extent."
+   start past its own end, shearing genuine speech down to zero extent.
+
+   Overlaps are repaired by TRIMMING THE EARLIER hypothesis back to the later
+   one's start, never by pushing the later one forward: an over-long hypothesis
+   (whisper times a short window against its padded decode length) would
+   otherwise collapse every segment after it to zero extent, and a run of
+   zero-extent cues is a subtitle track that simply stops. Only when trimming
+   cannot help — the earlier segment starts at or after this one — does the
+   later start shear forward as a last resort."
   ([raw] (normalize-segments raw {}))
   ([raw {:keys [unit default-confidence] :or {unit :ms default-confidence 1.0}}]
    (->> raw
@@ -162,8 +170,21 @@
                       (:language s) (assoc :language (:language s)))))))
         (sort-by :start-ms)
         (reduce (fn [acc seg]
-                  (let [start (max (:start-ms seg) (:end-ms (peek acc) (:start-ms seg)))]
-                    (conj acc (assoc seg :start-ms start :end-ms (max start (:end-ms seg))))))
+                  (let [prev (peek acc)]
+                    (cond
+                      (or (nil? prev) (<= (:end-ms prev) (:start-ms seg)))
+                      (conj acc seg)
+
+                      (< (:start-ms prev) (:start-ms seg))
+                      (conj (pop acc)
+                            (assoc prev :end-ms (:start-ms seg))
+                            seg)
+
+                      :else
+                      (let [start (max (:start-ms seg) (:end-ms prev))]
+                        (conj acc (assoc seg
+                                         :start-ms start
+                                         :end-ms   (max start (:end-ms seg))))))))
                 [])
         vec)))
 
@@ -293,3 +314,47 @@
               (contains? seg :start)    (update :start + (/ ofs 1000.0))
               (contains? seg :end)      (update :end + (/ ofs 1000.0))))
           raw)))
+
+(defn- segment-ms
+  "One end of a raw segment in absolute ms, whichever spelling the backend used:
+   `ms-key` (already ms) or `s-key` (seconds). nil when it carries neither."
+  [seg ms-key s-key]
+  (cond
+    (contains? seg ms-key) (long (get seg ms-key))
+    (contains? seg s-key)  (long (Math/round (* 1000.0 (double (get seg s-key)))))
+    :else                  nil))
+
+(defn clamp-to-window
+  "Confine one decode window's absolute-ms `segments` to the audio that window
+   actually carried, [`window-start-ms`, `window-end-ms`].
+
+   whisper pads any window shorter than its fixed decode length out with
+   silence, so a backend can time a hypothesis PAST the end of the audio it was
+   handed — a 2 s window returning a segment that ends at 4 s is routine. Left
+   alone that overshoot outlives its window: it survives the merge, and the
+   overlap repair then trims or shears every later segment against a boundary
+   that no audio ever justified, which is how a track stops before the clip
+   does. A segment starting at or after the window end is pure padding and is
+   dropped; one that merely runs over has its end pulled back to the window.
+
+   Both spellings are preserved as they came in (:start-ms/:end-ms in ms,
+   :start/:end in seconds). Order is preserved.
+   => [segment ...]"
+  [window-start-ms window-end-ms segments]
+  (let [lo (long window-start-ms)
+        hi (long window-end-ms)]
+    (if (<= hi lo)
+      []
+      (into []
+            (keep (fn [seg]
+                    (let [s (or (segment-ms seg :start-ms :start) lo)
+                          e (or (segment-ms seg :end-ms :end) s)]
+                      (when (< s hi)
+                        (let [s' (max lo s)
+                              e' (min hi (max e s'))]
+                          (cond-> seg
+                            (contains? seg :start-ms) (assoc :start-ms s')
+                            (contains? seg :end-ms)   (assoc :end-ms e')
+                            (contains? seg :start)    (assoc :start (/ s' 1000.0))
+                            (contains? seg :end)      (assoc :end (/ e' 1000.0))))))))
+            segments))))

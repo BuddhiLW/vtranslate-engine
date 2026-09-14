@@ -84,6 +84,22 @@
   "The ordered span sequence an ISegmenter ok result carries."
   [:sequential Span])
 
+(def CoverageOpts
+  "ICoveragePolicy tuning: the window uncovered audio is tiled with, and the
+   gap below which a hole is left to the transcriber's own span padding."
+  [:map
+   [:window-ms  Nat]
+   [:min-gap-ms Nat]])
+
+(def CoverageRequest
+  "calc.coverage/fill-gaps input: a segmenter's spans, the probed media length,
+   and the tuning. The value object the coverage algebra answers."
+  [:map
+   [:spans       Spans]
+   [:duration-ms Nat]
+   [:window-ms   Nat]
+   [:min-gap-ms  Nat]])
+
 (def Window
   "calc.batching context window: a contiguous slice of texts with clamped
    before/after neighbour context."
@@ -127,17 +143,19 @@
 
 (def schemas
   "The module-local {registry-key -> malli form} contribution."
-  {:vtranslate.schema/language       Language
-   :vtranslate.schema/timecode       Timecode
-   :vtranslate.schema/time-range     TimeRange
-   :vtranslate.schema/confidence     Confidence
-   :vtranslate.schema/probe-info     ProbeInfo
-   :vtranslate.schema/segment        Segment
-   :vtranslate.schema/span           Span
-   :vtranslate.schema/window         Window
-   :vtranslate.schema/cue-data       CueData
-   :vtranslate.schema/cue            Cue
-   :vtranslate.schema/routing-config RoutingConfig})
+  {:vtranslate.schema/language         Language
+   :vtranslate.schema/timecode         Timecode
+   :vtranslate.schema/time-range       TimeRange
+   :vtranslate.schema/confidence       Confidence
+   :vtranslate.schema/probe-info       ProbeInfo
+   :vtranslate.schema/segment          Segment
+   :vtranslate.schema/span             Span
+   :vtranslate.schema/coverage-opts    CoverageOpts
+   :vtranslate.schema/coverage-request CoverageRequest
+   :vtranslate.schema/window           Window
+   :vtranslate.schema/cue-data         CueData
+   :vtranslate.schema/cue              Cue
+   :vtranslate.schema/routing-config   RoutingConfig})
 
 (def registry
   "Composite registry: malli defaults + this module's schemas. Scoped to this
@@ -169,6 +187,9 @@
 (defn probe-info?     [x] (validate ProbeInfo x))
 (defn segment?        [x] (validate Segment x))
 (defn span?           [x] (validate Span x))
+
+(defn coverage-opts? [x] (validate CoverageOpts x))
+(defn coverage-request? [x] (validate CoverageRequest x))
 (defn window?         [x] (validate Window x))
 (defn cue-data?       [x] (validate CueData x))
 (defn cue?            [x] (validate Cue x))

@@ -9,10 +9,16 @@
             [vtranslate.engine.shared :as shared]))
 
 (defadt TranscriptStatus
-  "Lifecycle of an ASR transcript. :transcript/failed is terminal."
+  "Lifecycle of an ASR transcript. :transcript/silent and :transcript/failed are
+   terminal. :transcript/silent is the media that HAS no speech — a sealed,
+   segment-less transcript. It is deliberately not :transcript/complete (which
+   means 'sealed WITH segments') and deliberately not :transcript/failed: ASR
+   succeeded, it simply had nothing to hear, and a job over a silent film is a
+   job that finished."
   :transcript/empty
   :transcript/partial
   :transcript/complete
+  :transcript/silent
   :transcript/failed)
 
 ;; --- Confidence (value object, 0.0..1.0) -----------------------------------
@@ -81,6 +87,29 @@
     (if (seq segments)
       (r/ok (assoc t :status (transcript-status :transcript/complete)))
       (r/err :error/asr-failed {:reason "no segments produced"}))))
+
+(defn seal-silent
+  "Seal a transcript over media that carries no speech. Only an EMPTY transcript
+   can be sealed this way — once a segment has been added the transcript has
+   speech in it and `complete` is the transition that applies.
+
+   This is the difference between 'ASR found nothing' and 'ASR failed', which
+   the pipeline used to collapse into :error/asr-failed: a ten-minute film whose
+   only soundtrack is music would fail the job outright, after paying for the
+   decode. Silence is an answer.
+   => (r/ok transcript') | (r/err :error/asr-failed | :error/illegal-transition ...)."
+  [{:keys [segments] :as transcript}]
+  (r/let-ok [t (shared/guard-transition transcript :status #{:transcript/empty})]
+    (if (seq segments)
+      (r/err :error/asr-failed
+             {:reason "a transcript carrying segments is completed, not sealed silent"})
+      (r/ok (assoc t :status (transcript-status :transcript/silent))))))
+
+(defn silent?
+  "True when `transcript` is the sealed, speech-less kind — the signal the
+   pipeline reads to skip translation and render an empty track."
+  [transcript]
+  (= :transcript/silent (:adt/variant (:status transcript))))
 
 (defn total-duration-ms
   "Sum of segment durations — a calc over the shared kernel."

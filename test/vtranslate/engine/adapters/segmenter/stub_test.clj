@@ -1,7 +1,7 @@
 (ns vtranslate.engine.adapters.segmenter.stub-test
   "Cutting phase A grid stub — golden + property + mutation on the pure tiler, plus
    the port contract run against the real GridSegmenter (Liskov). No native deps."
-  (:require [clojure.test :refer [deftest is]]
+  (:require [clojure.test :refer [deftest is testing]]
             [clojure.test.check.generators :as gen]
             [clojure.test.check.properties :as prop]
             [clojure.test.check.clojure-test :refer [defspec]]
@@ -77,7 +77,8 @@
 (deftest build-port-registers-segmenter
   (let [res (wiring/build-port :segmenter {:segment-window-ms 4000})]
     (is (r/ok? res))
-    (is (= 4000 (:window-ms (:ok res))))))
+    (testing "the built port is the configured grid, behind the coverage decorator"
+      (is (= 4000 (:window-ms (:inner (:ok res))))))))
 
 (deftest resolves-via-segmenter-registry
   (is (r/ok? (reg/resolve-segmenter :grid {}))))
@@ -87,4 +88,11 @@
   (let [res (wiring/build-port :segmenter {:segmenter :grid
                                            :segment-window-ms 4000})]
     (is (r/ok? res))
-    (is (= 4000 (:window-ms (:ok res))))))
+    (is (= 4000 (:window-ms (:inner (:ok res)))))
+    (testing "and :coverage :none still yields a segmenter, wrapped in the
+              pass-through policy rather than unwrapped"
+      (let [plain (wiring/build-port :segmenter {:segmenter :grid
+                                                :segment-window-ms 4000
+                                                :segmenter-opts {:coverage :none}})]
+        (is (r/ok? plain))
+        (is (= 4000 (:window-ms (:inner (:ok plain)))))))))

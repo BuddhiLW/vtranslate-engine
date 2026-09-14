@@ -67,14 +67,12 @@
       (System/arraycopy ^floats samples start out 0 n))
     out))
 
-(defn- offset-segments [offset-ms raw]
-  (mapv (fn [seg]
-          (cond-> seg
-            (contains? seg :start-ms) (update :start-ms + offset-ms)
-            (contains? seg :end-ms)   (update :end-ms + offset-ms)
-            (contains? seg :start)    (update :start + offset-ms)
-            (contains? seg :end)      (update :end + offset-ms)))
-        raw))
+(defn- offset-segments
+  "Shift raw segments into absolute clip time. Delegates to the shared support
+   fn, which converts for the seconds spelling (:start/:end) instead of adding
+   milliseconds to a seconds value the way the local copy used to."
+  [offset-ms raw]
+  (sup/offset-segments offset-ms raw))
 
 (defn- samples->ms [sample sample-rate]
   (long (Math/round (* 1000.0 (/ (double sample) sample-rate)))))
@@ -133,10 +131,16 @@
                                   (inc i) total
                                   (/ (:start-ms span) 1000.0)
                                   (/ (- (System/currentTimeMillis) t0) 1000.0)))
-                 (r/ok (sup/merge-padded-window
-                        acc
-                        (:start-ms span)
-                        (offset-segments (samples->ms start sample-rate) raw))))))))
+                 (let [window-start (samples->ms start sample-rate)
+                       window-end   (samples->ms end sample-rate)]
+                   (r/ok (sup/merge-padded-window
+                          acc
+                          (:start-ms span)
+                          ;; whisper times a short window against its padded decode
+                          ;; length, so hypotheses can run past the audio this window
+                          ;; actually held; confine them before they reach the merge.
+                          (sup/clamp-to-window window-start window-end
+                                               (offset-segments window-start raw)))))))))) 
        (r/ok [])
        (map-indexed vector spans)))
     (do

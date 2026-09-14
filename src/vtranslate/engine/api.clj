@@ -324,7 +324,11 @@
   "Fan out over every requested target language. The transcript is produced ONCE
    upstream and reused, because ASR dominates the cost of a job and translation
    does not. `:translated` stays bound to the first target so a single-target
-   job's result shape is unchanged."
+   job's result shape is unchanged.
+
+   A SILENT transcript (media with no speech) translates to nothing and says so:
+   there is no batch to send, so the stage advances the job with no outputs and
+   the render stage produces an empty track rather than the job failing."
   [{:keys [translator config] :as resources} state]
   (stage-progress! resources :translating 60)
   (pf/with-result
@@ -333,9 +337,16 @@
       (let [tr      (augment/wrap-opts translator (:translate/opts ctx))
             targets (c.tr/normalize-targets spec)
             done    (atom 0)]
-        (if (empty? targets)
+        (cond
+          (empty? targets)
           (r/err :error/no-target-language
                  {:reason "job spec named no target language"})
+
+          (tx/silent? transcript)
+          (r/let-ok [job (job/advance job)]
+            (r/ok (assoc ctx :job job :outputs [] :silent? true)))
+
+          :else
           (r/let-ok [translated (translate-targets
                                  tr spec transcript targets config
                                  #(record-provider-attempt! resources (:job-id spec) %)
@@ -412,24 +423,54 @@
                            (:result/extra ctx))]
         (r/ok result)))))
 
+(def composer-default-suffix
+  "The sink every composer falls back to when the caller names no `:output-uri`
+   — `<source-without-ext>.subbed.mp4`, beside the source. Duplicated from the
+   composer adapters ON PURPOSE: the multi-language sink below has to be able to
+   name that same default BEFORE the composer sees it, because the composer
+   cannot know a second language is coming."
+  ".subbed.mp4")
+
+(defn- compose-sink
+  "Where one target's video is written.
+
+   A single-target job keeps passing `output` straight through — nil included,
+   which leaves the default to the composer exactly as before.
+
+   A MULTI-target job must never pass nil: every composer defaults nil to the
+   same `<source>.subbed.mp4`, so all eleven languages composed to one path and
+   each burn silently overwrote the last — the job then served that one file
+   (the language that happened to finish last) under every language's name. So
+   the default is made explicit here and then tagged with the language, which is
+   what `output` was already getting."
+  [source output multi? target-language]
+  (if-not multi?
+    output
+    (c.paths/language-variant
+     (or output (c.paths/sibling-output source composer-default-suffix))
+     target-language)))
+
 (defn- compose-one
   "Mux one target's track into its own video. With more than one target the
    output path is tagged with the language, because burning subtitles is
    per-language by nature and two targets would otherwise write the same file.
 
-   The job's caption style and output quality ride along, so how a video looks
-   is a property of the request rather than of the deployment."
-  [muxer {:keys [source output caption quality]} multi?
+   The job's caption style, output quality and watermark ride along, so how a
+   video looks is a property of the request rather than of the deployment.
+
+   `:watermark?` is assoc'd AFTER the caption style on purpose. The style comes
+   off the wire and a caller can put anything in it; whether the video carries
+   the mark is the SERVER's answer, and it has to be the one that survives."
+  [muxer {:keys [source output caption quality watermark?]} multi?
    {:keys [target-language subtitle-track] :as out}]
   (r/let-ok [composed (p.comp/compose
                        muxer source subtitle-track
                        (cond-> (or caption {})
                          quality (assoc :quality quality)
                          true    (assoc :output-uri
-                                        (if (and multi? output)
-                                          (c.paths/language-variant
-                                           output target-language)
-                                          output))))]
+                                        (compose-sink source output multi?
+                                                      target-language))
+                         true    (assoc :watermark? (boolean watermark?))))]
     (r/ok (assoc out :output-video (or (:output-uris composed)
                                        (:output-uri composed))))))
 
@@ -487,16 +528,17 @@
     (pf/stage :vtranslate.pipeline/compose compose-video)]))
 
 (defn run-job
-  "Ingress A — demux + ASR + translate + render (+ optional mux).
+  "Ingress A: demux + ASR + translate + render (+ optional mux).
    A job may name one `:target-language` or several `:target-languages`; the
    source is transcribed ONCE either way and each target translates that same
-   transcript. `:caption` carries burn-in style and `:quality` the output
-   preset; both are ignored when no muxer is configured.
+   transcript. `:caption` carries burn-in style, `:quality` the output preset,
+   and `:watermark?` whether the burned video carries the VTranslate mark; all
+   three are ignored when no muxer is configured.
    => Result<job-result> carrying :outputs, one entry per language."
   [{:keys [media segmenter transcriber translator renderer muxer config
            transcript-cache on-progress]}
    {:keys [job-id source source-language target-language target-languages
-           mux-languages asset-kind format output caption quality]
+           mux-languages asset-kind format output caption quality watermark?]
     :or   {asset-kind :media/video format :format/srt}}]
   (let [targets (c.tr/normalize-targets {:target-language target-language
                                          :target-languages target-languages})
@@ -526,6 +568,7 @@
                    :model (get-in config [:translator-opts :model])
                    :caption caption
                    :quality quality
+                   :watermark? watermark?
                    :output output})]
       (when (r/ok? result)
         (stage-progress! resources :completed 100))

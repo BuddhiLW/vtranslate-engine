@@ -10,7 +10,10 @@
             [vtranslate.engine.calc.ass :as ass]
             [vtranslate.engine.calc.encoding :as encoding]
             [vtranslate.engine.calc.ffmpeg-args :as args]
-            [vtranslate.engine.collect.process :as process])
+            [vtranslate.engine.collect.process :as process]
+            [vtranslate.engine.collect.watermark :as mark]
+            [vtranslate.engine.calc.watermark :as watermark]
+            [clojure.java.io :as io])
   (:import [java.io File]))
 
 (def ^:private stderr-tail-chars
@@ -93,9 +96,14 @@
    `source`, writing an H.264/AAC mp4 to `out` with `cli`.
 
    `opts` carries `:quality` (a calc.encoding preset, default :source), any
-   calc.captions style key, and `:preset` (x264, default veryfast). The ASS
-   script is written beside `out` and removed on every path; `out` is left
-   to the caller's atomic-rename wrapper to keep or discard. => out."
+   calc.captions style key, `:preset` (x264, default veryfast), and
+   `:watermark?` (the VTranslate mark in the corner). The ASS script is
+   written beside `out` and removed on every path; `out` is left to the
+   caller's atomic-rename wrapper to keep or discard.
+
+   The mark is sized against the PLAN's height, not the source's: it is
+   composited after the scale, so the frame it lands on is the output's.
+   => out."
   [{:keys [bin] :as cli} source out cues opts]
   (let [{:keys [width height frame-rate video-bitrate audio-bitrate audio?]}
         (probe cli source)
@@ -106,12 +114,17 @@
                                 :frame-rate frame-rate
                                 :quality (get opts :quality :source)})
         script  (write-script! out (ass/document {:width width :height height} opts cues))
-        threads (encoding/encoder-threads (.availableProcessors (Runtime/getRuntime)))]
+        threads (encoding/encoder-threads (.availableProcessors (Runtime/getRuntime)))
+        mark    (when (:watermark? opts)
+                  (let [{:keys [path] :as geo}
+                        (mark/png-for (.getParent (io/file out)) (:height plan))]
+                    {:png path :position (watermark/overlay-position geo)}))]
     (try
       (run-burn! cli (args/burn-args {:bin bin :source source :out out
                                       :ass-path (.getPath script) :plan plan
                                       :preset (or (:preset opts) args/default-preset)
-                                      :threads threads :audio? audio?}))
+                                      :threads threads :audio? audio?
+                                      :watermark mark}))
       out
       (finally
         (.delete script)))))

@@ -10,6 +10,7 @@
             [vtranslate.engine.schema :as s]
             [vtranslate.engine.schema.contracts]
             [vtranslate.engine.schema.typed]
+            [vtranslate.engine.calc.coverage :as coverage]
             [vtranslate.engine.shared :as shared]
             [vtranslate.engine.domain.transcription :as transcription]
             [vtranslate.engine.domain.rendering :as rendering]))
@@ -57,6 +58,26 @@
    :rel (ok-of s/cue?) :mutation false})
 
 ;; ---------------------------------------------------------------------------
+;; Pure calculations — schema-generated inputs, invariant relations, mutants ON
+;; ---------------------------------------------------------------------------
+
+;; The coverage algebra is what stops a segmenter from silently deciding that a
+;; stretch of a film has no dialogue in it, so its invariant is not a shape:
+;; whatever the generator hands it, the answer is in bounds, in order, and no
+;; hole of `min-gap-ms` or more survives.
+(deftrifecta-from-schema fill-gaps coverage/fill-gaps
+  {:in  [:map
+         [:spans       s/Spans]
+         [:duration-ms [:int {:min 1 :max 600000}]]
+         [:window-ms   [:int {:min 1 :max 60000}]]
+         [:min-gap-ms  [:int {:min 0 :max 5000}]]]
+   :out s/Spans
+   :rel (fn [{:keys [duration-ms min-gap-ms]} out]
+          (and (every? #(and (<= 0 (:start-ms %)) (<= (:end-ms %) duration-ms)) out)
+               (every? (fn [[a b]] (<= (:end-ms a) (:start-ms b))) (partition 2 1 out))
+               (empty? (coverage/gaps out duration-ms (max 1 min-gap-ms)))))})
+
+;; ---------------------------------------------------------------------------
 ;; Value-object predicates — positive (valid accepted) + negative (corrupted
 ;; rejected). This is where the value objects get their mutation teeth.
 ;; ---------------------------------------------------------------------------
@@ -67,6 +88,8 @@
 (deftrifecta-predicate probe-info-pred     s/probe-info?     {:schema s/ProbeInfo})
 (deftrifecta-predicate segment-pred        s/segment?        {:schema s/Segment})
 (deftrifecta-predicate span-pred           s/span?           {:schema s/Span})
+(deftrifecta-predicate coverage-opts-pred  s/coverage-opts?  {:schema s/CoverageOpts})
+(deftrifecta-predicate coverage-req-pred   s/coverage-request? {:schema s/CoverageRequest})
 (deftrifecta-predicate window-pred         s/window?         {:schema s/Window})
 (deftrifecta-predicate cue-data-pred       s/cue-data?       {:schema s/CueData})
 (deftrifecta-predicate cue-pred            s/cue?            {:schema s/Cue})

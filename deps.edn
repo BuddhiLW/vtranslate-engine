@@ -128,7 +128,7 @@
   ;; VAD — Silero VAD Java/ONNX Runtime adapter. Activate with
   ;; VTRANSLATE_ENGINE_ALIASES=":ffmpeg:whisper-jni:silero-vad:run" and
   ;; VT_SEGMENTER=silero-vad (plus models/silero_vad.onnx).
-  :silero-vad {:extra-deps {com.microsoft.onnxruntime/onnxruntime {:mvn/version "1.29.0"}}}
+  :silero-vad {:extra-deps {com.microsoft.onnxruntime/onnxruntime {:mvn/version "1.30.0"}}}
 
   ;; Path 4 — Panama FFM binds libwhisper.so directly; no dependency, JDK 22+
   ;; foreign API. Point -Dvtranslate.whisper.lib=<libwhisper.so> at your build.
