@@ -1,0 +1,12 @@
+{:empty [],
+ :mlk-loop
+ [{:start 10.0,
+   :end 34.0,
+   :text "I have a dream",
+   :compression_ratio 7.23,
+   :asr/loop-collapsed 3}],
+ :normal
+ [{:start 0, :end 2, :text "hello there"}
+  {:start 2, :end 4, :text "how are you"}],
+ :thanks
+ [{:start 0, :end 3, :text "Thank you.", :asr/loop-collapsed 3}]}

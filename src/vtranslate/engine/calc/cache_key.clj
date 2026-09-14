@@ -19,7 +19,7 @@
    across runs; a new field must be APPENDED, never inserted, or every existing
    cache entry silently misses. The audio is identified by CONTENT, not path, so
    renaming or moving a video still hits and a same-sized replacement misses."
-  [:content-sha :provider :model :language :segmenter :span-pad-ms])
+  [:content-sha :provider :model :language :segmenter :span-pad-ms :asr-hygiene :transcriber-knobs])
 
 (defn transcript-key
   "Stable cache key for one transcription. `inputs` supplies :content-sha and the

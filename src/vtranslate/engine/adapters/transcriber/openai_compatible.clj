@@ -18,18 +18,17 @@
    Anti-hallucination hygiene — the reason this ns is bigger than a plain
    multipart POST:
 
-   - When `(:spans opts)` is present (silero-vad ran upstream), we POST one
-     request per span rather than one for the whole clip. Each request is its
-     own decoder state, so a hallucination that whisper's greedy decoder loops
-     on for a non-speech tail can never PROPAGATE forward into real speech.
-     Segments are shifted back to absolute clip time before being merged.
-   - Deterministic `temperature=0.0` and a benign empty `prompt` are sent by
-     default; both suppress the temperature-fallback path where faster-whisper
-     ships a low-quality window rather than a fallback error.
-   - Per-segment `no_speech_prob` and `compression_ratio` (verbose_json ships
-     both) are filtered through support/drop-hallucinated-windows AFTER the
-     merge, catching the classic silent-tail loop the server itself flagged
-     as suspect but shipped anyway.
+   - When `(:spans opts)` is present AND `[:transcriber-opts :slice-spans? true]` is
+     configured (opt-in, appropriate only with a VAD segmenter because grid spans cut
+     utterances mid-word), we POST one request per span rather than one for the whole
+     clip. Each request is its own decoder state, so a hallucination that whisper's
+     greedy decoder loops on for a non-speech tail can never PROPAGATE forward into
+     real speech. Segments are shifted back to absolute clip time before being merged.
+   - `temperature` and `prompt` are sent ONLY when explicitly configured (opt-in,
+     opt-out silence). Per-segment `compression_ratio` and `no_speech_prob` from
+     verbose_json are fed into `asr-hygiene/clean`, which collapses decoder loops
+     (same words repeated across consecutive segments or within one) instead of
+     deleting time ranges — speech is never lost.
    - Extra form fields under `[:transcriber-opts :extra-form]` are appended
      verbatim, so operator-specific speaches knobs (`hotwords`,
      `without_timestamps=false`, …) reach the server without another code
@@ -39,6 +38,7 @@
             [hive-dsl.result :as r]
             [vtranslate.engine.port.transcriber :as p.asr]
             [vtranslate.engine.adapters.transcriber.support :as sup]
+            [vtranslate.engine.calc.asr-hygiene :as ah]
             [vtranslate.engine.providers.transcriber-registry :as reg]
             [vtranslate.engine.adapters.support.secrets :as secrets])
   (:import [java.io ByteArrayOutputStream File]
@@ -57,7 +57,7 @@
 (def ^:private http-client
   (delay (.. (HttpClient/newBuilder) (connectTimeout (Duration/ofSeconds 15)) (build))))
 
-(defn- multipart
+(defn multipart
   "Encode `fields` (string->string) + one `file` part {:name :filename :bytes} as
    multipart/form-data. => {:content-type header-string :body byte-array}."
   [fields file]
@@ -67,11 +67,11 @@
         w        (fn [^String s] (.write out (.getBytes s "UTF-8")))]
     (doseq [[k v] fields]
       (w (str "--" boundary crlf))
-      (w (str "Content-Disposition: form-data; name="" k """ crlf crlf))
+      (w (str "Content-Disposition: form-data; name=\"" k "\"" crlf crlf))
       (w (str v crlf)))
     (w (str "--" boundary crlf))
-    (w (str "Content-Disposition: form-data; name="" (:name file)
-            ""; filename="" (:filename file) """ crlf))
+    (w (str "Content-Disposition: form-data; name=\"" (:name file)
+            "\"; filename=\"" (:filename file) "\"" crlf))
     (w (str "Content-Type: audio/wav" crlf crlf))
     (.write out ^bytes (:bytes file))
     (w crlf)
@@ -97,18 +97,10 @@
 
 ;; --- request shaping --------------------------------------------------------
 
-(def default-temperature
-  "Match speaches / OpenAI default: `0.0` is the deterministic pass. A higher
-   value engages faster-whisper's temperature-fallback loop, which is precisely
-   the path that ships a low-quality window rather than failing — the tail we
-   want NOT to ship."
-  0.0)
-
 (defn- format-temperature ^String [t]
   ;; The endpoint parses "temperature" via `Form(float)`, so send a number
-  ;; string. String/valueOf on 0.0 prints "0.0" which is accepted; explicit
-  ;; format keeps the wire deterministic for the tests.
-  (format "%.2f" (double t)))
+  ;; string. Use Locale.ROOT so a pt-BR JVM does not send "0,20".
+  (String/format java.util.Locale/ROOT "%.2f" (object-array [(double t)])))
 
 (defn- string-form-fields
   "Coerce every extra-form value to a string — multipart/form-data has no other
@@ -122,18 +114,21 @@
         m))
 
 (defn- base-fields
-  "Fixed fields every request carries, plus caller-configured opts. `temperature`,
-   `prompt` and `response_format` are always sent so the wire is deterministic
-   even when the server default drifts. `extra-form` merges last, so a per-call
-   override wins over the anti-hallucination baseline."
-  [model language {:keys [temperature prompt extra-form]
-                   :or   {temperature default-temperature prompt ""}}]
-  (cond-> {"model"           model
-           "response_format" "verbose_json"
-           "temperature"     (format-temperature temperature)
-           "prompt"          (str prompt)}
-    (seq language) (assoc "language" language)
-    (seq extra-form) (merge (string-form-fields extra-form))))
+  "Fixed fields every request carries, plus caller-configured opts. `temperature`
+   is sent ONLY when a value was explicitly configured (key present and non-nil);
+   `prompt` is sent ONLY when a non-blank prompt was configured. `model`,
+   `response_format`, `language` (when non-blank) and `extra-form` behave as now."
+  [model language opts]
+  (let [temperature (:temperature opts)
+        prompt      (:prompt opts)
+        extra-form  (:extra-form opts)]
+    (cond-> {"model"           model
+             "response_format" "verbose_json"}
+      (some? (:temperature opts)) (assoc "temperature" (format-temperature temperature))
+      (and (contains? opts :prompt) (not (str/blank? (str prompt))))
+      (assoc "prompt" (str prompt))
+      (seq language) (assoc "language" language)
+      (seq extra-form) (merge (string-form-fields extra-form)))))
 
 ;; --- response shaping -------------------------------------------------------
 
@@ -151,7 +146,7 @@
   (let [segs (:segments resp)]
     (if (seq segs)
       (-> segs
-          (sup/drop-hallucinated-windows opts)
+          (ah/clean opts)
           (sup/normalize-segments {:unit :s}))
       (sup/normalize-segments
        [{:start 0
@@ -186,14 +181,12 @@
    shifted into absolute clip time. The hallucination filter runs here — one
    bad span cannot poison the merged output."
   [transcriber path language opts span pad-ms]
-  (r/let-ok [{:keys [bytes offset-ms]} (sup/wav-bytes-slice path span pad-ms)]
-    (if (zero? (alength ^bytes bytes))
+  (r/let-ok [{:keys [bytes offset-ms samples]} (sup/wav-bytes-slice path span pad-ms)]
+    (if (zero? samples)
       (r/ok [])
       (r/let-ok [resp (transcribe-bytes transcriber language opts bytes)]
-        (r/ok (-> (:segments resp)
-                  vec
-                  (sup/drop-hallucinated-windows opts)
-                  (sup/offset-segments offset-ms)))))))
+        (let [segs (ah/clean (:segments resp) opts)]
+          (r/ok (sup/offset-segments offset-ms segs)))))))
 
 (defn- transcribe-with-spans
   "Fold the spans, calling `transcribe-one-span` per island and merging the
@@ -223,14 +216,15 @@
   p.asr/ITranscriber
   (transcribe [this audio-source language call-opts]
     (if-let [path (sup/audio->path audio-source)]
-      (let [spans   (seq (:spans call-opts))
-            pad-ms  (long (or (:span-pad-ms opts) 200))
+      (let [pad-ms  (long (or (:span-pad-ms opts) 200))
             ;; Per-call opts win over per-adapter opts win over defaults —
             ;; the same layering the local backend uses.
             merged  (merge opts (select-keys call-opts
                                              [:temperature :prompt :extra-form
-                                              :no-speech-thr :compression-ratio-thr]))]
-        (if spans
+                                              :min-repeats :compression-ratio-thr
+                                              :slice-spans?]))
+            spans   (seq (:spans call-opts))]
+        (if (and (:slice-spans? merged) spans)
           (transcribe-with-spans this path language merged spans pad-ms)
           (transcribe-whole this path language merged)))
       (r/err :error/asr-failed {:reason "audio-source carries no path"}))))
@@ -255,12 +249,12 @@
    NOT here (`:api-url`, `:model`, `:secret-env`, `:secret-pass`) is a build
    knob and stays out of the per-call form."
   [:temperature :prompt :extra-form :span-pad-ms
-   :no-speech-thr :compression-ratio-thr])
+   :min-repeats :compression-ratio-thr :slice-spans?])
 
 (defn make-transcriber
   "Build an OpenAiTranscriber for `provider-key`, resolving its key. Per-provider
    overrides (:api-url :model :secret-env :secret-pass :temperature :prompt
-   :extra-form :span-pad-ms :no-speech-thr :compression-ratio-thr) may live
+   :extra-form :span-pad-ms :min-repeats :compression-ratio-thr) may live
    under config [:transcriber-opts]. => OpenAiTranscriber."
   [provider-key config]
   (let [d    (get provider-defaults provider-key)

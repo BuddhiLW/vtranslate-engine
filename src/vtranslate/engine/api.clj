@@ -7,6 +7,7 @@
             [vtranslate.engine.calc.translation :as c.tr]
             [vtranslate.engine.calc.rendering :as c.rd]
             [vtranslate.engine.calc.paths :as c.paths]
+            [vtranslate.engine.calc.asr-hygiene :as asr-hygiene]
             [vtranslate.engine.calc.cache-key :as ck]
             [vtranslate.engine.port.transcript-cache :as p.cache]
             [vtranslate.engine.calc.reflow :as c.reflow]
@@ -152,7 +153,9 @@
                      (get-in config [:transcriber-opts :model]))
     :language    source-language
     :segmenter   (get-in config [:providers :segmenter] (:segmenter config))
-    :span-pad-ms (get-in config [:transcriber-opts :span-pad-ms])}))
+    :span-pad-ms (get-in config [:transcriber-opts :span-pad-ms] 200)
+    :asr-hygiene asr-hygiene/version
+    :transcriber-knobs (pr-str (into (sorted-map) (select-keys (:transcriber-opts config) [:slice-spans? :temperature :prompt :min-repeats :compression-ratio-thr])))}))
 
 (defn- run-asr
   "Segment, transcribe and build the Transcript. => Result<Transcript>."
