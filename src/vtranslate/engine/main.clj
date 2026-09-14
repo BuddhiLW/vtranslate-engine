@@ -77,12 +77,49 @@
 (defn load-addons! [config]
   (addons/load-addons! (resolved-addons config)))
 
+(defn addon-failure
+  "Why an addon did not come up, or nil when it did.
+
+   TWO distinct failures, and their shapes are not alike. A spec that cannot be
+   required at all comes back `:loaded? false` carrying `:error`
+   (:addon/invalid-spec, :addon/no-init, :addon/load-failed). One that requires
+   fine and then fails its OWN init comes back `:loaded? true` with an err
+   Result under `:result`, so testing `:loaded?` alone reports that second kind
+   as a success."
+  [{:keys [loaded? result] :as addon}]
+  (cond
+    (not loaded?)   (or (:error addon) :addon/load-failed)
+    (r/err? result) (or (:error result) :addon/init-failed)
+    :else           nil))
+
+(defn addon-failures
+  "[[id reason message] ...] for every addon that did not come up."
+  [addons]
+  (into []
+        (keep (fn [{:keys [result] :as addon}]
+                (when-let [reason (addon-failure addon)]
+                  [(or (:addon/id addon) (:addon/ns addon) :unknown)
+                   reason
+                   (or (:message addon) (:message result))])))
+        addons))
+
 (defn register-adapters!
   "Require every core adapter ns (each self-registers its provider defmethods).
    A core adapter that can't load on this classpath (e.g. a missing native) is
    TOLERATED — the provider is simply unavailable and the resolver fails loud
    later — but the failure is RECORDED + logged to stderr, never silently
-   swallowed. Then load configured addons. Returns {:failed [[ns message] ...]}."
+   swallowed. Then load configured addons, under the SAME discipline.
+
+   That last clause used to be a lie. The addon results were computed and then
+   dropped on the next line, so a configured addon that never loaded looked
+   exactly like one that loaded and had nothing to do. That is what
+   vtranslate-context did in the production worker, unobserved, while every
+   claim about the review gate and per-creator KG grounding rested on it being
+   live.
+
+   Returns {:failed [[ns message] ...]
+            :addons [<load-addon! result> ...]
+            :addon-failures [[id reason message] ...]}."
   ([] (register-adapters! {}))
   ([config]
    (let [failed (into []
@@ -95,8 +132,19 @@
          (println (str "[vtranslate] " (count failed)
                        " core adapter(s) unavailable on this classpath: "
                        (str/join ", " (map first failed))))))
-     (load-addons! config)
-     {:failed failed})))
+     (let [addons   (load-addons! config)
+           failures (addon-failures addons)]
+       ;; One line per failure rather than a joined list: an addon failure
+       ;; carries a reason AND a message worth reading, and a log line a human
+       ;; has to unpick is the next best thing to no log line at all.
+       (when (seq failures)
+         (binding [*out* *err*]
+           (doseq [[id reason message] failures]
+             (println (str "[vtranslate] addon " id " did not load: " reason
+                           (when message (str ": " message)))))))
+       {:failed failed
+        :addons addons
+        :addon-failures failures}))))
 
 (defn- ingress-kind
   "MediaKind for a spec: an explicit :asset-kind, else inferred from the source
