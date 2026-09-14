@@ -1,7 +1,8 @@
 (ns vtranslate.engine.adapters.segmenter.silero-vad-native
   "Native ONNX Runtime half for Silero VAD. Loaded only under :silero-vad alias."
   (:import [ai.onnxruntime OnnxTensor OrtEnvironment OrtSession OrtSession$SessionOptions]
-           [java.util HashMap]))
+           [java.util HashMap])
+  (:require [vtranslate.engine.adapters.support.native-stack :as stack]))
 
 (defn- reset-state [batch-size]
   {:state (make-array Float/TYPE 2 batch-size 128)
@@ -59,20 +60,28 @@
         (.close sr-tensor)))))
 
 (defn speech-probs
-  "Return vector of speech probabilities, one per Silero window."
+  "Return vector of speech probabilities, one per Silero window.
+
+   The whole session — creation, every window, teardown — runs on a thread with
+   an explicitly sized stack: ONNX Runtime >= 1.29 recurses deeply while
+   optimizing the graph and overflows the JVM's default stack IN NATIVE CODE,
+   which is a SIGSEGV that kills the process rather than an exception anyone can
+   catch (see adapters.support.native-stack)."
   [model-path samples sample-rate]
   (when-not (contains? #{8000 16000} sample-rate)
     (throw (ex-info "Silero VAD supports only 8kHz/16kHz input"
                     {:sample-rate sample-rate})))
-  (let [window-size (if (= sample-rate 16000) 512 256)]
-    (with-open [s (session model-path)]
-      (loop [start 0
-             state (reset-state 1)
-             probs []]
-        (if (>= start (alength ^floats samples))
-          probs
-          (let [chunk     (float-array window-size)
-                chunk-len (min window-size (- (alength ^floats samples) start))]
-            (System/arraycopy ^floats samples start chunk 0 chunk-len)
-            (let [[prob next-state] (call-model s state chunk sample-rate)]
-              (recur (+ start window-size) next-state (conj probs prob)))))))))
+  (stack/call-with-stack
+   (fn []
+     (let [window-size (if (= sample-rate 16000) 512 256)]
+       (with-open [s (session model-path)]
+         (loop [start 0
+                state (reset-state 1)
+                probs []]
+           (if (>= start (alength ^floats samples))
+             probs
+             (let [chunk     (float-array window-size)
+                   chunk-len (min window-size (- (alength ^floats samples) start))]
+               (System/arraycopy ^floats samples start chunk 0 chunk-len)
+               (let [[prob next-state] (call-model s state chunk sample-rate)]
+                 (recur (+ start window-size) next-state (conj probs prob)))))))))))
