@@ -21,26 +21,26 @@
              "hive-gitea"
              {:url "https://gitea.hive-mcp.com/api/packages/vtranslate/maven"}}
 
- :deps {org.clojure/clojure {:mvn/version "1.12.5"}
+ :deps {org.clojure/clojure {:mvn/version "1.12.6"}
 
         ;; ADTs (defadt/adt-case) + Result monad (ok/err/bind/let-ok/try-effect).
-        io.github.hive-agi/hive-dsl    {:mvn/version "0.5.19"}
+        io.github.hive-agi/hive-dsl    {:mvn/version "0.5.27"}
 
         ;; re-frame-style event/effect pipeline: pure handlers return effects
         ;; AS DATA; IO happens only in reg-fx interpreters (the CPPB boundary).
-        io.github.hive-agi/hive-events {:mvn/version "0.5.9"}
+        io.github.hive-agi/hive-events {:mvn/version "0.5.14"}
 
         ;; DIP filesystem/path effects (IFilesystem / IPathQuery).
         ;; 0.3.1 is the first release implementing IFilesystem (mkdirs!/tmpdir!/
         ;; atomic-write!) — the transcript cache writes through it.
-        io.github.hive-agi/hive-system {:mvn/version "0.3.8"}
+        io.github.hive-agi/hive-system {:mvn/version "0.3.10"}
 
         ;; Bounded concurrency primitives (bounded-pmap, safe-future, gate). The
         ;; Collect layer fans out over media sources under a hard concurrency
         ;; bound — each ffmpeg grabber is stateful + holds native memory, so the
         ;; bound is what protects file handles / off-heap allocation. (Already a
         ;; transitive dep of hive-system; pinned explicitly because we use it.)
-        io.github.hive-agi/hive-weave  {:mvn/version "0.3.4"}
+        io.github.hive-agi/hive-weave  {:mvn/version "0.3.10"}
 
         ;; Config DI — typed EDN/env config resolution (provider routing). The
         ;; engine reads ~/.config/vtranslate/config.edn ITSELF (standalone, like
@@ -51,7 +51,7 @@
         ;; release. Pinned to the v0.3.1 release here; the live working copy is
         ;; wired for engine-coupled dev via local.deps.edn (:local/root, gitignored)
         ;; so the LSP sidecar + CI resolve from git without host paths.
-        io.github.hive-agi/hive-di     {:mvn/version "0.4.6"}
+        io.github.hive-agi/hive-di     {:mvn/version "0.4.12"}
 
         ;; JSON for the LLM translator adapters (OpenAI-compatible chat APIs —
         ;; OpenRouter / Venice / OpenAI / ...). java.net.http handles the transport
@@ -73,21 +73,21 @@
   ;; NON-RUNTIME: kept OFF :paths [src] so the subprocess core stays malli-free.
   :schemas {:extra-paths ["schemas"]
             :extra-deps {metosin/malli               {:mvn/version "0.20.1"}
-                         io.github.hive-agi/hive-spi  {:mvn/version "0.2.0"}}}
+                         io.github.hive-agi/hive-spi  {:mvn/version "1.1.1"}}}
 
   ;; Optional Typed Clojure check over the schema-derived annotations.
   :typed {:extra-paths ["schemas"]
           :extra-deps {metosin/malli                      {:mvn/version "0.20.1"}
-                       io.github.hive-agi/hive-spi         {:mvn/version "0.2.0"}
+                       io.github.hive-agi/hive-spi         {:mvn/version "1.1.1"}
                        org.typedclojure/typed.clj.checker  {:mvn/version "1.4.0"}}}
   :test {:extra-paths ["test" "schemas"]
          :extra-deps {lambdaisland/kaocha     {:mvn/version "1.91.1392"}
                       org.clojure/test.check  {:mvn/version "1.1.3"}
                       ;; hive-test 0.3.12 ships golden/mutation/trifecta (also hive-schemas.test dep).
-                      io.github.hive-agi/hive-test    {:mvn/version "0.3.16"}
+                      io.github.hive-agi/hive-test    {:mvn/version "0.4.5"}
                       metosin/malli                   {:mvn/version "0.20.1"}
-                      io.github.hive-agi/hive-spi     {:mvn/version "0.2.0"}
-                      io.github.hive-agi/hive-schemas {:mvn/version "0.1.28"}}
+                      io.github.hive-agi/hive-spi     {:mvn/version "1.1.1"}
+                      io.github.hive-agi/hive-schemas {:mvn/version "0.1.34"}}
          :main-opts ["-m" "kaocha.runner"]}
 
   ;; M5 — ffmpeg via bytedeco JavaCV (in-process, no system ffmpeg). Only the
@@ -129,15 +129,17 @@
   ;; VTRANSLATE_ENGINE_ALIASES=":ffmpeg:whisper-jni:silero-vad:run" and
   ;; VT_SEGMENTER=silero-vad (plus models/silero_vad.onnx).
   ;;
-  ;; PINNED, and not a candidate for a routine bump: onnxruntime 1.29.0 and
-  ;; 1.30.0 SIGSEGV the JVM inside OrtSession creation on linux-x86_64 / JDK 25
-  ;; — the engine process dies outright, so a VAD job produces no Result at all,
-  ;; not even an error one. 1.20.0 and 1.22.0 load the same silero_vad.onnx and
-  ;; raise an ordinary OrtException on a bad model instead. Before raising this,
-  ;; run a VAD job end to end (corpus/multisource with :segmenter :silero-vad)
-  ;; and confirm the process survives; a green unit suite proves nothing here,
-  ;; because nothing in it creates an ONNX session.
-  :silero-vad {:extra-deps {com.microsoft.onnxruntime/onnxruntime {:mvn/version "1.22.0"}}}
+  ;; onnxruntime >= 1.29 needs a BIGGER STACK than the JVM's default to build a
+  ;; session: it recurses deeply while optimizing the graph, and the overflow
+  ;; lands in native code as a SIGSEGV that kills the process — no Result, no
+  ;; exception, no hs_err. 1.20/1.22 fit in the default stack, which made the
+  ;; crash look like a version regression it is not. The engine owns the thread
+  ;; instead of relying on -Xss: adapters.support.native-stack runs every ONNX
+  ;; session on a 16 MiB stack, so this version is free to move. Keep that
+  ;; wrapper in place for any new ONNX-backed adapter, and verify a bump with a
+  ;; real VAD job (corpus/multisource, :segmenter :silero-vad) — a green unit
+  ;; suite proves nothing here, because nothing in it creates an ONNX session.
+  :silero-vad {:extra-deps {com.microsoft.onnxruntime/onnxruntime {:mvn/version "1.30.0"}}}
 
   ;; Path 4 — Panama FFM binds libwhisper.so directly; no dependency, JDK 22+
   ;; foreign API. Point -Dvtranslate.whisper.lib=<libwhisper.so> at your build.
@@ -147,7 +149,7 @@
   ;; :language hint => per-span language routing). Weights auto-download
   ;; sha-pinned from HF into ~/.cache/raster/models on first load; config
   ;; [:transcriber-opts :model-dir] points at a local dir to skip. JDK 21+.
-  :qwen3-asr {:extra-deps {org.replikativ/pretrained-rstr {:mvn/version "0.1.27"}}}
+  :qwen3-asr {:extra-deps {org.replikativ/pretrained-rstr {:mvn/version "0.1.45"}}}
 
   ;; Path 6 — NVIDIA NeMo (Canary / Parakeet) through an EMBEDDED CPython.
   ;; Canary is the only ASR backend here that also TRANSLATES (AST), so it is
@@ -167,25 +169,25 @@
   ;; never required from src. Local working copy wired via local.deps.edn.
   :model {:extra-paths ["model"]
           :extra-deps {io.github.hive-agi/hive-recife
-                       {:git/sha "2734b324642afac34fed6803495819343481121f"}}}
+                       {:git/sha "4681c954d994cffba3e427b4f4f479bd524567d1"}}}
   :test-repl {:extra-paths ["test" "schemas"]
  :extra-deps {nrepl/nrepl                      {:mvn/version "1.7.0"}
               cider/cider-nrepl                {:mvn/version "0.62.2"}
               lambdaisland/kaocha              {:mvn/version "1.91.1392"}
               org.clojure/test.check           {:mvn/version "1.1.3"}
-              io.github.hive-agi/hive-test     {:mvn/version "0.3.16"}
+              io.github.hive-agi/hive-test     {:mvn/version "0.4.5"}
               metosin/malli                    {:mvn/version "0.20.1"}
-              io.github.hive-agi/hive-spi       {:mvn/version "0.2.0"}
-              io.github.hive-agi/hive-schemas  {:mvn/version "0.1.28"}}
+              io.github.hive-agi/hive-spi       {:mvn/version "1.1.1"}
+              io.github.hive-agi/hive-schemas  {:mvn/version "0.1.34"}}
  :main-opts ["-m" "nrepl.cmdline" "--middleware" "[cider.nrepl/cider-middleware]"]}
 
-  :build {:deps {io.github.hive-agi/hive-build {:mvn/version "0.1.14"}}
+  :build {:deps {io.github.hive-agi/hive-build {:mvn/version "0.1.17"}}
                    :jvm-opts ["-Xmx1g"]
                    :ns-default hive-build.api}
   ;; The proprietary video-KG addon. The catalog in vtranslate.engine.addons
   ;; has named this alias since the declarative addon flow landed; until now it
   ;; only existed as a -Sdeps :extra-paths shim the CLI built by hand.
   :addon-context {:extra-deps {io.github.buddhilw/vtranslate-context
-                               {:mvn/version "0.1.21"}}}
+                               {:mvn/version "0.1.42"}}}
   :itest {:extra-paths ["test-int"]
             :main-opts ["-m" "kaocha.runner" "--config-file" "tests-int.edn"]}}}
