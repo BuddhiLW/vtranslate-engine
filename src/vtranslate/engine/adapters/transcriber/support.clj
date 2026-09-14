@@ -18,12 +18,25 @@
                          (javax.sound.sampled, no dependency) for the in-process
                          native backends and duration-spanning fallbacks.
    - `write-wav-mono!`  — the inverse: float samples back to a 16-bit PCM WAV, for
-                         backends whose entry point takes a PATH, not a buffer."
+                         backends whose entry point takes a PATH, not a buffer.
+   - `wav-bytes-slice`  — take a time sub-range out of a WAV file as a fresh
+                         16-bit PCM WAV byte-array; the JDK equivalent of
+                         `ffmpeg -ss ... -to ... -c:a pcm_s16le`. Lets the
+                         OpenAI-compatible ASR adapter honour `:spans` by
+                         POSTing one request per speech island instead of the
+                         whole clip (each request is its own decoder state, so
+                         a hallucination on the non-speech tail can never
+                         propagate forward).
+   - `hallucination-window?` / `drop-hallucinated-windows` — faster-whisper's
+                         verbose_json ships per-segment `no_speech_prob` and
+                         `compression_ratio`; when the decoder yields but marks
+                         the window suspect, drop it here rather than let a
+                         looped fragment reach the transcript."
   (:require [clojure.string :as str]
             [hive-dsl.result :as r])
   (:import [javax.sound.sampled AudioSystem AudioFileFormat$Type AudioFormat
             AudioFormat$Encoding AudioInputStream]
-           [java.io ByteArrayInputStream File]))
+           [java.io ByteArrayInputStream ByteArrayOutputStream File]))
 
 (defn audio->path
   "The audio-source is opaque (port.media). At runtime it is the WAV path string
@@ -209,3 +222,137 @@
                 s  (short (bit-or lo (bit-shift-left (int hi) 8)))]
             (aset fa i (float (/ s 32768.0)))))
         {:samples fa :sample-rate (int rate)}))))
+
+(defn samples->wav-bytes
+  "Encode mono float `samples` in [-1.0, 1.0] as a 16-bit PCM WAV byte-array at
+   `sample-rate`. The in-memory sibling of `write-wav-mono!`. Callers that ship
+   audio over HTTP (the OpenAI-compatible adapter) get their bytes without a
+   temp file touching disk. => byte-array."
+  ^bytes [^floats samples sample-rate]
+  (let [n     (alength samples)
+        bytes (byte-array (* 2 n))]
+    (dotimes [i n]
+      (let [clamped (-> (aget samples i) (max -1.0) (min 1.0))
+            s       (int (Math/round (* clamped 32767.0)))]
+        (aset-byte bytes (* 2 i) (unchecked-byte (bit-and s 0xff)))
+        (aset-byte bytes (inc (* 2 i)) (unchecked-byte (bit-and (bit-shift-right s 8) 0xff)))))
+    (let [format (AudioFormat. AudioFormat$Encoding/PCM_SIGNED
+                               (float sample-rate) 16 1 2 (float sample-rate) false)
+          baos   (ByteArrayOutputStream.)]
+      (with-open [stream (AudioInputStream. (ByteArrayInputStream. bytes) format n)]
+        (AudioSystem/write stream AudioFileFormat$Type/WAVE baos))
+      (.toByteArray baos))))
+
+(defn- pad-clip-sample-range
+  "Given a decoded WAV of `total-samples` at `sample-rate` and a span in ms, pad
+   both ends by `pad-ms`, then clip to [0, total-samples]. => [start-sample
+   end-sample], with `start-sample <= end-sample`."
+  [total-samples sample-rate pad-ms {:keys [start-ms end-ms]}]
+  (let [start-ms (max 0 (- (or start-ms 0) (or pad-ms 0)))
+        end-ms   (+ (or end-ms 0) (or pad-ms 0))
+        start    (long (Math/floor (* sample-rate (/ (double start-ms) 1000.0))))
+        end      (long (Math/ceil (* sample-rate (/ (double end-ms) 1000.0))))
+        start    (max 0 (min (long total-samples) start))
+        end      (max start (min (long total-samples) end))]
+    [start end]))
+
+(defn wav-bytes-slice
+  "Extract a time sub-range of the WAV at `path` as a fresh 16-bit PCM mono WAV
+   byte-array. `span` is `{:start-ms n :end-ms n}`; both ends are padded by
+   `pad-ms` (default 0) and then clipped to the clip's real duration — a pad
+   past the tail can NEVER draw silence in that isn't there, which is the whole
+   point of chunking here.
+
+   => (r/ok {:bytes byte-array :offset-ms n :sample-rate int})
+      | (r/err :error/asr-failed {:reason ...}).
+
+   `:offset-ms` is the absolute clip time of `bytes[0]` after padding/clipping,
+   so a caller offsetting per-segment timestamps has one number to add."
+  ([path span] (wav-bytes-slice path span 0))
+  ([path span pad-ms]
+   (r/let-ok [{:keys [^floats samples sample-rate]} (read-wav-mono-floats path)]
+     (r/try-effect* :error/asr-failed
+       (let [total     (alength samples)
+             [s e]     (pad-clip-sample-range total sample-rate pad-ms span)
+             n         (max 0 (- e s))
+             sliced    (float-array n)
+             _         (when (pos? n) (System/arraycopy samples s sliced 0 n))
+             offset-ms (long (Math/round (* 1000.0 (/ (double s) sample-rate))))]
+         {:bytes       (samples->wav-bytes sliced sample-rate)
+          :offset-ms   offset-ms
+          :sample-rate (int sample-rate)})))))
+
+(defn offset-segments
+  "Add `offset-ms` to every raw segment's start/end field, whatever spelling the
+   backend uses (:start-ms/:end-ms or :start/:end). Segments that omit a field
+   are left untouched. => vector."
+  [offset-ms raw]
+  (let [ofs (long offset-ms)]
+    (mapv (fn [seg]
+            (cond-> seg
+              (contains? seg :start-ms) (update :start-ms + ofs)
+              (contains? seg :end-ms)   (update :end-ms + ofs)
+              (contains? seg :start)    (update :start + (/ ofs 1000.0))
+              (contains? seg :end)      (update :end + (/ ofs 1000.0))))
+          raw)))
+
+;; --- hallucination heuristics on verbose_json ------------------------------
+;;
+;; faster-whisper (what speaches wraps) ships two per-segment numbers that call
+;; a window suspect but ships it anyway once temperature fallback is exhausted:
+;;
+;;   :no_speech_prob   — P(this window is silence). Anything above ~0.6 is the
+;;                       decoder saying "I hallucinated words over silence."
+;;   :compression_ratio — token-repetition rate. >2.4 is the loop signature: the
+;;                       same phrase transcribed over and over. faster-whisper
+;;                       itself defaults to :compression_ratio_threshold 2.4 for
+;;                       the temperature-fallback trigger, so this is exactly
+;;                       the boundary the model considers "too repetitive."
+;;
+;; A key-only server never lets the client pass these through, but we can still
+;; filter them AFTER the fact — the non-speech tail's hallucination window is
+;; the one segment carrying both markers together, and dropping it costs us
+;; nothing that isn't already garbage.
+
+(def default-no-speech-threshold
+  "Match faster-whisper's own default: at :no_speech_prob >= 0.6 the decoder
+   itself would suppress the window when :log_prob_threshold also fires. Kept
+   as a def rather than inline so a test/operator can adjust in one place."
+  0.6)
+
+(def default-compression-ratio-threshold
+  "Match faster-whisper's own default: >2.4 is where its temperature-fallback
+   loop declares the window a repetition-loop. A segment that clears this bar
+   after fallback exhausted is the hallucination we want to drop."
+  2.4)
+
+(defn- ->double [x]
+  (when (number? x) (double x)))
+
+(defn hallucination-window?
+  "True when a raw verbose_json segment carries BOTH markers a Whisper decoder
+   uses to call a window a repetition-loop: no_speech_prob at/above
+   `no-speech-thr` AND compression_ratio at/above `compression-ratio-thr`. Both
+   markers together — one alone is a false positive (a legitimately quiet or a
+   legitimately repetitive segment); together they mean the model babbled over
+   silence, which is the exact tail-hallucination we filter. Kebab-cased keys
+   accepted too, so a re-shaped upstream still reaches this check."
+  ([seg] (hallucination-window? seg default-no-speech-threshold default-compression-ratio-threshold))
+  ([seg no-speech-thr compression-ratio-thr]
+   (let [nsp (->double (or (:no_speech_prob seg) (:no-speech-prob seg)))
+         cr  (->double (or (:compression_ratio seg) (:compression-ratio seg)))]
+     (boolean (and nsp cr
+                   (>= nsp (double no-speech-thr))
+                   (>= cr  (double compression-ratio-thr)))))))
+
+(defn drop-hallucinated-windows
+  "Filter `raw-segments` through `hallucination-window?`. A segment that carries
+   neither marker (either because the backend does not surface them or because
+   the values were absent) passes through — the guard is fail-OPEN: it only
+   drops what it can PROVE is a decoder-flagged repetition, so a plain-text
+   response (no per-segment metrics) is unaffected. => vector."
+  ([raw-segments] (drop-hallucinated-windows raw-segments {}))
+  ([raw-segments {:keys [no-speech-thr compression-ratio-thr]
+                  :or   {no-speech-thr default-no-speech-threshold
+                         compression-ratio-thr default-compression-ratio-threshold}}]
+   (into [] (remove #(hallucination-window? % no-speech-thr compression-ratio-thr)) raw-segments)))
