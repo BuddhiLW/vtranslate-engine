@@ -10,4 +10,9 @@
   :languages ["de" "de"],
   :status :transcript/complete,
   :count 2},
- :empty {:ok? false, :indices [], :languages [], :status nil, :count 0}}
+ :empty
+ {:ok? true,
+  :indices [],
+  :languages [],
+  :status :transcript/silent,
+  :count 0}}
