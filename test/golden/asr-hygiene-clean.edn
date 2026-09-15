@@ -1,8 +1,8 @@
 {:empty [],
- :mlk-loop
+ :repeated-phrase-loop
  [{:start 10.0,
    :end 34.0,
-   :text "I have a dream",
+   :text "the tide came in",
    :compression_ratio 7.23,
    :asr/loop-collapsed 3}],
  :normal

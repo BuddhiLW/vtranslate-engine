@@ -40,18 +40,18 @@
       "blank segments never form runs, each passes through unchanged"))
 
 (deftest collapse-inner-repetition-high-compression
-  (is (= {:start 10.0 :end 34.0 :text "I have a dream" :compression_ratio 7.23 :asr/loop-collapsed 3}
+  (is (= {:start 10.0 :end 34.0 :text "the tide came in" :compression_ratio 7.23 :asr/loop-collapsed 3}
          (h/collapse-inner-repetition
-          {:start 10.0 :end 34.0 :text "I have a dream I have a dream I have a dream I have a"
+          {:start 10.0 :end 34.0 :text "the tide came in the tide came in the tide came in the tide came"
            :compression_ratio 7.23}
           {}))
-      "high compression ratio triggers inner collapse: 4 tokens repeated 3 times -> 'I have a dream'"))
+      "high compression ratio triggers inner collapse: 4 tokens repeated 3 times -> 'the tide came in'"))
 
 (deftest collapse-inner-repetition-below-threshold
-  (is (= {:start 10.0 :end 34.0 :text "I have a dream I have a dream I have a dream I have a"
+  (is (= {:start 10.0 :end 34.0 :text "the tide came in the tide came in the tide came in the tide came"
           :compression_ratio 1.8}
          (h/collapse-inner-repetition
-          {:start 10.0 :end 34.0 :text "I have a dream I have a dream I have a dream I have a"
+          {:start 10.0 :end 34.0 :text "the tide came in the tide came in the tide came in the tide came"
            :compression_ratio 1.8}
           {}))
       "low compression ratio leaves segment unchanged"))
@@ -64,7 +64,7 @@
     (is (= 4 (:asr/loop-collapsed result)) "loop count is 4")))
 
 (deftest clean-combines-both-pass
-  (let [loop-seg {:start 10.0 :end 34.0 :text "I have a dream I have a dream I have a dream I have a"
+  (let [loop-seg {:start 10.0 :end 34.0 :text "the tide came in the tide came in the tide came in the tide came"
                   :compression_ratio 7.23}
         result (h/clean [loop-seg
                          {:start 34.0 :end 35.0 :text "ok"}
@@ -72,7 +72,7 @@
                          {:start 36.0 :end 37.0 :text "ok!"}]
                         {})]
     (is (= 2 (count result)) "two segments remain after both collapses")
-    (is (= "I have a dream" (:text (first result))) "loop segment collapsed")
+    (is (= "the tide came in" (:text (first result))) "loop segment collapsed")
     (is (= 3 (:asr/loop-collapsed (first result))) "loop count on first segment")
     (is (= 34.0 (:start (second result))) "ok run starts at 34.0")
     (is (= 37.0 (:end (second result))) "ok run ends at 37.0")
@@ -91,7 +91,7 @@
               parts)))
    (gen/vector (gen/tuple (gen/choose 1 3)
                           (gen/elements ["hi" "Hi!" "thank you" "Thank you." "go go go go" ""
-                                         "I have a dream I have a dream I have a dream"])
+                                         "the tide came in the tide came in the tide came in"])
                           (gen/double* {:min 0.5 :max 8.0 :NaN? false :infinite? false}))
                0 20)))
 
@@ -99,7 +99,7 @@
 
 (deftrifecta clean-trifecta h/clean
   {:golden-path "test/golden/asr-hygiene-clean.edn"
-   :cases {:mlk-loop [[{:start 10.0 :end 34.0 :text "I have a dream I have a dream I have a dream I have a" :compression_ratio 7.23}] {}]
+   :cases {:repeated-phrase-loop [[{:start 10.0 :end 34.0 :text "the tide came in the tide came in the tide came in the tide came" :compression_ratio 7.23}] {}]
            :thanks   [[{:start 0 :end 1 :text "Thank you."} {:start 1 :end 2 :text "thank you"} {:start 2 :end 3 :text "thank you!"}] {}]
            :normal   [[{:start 0 :end 2 :text "hello there"} {:start 2 :end 4 :text "how are you"}] {}]
            :empty    [[] {}]}
