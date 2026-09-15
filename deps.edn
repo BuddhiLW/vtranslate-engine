@@ -40,7 +40,7 @@
         ;; bound — each ffmpeg grabber is stateful + holds native memory, so the
         ;; bound is what protects file handles / off-heap allocation. (Already a
         ;; transitive dep of hive-system; pinned explicitly because we use it.)
-        io.github.hive-agi/hive-weave  {:mvn/version "0.3.11"}
+        io.github.hive-agi/hive-weave  {:mvn/version "0.3.12"}
 
         ;; Config DI — typed EDN/env config resolution (provider routing). The
         ;; engine reads ~/.config/vtranslate/config.edn ITSELF (standalone, like

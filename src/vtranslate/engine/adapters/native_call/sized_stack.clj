@@ -10,7 +10,8 @@
   (:require [hive-dsl.result :as r]
             [vtranslate.engine.calc.native-stack :as calc]
             [vtranslate.engine.port.native-call :as p]
-            [vtranslate.engine.providers.native-call-registry :as reg]))
+            [vtranslate.engine.providers.native-call-registry :as reg]
+            [hive-weave.stack :as stack]))
 
 (def thread-name
   "Named so a thread dump taken during a burn or a hung job says which seam the
@@ -20,22 +21,12 @@
 (defrecord SizedStackCall [stack-bytes]
   p/INativeCall
   (call-native [_ f]
-    (let [result (atom nil)
-          thrown (atom nil)
-          t (Thread. nil
-                     ^Runnable (fn []
-                                 (try
-                                   (reset! result (f))
-                                   (catch Throwable e (reset! thrown e))))
-                     thread-name
-                     (long stack-bytes))]
-      (.start t)
-      ;; Blocking on purpose. The caller is mid-pipeline and its next stage
-      ;; needs this value; handing back a future would only move the join.
-      (.join t)
-      (if-let [e @thrown]
-        (throw e)
-        @result)))
+    ;; hive-weave owns the thread construction: the same trap is one
+    ;; bounded-pmap away for anything that fans native work out, so the fact
+    ;; lives in the concurrency library rather than in a copy per consumer.
+    ;; Blocking on purpose. The caller is mid-pipeline and its next stage needs
+    ;; this value; handing back a future would only move the join.
+    (stack/call-with-stack {:stack-bytes stack-bytes :name thread-name} f))
 
   (describe [_] {:strategy :sized-stack :stack-bytes stack-bytes}))
 
