@@ -22,19 +22,54 @@
 
 ;; --- Language (BCP-47 tag, closed registry) --------------------------------
 
-(def supported-languages
-  "Closed registry of supported language tags (BCP-47). Mutation surface - keep
-   in sync with translator/ASR adapter capability tables."
+(def source-languages
+  "Tags a TRANSCRIBER accepts as the spoken language. Narrow: gated by ASR
+   capability, and Whisper rejects a regional variant outright rather than
+   falling back to its base. Keep in sync with the ASR adapter capability table.
+   \"und\" is the undetermined-source sentinel."
+  #{"und" "en" "pt" "es" "fr" "de" "ru" "zh" "ja" "ar" "he" "fa"})
+
+(def target-languages
+  "Tags a TRANSLATOR will render into. Wider than the source set and gated by a
+   different thing: an LLM translates into far more languages than an ASR model
+   transcribes from, and a regional variant is meaningful here because it picks
+   a dialect. Keep in sync with the translator capability table AND with the
+   worker image's font coverage, since a burned subtitle in a script no
+   installed face covers renders as tofu.
+
+   \"und\" is in BOTH sets: it is the undetermined sentinel rather than a
+   language, and a transcription-only job records it as its target."
   #{"und" "en" "en-us" "pt" "pt-BR" "es" "es-419" "fr" "de" "ru"
     "zh" "zh-hans" "zh-cn" "zh-tw" "ja" "ar" "he" "fa"})
 
+(def supported-languages
+  "Every tag the engine accepts anywhere. The union, kept so a caller that does
+   not care which side it is on still has one set to ask."
+  (into source-languages target-languages))
+
 (defn make-language
-  "Validate a BCP-47 tag against the registry.
+  "Validate a BCP-47 tag against the union registry.
    => (r/ok tag) | (r/err :error/unsupported-language {:language tag})."
   [tag]
   (if (contains? supported-languages tag)
     (r/ok tag)
     (r/err :error/unsupported-language {:language tag})))
+
+(defn make-source-language
+  "Validate a tag a transcriber will be asked to hear.
+   => (r/ok tag) | (r/err :error/unsupported-language {:language tag :side :source})."
+  [tag]
+  (if (contains? source-languages tag)
+    (r/ok tag)
+    (r/err :error/unsupported-language {:language tag :side :source})))
+
+(defn make-target-language
+  "Validate a tag a translator will be asked to render into.
+   => (r/ok tag) | (r/err :error/unsupported-language {:language tag :side :target})."
+  [tag]
+  (if (contains? target-languages tag)
+    (r/ok tag)
+    (r/err :error/unsupported-language {:language tag :side :target})))
 
 ;; --- Time (value objects) --------------------------------------------------
 

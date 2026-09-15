@@ -4,7 +4,7 @@
    Result constructors get a conformance + Result-invariant relation (an :or
    output has no corruptible common key, so mutation lives in the predicate
    facets); the pure value objects get their mutation teeth via the predicates."
-  (:require [clojure.test :refer [deftest is]]
+  (:require [clojure.test :refer [deftest is testing]]
             [hive-dsl.result :as r]
             [hive-schemas.test :refer [deftrifecta-from-schema deftrifecta-predicate]]
             [vtranslate.engine.schema :as s]
@@ -102,6 +102,29 @@
 (deftest language-tags-match-shared
   (is (= (set s/language-tags) shared/supported-languages)
       "schema language enum stays in sync with the runtime registry"))
+
+(deftest source-and-target-registries-are-distinct-and-cover-the-union
+  (is (= shared/supported-languages
+         (into shared/source-languages shared/target-languages))
+      "the union is exactly the two sides, so nothing is reachable by neither")
+  (is (contains? shared/source-languages "und")
+      "the undetermined sentinel is a legal source")
+  (is (contains? shared/target-languages "und")
+      "and a legal target: a transcription-only job records it as its target")
+  (testing "the source set is NARROWER, which is the whole point of splitting"
+    (is (< (count shared/source-languages) (count shared/target-languages)))
+    (doseq [tag ["en-us" "pt-BR" "es-419" "zh-hans" "zh-cn" "zh-tw"]]
+      (is (not (contains? shared/source-languages tag))
+          (str tag " is a regional variant; a transcriber rejects it outright"))
+      (is (contains? shared/target-languages tag)
+          (str tag " is meaningful as a target, where it picks a dialect"))))
+  (testing "the validators answer for their own side"
+    (is (r/ok? (shared/make-target-language "pt-BR")))
+    (is (r/err? (shared/make-source-language "pt-BR")))
+    (is (= :source (:side (shared/make-source-language "pt-BR"))))
+    (is (= :target (:side (shared/make-target-language "xx"))))
+    (is (r/ok? (shared/make-source-language "en")))
+    (is (r/ok? (shared/make-language "pt-BR")) "the union validator still accepts either side")))
 
 (deftest make-time-range-orders-endpoints
   (is (r/ok? (shared/make-time-range 0 100)))

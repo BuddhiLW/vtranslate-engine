@@ -58,11 +58,11 @@
 
 (defn make-translation-job
   "Smart constructor for a TranslationJob in :job/pending. References the ingested
-   MediaAsset BY ID (asset-id); validates target-language against the shared
-   registry.
+   MediaAsset BY ID (asset-id); validates target-language against the TARGET
+   registry, which is wider than the source one.
    => (r/ok TranslationJob) | (r/err :error/unsupported-language ...)."
   [{:keys [id asset-id target-language]}]
-  (r/let-ok [_ (shared/make-language target-language)]
+  (r/let-ok [_ (shared/make-target-language target-language)]
     (r/ok (map->TranslationJob
            {:id id
             :asset-id asset-id
