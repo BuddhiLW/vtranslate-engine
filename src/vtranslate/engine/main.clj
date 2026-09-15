@@ -45,9 +45,13 @@
    on require. Public so register-adapters! diagnostics can be exercised in tests."
   '[vtranslate.engine.collect.port
     vtranslate.engine.adapters.composer.hardsub
+    vtranslate.engine.adapters.native-call.sized-stack
+    vtranslate.engine.adapters.native-call.caller-thread
     vtranslate.engine.adapters.composer.softmux
     vtranslate.engine.adapters.composer.both
     vtranslate.engine.adapters.coverage.policies
+    vtranslate.engine.adapters.native-call.sized-stack
+    vtranslate.engine.adapters.native-call.caller-thread
     vtranslate.engine.adapters.segmenter.stub
     vtranslate.engine.adapters.segmenter.silero-vad
     vtranslate.engine.adapters.translator.identity
