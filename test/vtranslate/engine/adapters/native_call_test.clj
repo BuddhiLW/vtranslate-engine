@@ -15,7 +15,7 @@
             [vtranslate.engine.calc.native-stack :as calc]
             [vtranslate.engine.port.native-call :as p]
             [vtranslate.engine.providers.native-call-registry :as reg]
-            [vtranslate.engine.adapters.support.native-stack :as stack]))
+            [hive-weave.stack :as stack]))
 
 (def ^:private strategies
   {:caller-thread (caller/make-strategy nil)
