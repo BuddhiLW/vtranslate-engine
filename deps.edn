@@ -80,6 +80,20 @@
           :extra-deps {metosin/malli                      {:mvn/version "0.20.1"}
                        io.github.hive-agi/hive-spi         {:mvn/version "1.1.1"}
                        org.typedclojure/typed.clj.checker  {:mvn/version "1.4.0"}}}
+  ;; NEVER override this alias from another deps source. tools.deps merges
+  ;; alias maps KEY-WISE: a second `:test {:extra-deps {...}}` REPLACES this
+  ;; whole :extra-deps map rather than adding to it, while :extra-paths below
+  ;; survives untouched. That leaves the worst possible shape. test/ and
+  ;; schemas/ are still on the classpath so every namespace is DISCOVERED, but
+  ;; kaocha, malli, test.check and hive-schemas are gone, so the namespaces
+  ;; that require hive-schemas.test die at their ns form with "Could not locate
+  ;; hive_schemas/test on classpath". Measured 2026-08-27 and misfiled as a
+  ;; missing dependency (kanban 20260827151728-719b388d), then re-measured
+  ;; 2026-09-15, where `-Sdeps "$(cat local.deps.edn)" -A:test` left exactly
+  ;; two of these five deps standing.
+  ;; A working-copy override belongs in its OWN alias, composed on the command
+  ;; line as `-M:test:test-local`. Later aliases win per KEY, so :test-local
+  ;; swaps one coordinate and everything here stays.
   :test {:extra-paths ["test" "schemas"]
          :extra-deps {lambdaisland/kaocha     {:mvn/version "1.91.1392"}
                       org.clojure/test.check  {:mvn/version "1.1.3"}
