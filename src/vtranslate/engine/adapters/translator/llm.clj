@@ -26,19 +26,20 @@
 ;; --- HTTP / prompt ----------------------------------------------------------
 
 (defn- system-prompt
-  "System instruction to translate a JSON array of subtitle strings from `src` to
-   `tgt`, returning a JSON array of the same length and order. When `context?` is
-   truthy, treats labelled surrounding lines as untranslated reference context.
+  "Static translator instruction. Carries NO source or target language: those go
+   in the trailing message, so this text plus the source array form a prefix that
+   is byte-identical across every target of the same chunk and can be cached.
    `suffix` is an opaque instruction string appended verbatim, or nil."
-  [src tgt context? suffix]
+  [context? suffix]
   (str "You are a professional subtitle translator. The user message is a JSON "
-       "array of subtitle strings. Translate each element from "
-       (or src "its source language") " to " tgt ". Keep meaning, tone, and a "
+       "array of subtitle strings. Translate each element into the target "
+       "language named in the final instruction. Keep meaning, tone, and a "
        "subtitle-appropriate length. "
-       "Translate FULLY into " tgt ": do not leave source-language words in the "
-       "output when " tgt " has an ordinary equivalent, and do not calque the "
-       "source word order. Render common technical and idiomatic vocabulary the "
-       "way a native " tgt " speaker writing for a general audience would. "
+       "Translate FULLY into the target language: do not leave source-language "
+       "words in the output when the target has an ordinary equivalent, and do "
+       "not calque the source word order. Render common technical and idiomatic "
+       "vocabulary the way a native speaker of the target writing for a general "
+       "audience would. "
        "Leave a term untranslated ONLY when it is a proper noun (a person, "
        "company, product or brand) or an acronym with no established "
        "translation. "
@@ -49,6 +50,15 @@
          (str " Lines under PRECEDING CONTEXT / FOLLOWING CONTEXT are reference "
               "only do NOT translate them and do NOT include them in your output."))
        suffix))
+
+(defn- target-instruction
+  "The trailing message naming the languages. LAST on purpose: it is the only
+   part that differs between two targets of the same chunk, so everything before
+   it stays a shared cacheable prefix."
+  [src tgt]
+  (str "Translate the JSON array above from "
+       (or src "its source language") " to " tgt
+       ". Return ONLY the JSON array of translated strings, same length and order."))
 
 (defn- context-block
   "Render `label` over `lines` as a text block, or nil when `lines` is empty."
@@ -67,15 +77,21 @@
 (defn- chat-body
   "Build the chat-completions request body translating `texts` from `src` to `tgt`,
    weaving opts :context/before + :context/after (reference context) and the opaque
-   :prompt/system-suffix instruction into the system prompt."
+   :prompt/system-suffix instruction into the system prompt.
+
+   Message ORDER carries the cost: everything before the trailing instruction is
+   byte-identical across every target of the same chunk, which is what a
+   prefix-cached provider charges once instead of once per target."
   [model src tgt texts opts]
   (let [{:context/keys [before after]} opts
         suffix (:prompt/system-suffix opts)]
-    (chat/chat-body model
-                    (system-prompt src tgt (boolean (or (seq before) (seq after)))
-                                   suffix)
-                    (user-content texts before after)
-                    {})))
+    (chat/chat-body-messages
+     model
+     [{:role "system" :content (system-prompt (boolean (or (seq before) (seq after)))
+                                              suffix)}
+      {:role "user"   :content (user-content texts before after)}
+      {:role "user"   :content (target-instruction src tgt)}]
+     {})))
 
 (defn- n-strings?
   "True when `v` is a sequential of exactly `n` strings."

@@ -49,15 +49,25 @@
 (def ^:private http-client
   (delay (.. (HttpClient/newBuilder) (connectTimeout (Duration/ofSeconds 15)) (build))))
 
-(defn chat-body
-  "OpenAI chat request body from a `system` + `user` message string.
+(defn chat-body-messages
+  "OpenAI chat request body from an explicit `messages` vector.
+   Message ORDER is the caller's, which matters for providers that cache on a
+   byte-exact prefix: static content first, the part that varies last.
    opts: :temperature (default 0.2)."
-  [model system user {:keys [temperature] :or {temperature 0.2}}]
+  [model messages {:keys [temperature] :or {temperature 0.2}}]
   (json/generate-string
    {:model       model
     :temperature temperature
-    :messages    [{:role "system" :content system}
-                  {:role "user"   :content user}]}))
+    :messages    (vec messages)}))
+
+(defn chat-body
+  "OpenAI chat request body from a `system` + `user` message string.
+   opts: :temperature (default 0.2)."
+  [model system user opts]
+  (chat-body-messages model
+                      [{:role "system" :content system}
+                       {:role "user"   :content user}]
+                      opts))
 
 (defn- retryable-status? [status]
   (or (= 429 status)

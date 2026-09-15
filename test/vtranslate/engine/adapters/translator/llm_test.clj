@@ -2,7 +2,7 @@
   "LlmTranslator pure surface (no network): parse-translations count/order guard
    (golden+property+mutation), prompt/body weaving, make-translator override
    precedence, and the no-key translate-batch error path."
-  (:require [clojure.test :refer [deftest is]]
+  (:require [clojure.test :refer [deftest is testing]]
             [clojure.string :as str]
             [clojure.test.check.generators :as gen]
             [clojure.test.check.properties :as prop]
@@ -41,8 +41,10 @@
 
 (deftest-golden prompt-golden
   "test/golden/llm-prompts.edn"
-  {:system     (#'llm/system-prompt "en" "pt-BR" true suffix)
-   :system-min (#'llm/system-prompt nil "pt-BR" false nil)
+  {:system     (#'llm/system-prompt true suffix)
+   :system-min (#'llm/system-prompt false nil)
+   :instruction (#'llm/target-instruction "en" "pt-BR")
+   :instruction-auto (#'llm/target-instruction nil "ja")
    :context    (#'llm/context-block "PRECEDING CONTEXT" ["l1" "l2"])
    :context-nil (#'llm/context-block "X" [])
    :user       (#'llm/user-content ["a" "b"] ["ctx"] nil)
@@ -126,7 +128,8 @@
         usr  (usr-of body)
         p    (parse-body body)]
     (is (= "M" (:model p)))
-    (is (= 2 (count (:messages p))))
+    (is (= 3 (count (:messages p)))
+        "system, shared payload, then the target instruction LAST")
     (is (= "system" (:role (first (:messages p)))))
     (is (= "user" (:role (second (:messages p)))))
     ;; the opaque suffix is appended verbatim to the SYSTEM prompt
@@ -332,3 +335,57 @@
    ["ignore-string" (fn [v n] (and (sequential? v) (= n (count v))))]
    ["always-true"   (fn [_v _n] true)]]
   n-strings-assertions)
+
+;; =============================================================================
+;; Cacheable prefix. Venice and Z.AI cache on a BYTE-EXACT prefix, so the shared
+;; part must be identical across targets and the varying part must come last.
+;; Details and measurements: hive 20260915010231-357db6c1.
+;; =============================================================================
+
+(defn- messages-of [body] (:messages (parse-body body)))
+
+(defn- prefix-of
+  "Every message before the trailing instruction: what a provider can cache."
+  [body]
+  (vec (butlast (messages-of body))))
+
+(deftest the-prefix-is-byte-identical-across-targets
+  (let [opts {:context/before ["Prev line"] :context/after ["Next line"]
+              :prompt/system-suffix suffix}
+        texts ["one" "two"]
+        bodies (mapv #(#'llm/chat-body "M" "en" % texts opts)
+                     ["pt-BR" "ja" "ar" "es-419"])
+        prefixes (mapv prefix-of bodies)]
+    (is (apply = prefixes)
+        "same chunk, four targets: everything before the last message must match")
+    (is (= 1 (count (distinct (map #(get-in % [0 :content]) prefixes))))
+        "the system prompt names no target")
+    (is (= 1 (count (distinct (map #(get-in % [1 :content]) prefixes))))
+        "and the source payload is shared")
+    (testing "only the trailing instruction differs"
+      (let [tails (mapv #(:content (last (messages-of %))) bodies)]
+        (is (= 4 (count (distinct tails))))
+        (is (every? #(str/includes? % "Translate the JSON array above") tails))))))
+
+(deftest no-target-language-leaks-into-the-prefix
+  ;; The defect this replaced: system-prompt interpolated tgt seven times, the
+  ;; first about thirty tokens in, so no two targets ever shared a prefix.
+  ;;
+  ;; Only DISTINCTIVE tags are checked by substring. A two-letter code cannot
+  ;; be: "ar" occurs inside "array" and "target" in ordinary prompt prose, and
+  ;; asserting on it fails for a reason that has nothing to do with the
+  ;; property. The byte-identical test above is what covers every tag.
+  (doseq [tgt ["pt-BR" "es-419" "zh-hans"]]
+    (let [prefix (str/join " " (map :content (prefix-of (#'llm/chat-body "M" "en" tgt ["x"] {}))))]
+      (is (not (str/includes? prefix tgt))
+          (str tgt " must not appear before the trailing instruction")))))
+
+(deftest the-instruction-still-names-both-languages
+  ;; Correctness is not traded for cacheability: the model must still be told
+  ;; exactly what to do, just later in the message list.
+  (let [tail (:content (last (messages-of (#'llm/chat-body "M" "en" "pt-BR" ["x"] {}))))]
+    (is (str/includes? tail "en"))
+    (is (str/includes? tail "pt-BR")))
+  (let [auto (:content (last (messages-of (#'llm/chat-body "M" nil "ja" ["x"] {}))))]
+    (is (str/includes? auto "its source language") "an unknown source still reads sensibly")
+    (is (str/includes? auto "ja"))))
