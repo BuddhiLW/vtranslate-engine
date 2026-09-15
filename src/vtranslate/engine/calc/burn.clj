@@ -4,10 +4,16 @@
 
 (def backends
   "`:ffmpeg-cli` runs the system ffmpeg with libass and libx264 in one
-   process. `:javacv` draws each captioned frame in-process with Java2D and
+   process. `:ffmpeg-nvenc` is the same process encoding with h264_nvenc on
+   an NVIDIA GPU, and re-runs a burn on libx264 when the GPU cannot open an
+   encoder. `:javacv` draws each captioned frame in-process with Java2D and
    encodes with the bundled openh264, several times slower at 1080p but
-   needing no binary. `:auto` takes the CLI when a binary answers."
-  #{:ffmpeg-cli :javacv :auto})
+   needing no binary. `:auto` takes the CLI when a binary answers.
+
+   `:auto` never picks NVENC. A GPU is a scheduled, shared resource (the ASR
+   holds one), so a deployment claims it by naming `:ffmpeg-nvenc` beside the
+   device request, not by a worker discovering one."
+  #{:ffmpeg-cli :ffmpeg-nvenc :javacv :auto})
 
 (def default-binary "ffmpeg")
 
@@ -27,12 +33,13 @@
     (if (contains? backends k) k :auto)))
 
 (defn choose
-  "=> :ffmpeg-cli | :javacv. `available?` is whether the binary answered;
-   it only matters under :auto. An explicit :ffmpeg-cli is honoured even
-   when the binary did not answer, so a deployment that named it fails loud
-   at the burn rather than silently taking the slow path."
+  "=> :ffmpeg-cli | :ffmpeg-nvenc | :javacv. `available?` is whether the
+   binary answered; it only matters under :auto. An explicit backend is
+   honoured even when the binary did not answer, so a deployment that named
+   it fails loud at the burn rather than silently taking the slow path."
   [opts available?]
   (case (requested opts)
-    :ffmpeg-cli :ffmpeg-cli
-    :javacv     :javacv
-    :auto       (if available? :ffmpeg-cli :javacv)))
+    :ffmpeg-cli   :ffmpeg-cli
+    :ffmpeg-nvenc :ffmpeg-nvenc
+    :javacv       :javacv
+    :auto         (if available? :ffmpeg-cli :javacv)))

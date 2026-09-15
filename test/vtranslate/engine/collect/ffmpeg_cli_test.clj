@@ -29,9 +29,9 @@
     (exec! [_ argv]
       (swap! calls conj argv)
       (when missing? (throw (IOException. "No such file or directory")))
-      ;; Only a burn names an output; `-version` must not leave a file
-      ;; called "-version" in the working directory.
-      (when (and (zero? exit) (some #{"-i"} argv))
+      ;; Only a burn names an output file; `-version` and the encoder probe
+      ;; (output "-", to null) must not leave files in the working directory.
+      (when (and (zero? exit) (some #{"-i"} argv) (not= "-" (last argv)))
         (spit (last argv) "encoded\n"))
       {:exit exit :stderr stderr})
     (capture! [_ argv]
@@ -71,6 +71,41 @@
     (is (false? (sut/capable? (cli (atom []) {:listings (assoc capable-listings :filters " TSC overlay VV->V")})))))
   (testing "a build without libx264"
     (is (false? (sut/capable? (cli (atom []) {:listings (assoc capable-listings :encoders " V....D libopenh264 OpenH264")}))))))
+
+(def ^:private nvenc-listings
+  (assoc capable-listings :encoders
+         " V....D libx264              libx264 H.264\n V....D h264_nvenc           NVIDIA NVENC H.264 encoder (codec h264)"))
+
+(deftest nvenc-capability-opens-the-encoder-for-real
+  (let [calls (atom [])]
+    (is (true? (sut/capable? (cli calls {:listings nvenc-listings}) :h264-nvenc)))
+    (is (= "h264_nvenc" (nth (last @calls) (inc (.indexOf ^java.util.List (last @calls) "-c:v"))))
+        "after the listings, one frame is encoded on the GPU encoder"))
+  (testing "listed but unable to open: the distro build on a host without a GPU"
+    (let [calls (atom [])
+          inner (fake-runner calls {:listings nvenc-listings})
+          no-gpu (reify process/IProcessRunner
+                   (exec! [_ argv]
+                     (if (some #{"lavfi"} argv)
+                       (do (swap! calls conj argv)
+                           {:exit 255 :stderr "Cannot load libcuda.so.1"})
+                       (process/exec! inner argv)))
+                   (capture! [_ argv] (process/capture! inner argv)))]
+      (is (false? (sut/capable? (sut/ffmpeg-cli no-gpu "/opt/ffmpeg/ffmpeg") :h264-nvenc)))
+      (is (some #(some #{"lavfi"} %) @calls) "it got as far as the probe encode")))
+  (testing "libx264 never pays for a probe encode"
+    (let [calls (atom [])]
+      (sut/capable? (cli calls))
+      (is (= 3 (count @calls))))))
+
+(deftest burn-with-nvenc-names-the-codec-and-its-preset
+  (let [dir   (temp-dir)
+        calls (atom [])]
+    (sut/burn-hardsub (cli calls) "/v/in.mp4" (str dir "/gpu.part-1") cues
+                      {:preset "ultrafast"} :h264-nvenc)
+    (let [argv (last @calls)]
+      (is (= "h264_nvenc" (nth argv (inc (.indexOf ^java.util.List argv "-c:v")))))
+      (is (= "p4" (nth argv (inc (.indexOf ^java.util.List argv "-preset"))))))))
 
 (deftest probe-reads-both-streams-through-the-sibling-ffprobe
   (let [calls (atom [])]

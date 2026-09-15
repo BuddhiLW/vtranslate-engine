@@ -47,6 +47,44 @@
       (is (= ["-preset" sut/default-preset] (subvec argv 12 14)))
       (is (= ["-threads" "1"] (subvec argv 18 20))))))
 
+(deftest burn-args-with-nvenc-keeps-the-layout-and-swaps-the-codec
+  (let [argv (sut/burn-args {:source "s" :out "o" :ass-path "a" :plan plan-1080
+                             :encoder :h264-nvenc :threads 3})]
+    (is (= ["-c:v" "h264_nvenc" "-preset" "p4" "-b:v" "3973958" "-pix_fmt" "yuv420p" "-threads" "3"]
+           (subvec argv 10 20))
+        "NVENC's own default preset, never x264's")
+    (is (= ["-c:v" "libx264" "-preset" sut/default-preset]
+           (subvec (sut/burn-args {:source "s" :out "o" :ass-path "a" :plan plan-1080 :encoder :nope}) 10 14))
+        "an unknown encoder reads as libx264")))
+
+(deftest each-encoder-reads-its-own-preset-key
+  (let [opts {:preset "ultrafast" :nvenc-preset "p1"}]
+    (is (= "ultrafast" (sut/encoder-preset :libx264 opts)))
+    (is (= "p1" (sut/encoder-preset :h264-nvenc opts))))
+  (is (= "p4" (sut/encoder-preset :h264-nvenc {:preset "veryfast"}))
+      "a deployment's x264 preset does not leak into NVENC, which refuses it")
+  (is (= sut/default-preset (sut/encoder-preset :libx264 {}))))
+
+(deftest hardware-capability-is-the-listing-plus-a-real-open
+  (let [filters  " ... subtitles         V->V       Render text subtitles"
+        encoders " V....D libx264  libx264 H.264\n V....D h264_nvenc NVIDIA NVENC H.264 encoder (codec h264)"]
+    (is (true? (sut/capable? {:filters filters :encoders encoders} :h264-nvenc)))
+    (is (false? (sut/capable? {:filters filters :encoders " V....D libx264 libx264"} :h264-nvenc))))
+  (is (= ["-c:v" "h264_nvenc" "-f" "null" "-"]
+         (take-last 5 (sut/encoder-probe-args {:bin "/usr/bin/ffmpeg" :encoder :h264-nvenc}))))
+  (is (true? (:hardware? (sut/encoder-spec :h264-nvenc))))
+  (is (not (:hardware? (sut/encoder-spec :libx264)))))
+
+(deftest only-an-encoder-that-cannot-open-is-a-hardware-failure
+  (testing "stderr observed 2026-09-15 on a host with no GPU (distro ffmpeg 6.1.1)"
+    (is (true? (sut/hardware-unavailable?
+                "[h264_nvenc @ 0x5b34] Cannot load libcuda.so.1\n[vost#0:0/h264_nvenc @ 0x5b34] Error while opening encoder - maybe incorrect parameters such as bit_rate, rate, width or height.\nError while filtering: Operation not permitted\n"))))
+  (is (true? (sut/hardware-unavailable? "[h264_nvenc @ 0x1] OpenEncodeSessionEx failed: incompatible client key (21): (no details)")))
+  (is (true? (sut/hardware-unavailable? "[h264_nvenc @ 0x1] No capable devices found")))
+  (is (false? (sut/hardware-unavailable? "x\nError while filtering: no such font\n"))
+      "a media or filtergraph failure would fail libx264 the same way")
+  (is (false? (sut/hardware-unavailable? nil))))
+
 (deftest probe-args-select-one-stream-as-csv
   (is (= ["ffprobe" "-v" "error" "-select_streams" "v:0"
           "-show_entries" "stream=width,height,r_frame_rate,bit_rate" "-of" "csv=p=0" "/v/in.mp4"]

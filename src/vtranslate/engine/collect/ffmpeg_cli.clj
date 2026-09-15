@@ -40,14 +40,21 @@
 
 (defn capable?
   "Whether this ffmpeg starts and its build lists the libass `subtitles`
-   filter and the `libx264` encoder. False for a missing binary, a
-   permission problem, or a build without either (Homebrew's, for one), so
-   an :auto choice keeps the in-process path rather than failing every burn."
-  [{:keys [runner bin]}]
-  (and (process/starts? runner [bin "-version"])
-       (args/capable?
-        (into {} (for [listing (keys args/required-capabilities)]
-                   [listing (process/output-of runner (args/listing-args {:bin bin :listing listing}))])))))
+   filter and `encoder`'s row (default libx264). False for a missing binary,
+   a permission problem, or a build without either (Homebrew's, for one), so
+   an :auto choice keeps the in-process path rather than failing every burn.
+
+   A hardware encoder must also OPEN: one frame is encoded for real, because
+   the listing names h264_nvenc on hosts that have no GPU at all."
+  ([cli] (capable? cli args/default-encoder))
+  ([{:keys [runner bin]} encoder]
+   (and (process/starts? runner [bin "-version"])
+        (args/capable?
+         (into {} (for [listing (keys (args/capabilities-for encoder))]
+                    [listing (process/output-of runner (args/listing-args {:bin bin :listing listing}))]))
+         encoder)
+        (or (not (:hardware? (args/encoder-spec encoder)))
+            (process/starts? runner (args/encoder-probe-args {:bin bin :encoder encoder}))))))
 
 (defn- probe-line
   "First stdout line of one ffprobe run, nil for an absent stream."
@@ -96,35 +103,42 @@
    `source`, writing an H.264/AAC mp4 to `out` with `cli`.
 
    `opts` carries `:quality` (a calc.encoding preset, default :source), any
-   calc.captions style key, `:preset` (x264, default veryfast), and
+   calc.captions style key, the encoder's preset (`:preset` for x264,
+   default veryfast; `:nvenc-preset` for NVENC, default p4), and
    `:watermark?` (the VTranslate mark in the corner). The ASS script is
    written beside `out` and removed on every path; `out` is left to the
    caller's atomic-rename wrapper to keep or discard.
 
+   `encoder` (a calc.ffmpeg-args `encoders` key, default :libx264) is the
+   burner's, not the job's, so it is an argument and never read from `opts`.
+
    The mark is sized against the PLAN's height, not the source's: it is
    composited after the scale, so the frame it lands on is the output's.
    => out."
-  [{:keys [bin] :as cli} source out cues opts]
-  (let [{:keys [width height frame-rate video-bitrate audio-bitrate audio?]}
-        (probe cli source)
-        plan    (encoding/plan {:source-width width
-                                :source-height height
-                                :source-video-bitrate video-bitrate
-                                :source-audio-bitrate audio-bitrate
-                                :frame-rate frame-rate
-                                :quality (get opts :quality :source)})
-        script  (write-script! out (ass/document {:width width :height height} opts cues))
-        threads (encoding/encoder-threads (.availableProcessors (Runtime/getRuntime)))
-        mark    (when (:watermark? opts)
-                  (let [{:keys [path] :as geo}
-                        (mark/png-for (.getParent (io/file out)) (:height plan))]
-                    {:png path :position (watermark/overlay-position geo)}))]
-    (try
-      (run-burn! cli (args/burn-args {:bin bin :source source :out out
-                                      :ass-path (.getPath script) :plan plan
-                                      :preset (or (:preset opts) args/default-preset)
-                                      :threads threads :audio? audio?
-                                      :watermark mark}))
-      out
-      (finally
-        (.delete script)))))
+  ([cli source out cues opts]
+   (burn-hardsub cli source out cues opts args/default-encoder))
+  ([{:keys [bin] :as cli} source out cues opts encoder]
+   (let [{:keys [width height frame-rate video-bitrate audio-bitrate audio?]}
+         (probe cli source)
+         plan    (encoding/plan {:source-width width
+                                 :source-height height
+                                 :source-video-bitrate video-bitrate
+                                 :source-audio-bitrate audio-bitrate
+                                 :frame-rate frame-rate
+                                 :quality (get opts :quality :source)})
+         script  (write-script! out (ass/document {:width width :height height} opts cues))
+         threads (encoding/encoder-threads (.availableProcessors (Runtime/getRuntime)))
+         mark    (when (:watermark? opts)
+                   (let [{:keys [path] :as geo}
+                         (mark/png-for (.getParent (io/file out)) (:height plan))]
+                     {:png path :position (watermark/overlay-position geo)}))]
+     (try
+       (run-burn! cli (args/burn-args {:bin bin :source source :out out
+                                       :ass-path (.getPath script) :plan plan
+                                       :encoder encoder
+                                       :preset (args/encoder-preset encoder opts)
+                                       :threads threads :audio? audio?
+                                       :watermark mark}))
+       out
+       (finally
+         (.delete script))))))

@@ -7,7 +7,8 @@
   (:require [vtranslate.engine.providers.registry :as registry]))
 
 (defmulti resolve-burner
-  "Build an IHardsubBurner for `backend-key` (:javacv | :ffmpeg-cli), reading
+  "Build an IHardsubBurner for `backend-key` (:javacv | :ffmpeg-cli |
+   :ffmpeg-nvenc), reading
    its options from `opts` (the composer's :composer-opts)."
   (fn [backend-key _opts] backend-key))
 
@@ -20,4 +21,4 @@
   [backend-key _opts]
   (registry/unknown-error
    :burner backend-key resolve-burner
-   "set :composer-opts :burn-backend to :auto, :ffmpeg-cli or :javacv, or load an adapter ns that registers it"))
+   "set :composer-opts :burn-backend to :auto, :ffmpeg-cli, :ffmpeg-nvenc or :javacv, or load an adapter ns that registers it"))

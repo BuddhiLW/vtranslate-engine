@@ -54,9 +54,44 @@
    same bitrate. Overridable per deployment through :composer-opts :preset."
   "veryfast")
 
+(def encoders
+  "The H.264 encoders a burn can run, as data. `:codec` is the -c:v name and
+   the row the -encoders listing must carry; `:preset-key` is the
+   :composer-opts key that overrides `:default-preset`. The keys differ
+   because the preset vocabularies do: x264's `veryfast` makes h264_nvenc
+   refuse to open, so a deployment's :preset must never reach it.
+
+   `:hardware?` marks an encoder whose listing row proves nothing. The distro
+   ffmpeg lists h264_nvenc on a host with no GPU and no driver, then fails at
+   open with `Cannot load libcuda.so.1`; only an encode (`encoder-probe-args`)
+   tells.
+
+   p4 is NVENC's middle preset. Measured 2026-09-15 on an RTX 4070 Laptop
+   (driver 610.43, ffmpeg 6.1.1): a 60 s 1080p subtitled burn at 6 Mb/s took
+   7.4 s against 31.5 s for x264 veryfast on 3 cores, and 12 concurrent burns
+   held ~15x realtime in aggregate with no session refused."
+  {:libx264    {:codec "libx264"    :preset-key :preset       :default-preset default-preset}
+   :h264-nvenc {:codec "h264_nvenc" :preset-key :nvenc-preset :default-preset "p4" :hardware? true}})
+
+(def default-encoder :libx264)
+
+(defn encoder-spec
+  "The `encoders` row for `encoder`; anything unknown reads as the default,
+   the encoder every capable ffmpeg has."
+  [encoder]
+  (get encoders encoder (get encoders default-encoder)))
+
+(defn encoder-preset
+  "The preset `opts` (:composer-opts merged with the job's style) give
+   `encoder`, read from that encoder's own key, else its default."
+  ^String [encoder opts]
+  (let [{:keys [preset-key default-preset]} (encoder-spec encoder)]
+    (str (or (get opts preset-key) default-preset))))
+
 (defn burn-args
   "ffmpeg argv that burns `ass-path` into `source` and writes `out`.
-   Video is re-encoded with libx264 at the plan's bitrate and dimensions;
+   Video is re-encoded with `encoder` (an `encoders` key, default libx264)
+   at the plan's bitrate and dimensions;
    audio is re-encoded to AAC at the plan's rate when the source has any,
    and dropped otherwise (-an), because mapping an absent stream fails the
    run. -nostdin keeps a stalled worker from waiting on a terminal. The
@@ -72,9 +107,10 @@
    With a mark the graph needs -filter_complex and explicit -maps: once a
    second input exists, ffmpeg's default stream selection is free to take the
    audio from whichever input it prefers, and the PNG has none."
-  [{:keys [bin source out ass-path plan preset threads audio? watermark]
-    :or   {bin "ffmpeg" preset default-preset threads 1 audio? true}}]
+  [{:keys [bin source out ass-path plan encoder preset threads audio? watermark]
+    :or   {bin "ffmpeg" encoder default-encoder threads 1 audio? true}}]
   (let [{:keys [png position]} watermark
+        {:keys [codec] :as spec} (encoder-spec encoder)
         marked? (boolean png)]
     (-> ["-y" "-nostdin" "-hide_banner" "-loglevel" "error"
          "-i" (str source)]
@@ -84,8 +120,8 @@
                  "-map" (str "[" watermark-out-label "]")]
                 ["-vf" (video-filter plan ass-path)]))
         (into (when (and marked? audio?) ["-map" "0:a"]))
-        (into ["-c:v" "libx264"
-               "-preset" (str preset)
+        (into ["-c:v" codec
+               "-preset" (str (or preset (:default-preset spec)))
                "-b:v" (str (long (:video-bitrate plan)))
                "-pix_fmt" "yuv420p"
                "-threads" (str (long threads))])
@@ -163,19 +199,60 @@
   (boolean (re-find (re-pattern (str "(?m)^\\s*\\S+\\s+" (java.util.regex.Pattern/quote (str name)) "\\s"))
                     (str listing))))
 
+(defn capabilities-for
+  "What a burn with `encoder` needs from an ffmpeg build: libass behind the
+   subtitles filter and that encoder's row. The listing each is read from is
+   the key."
+  [encoder]
+  {:filters ["subtitles"] :encoders [(:codec (encoder-spec encoder))]})
+
 (def required-capabilities
-  "What the burn needs from an ffmpeg build: libass behind the subtitles
-   filter and the libx264 encoder. The listing each is read from is the key."
-  {:filters ["subtitles"] :encoders ["libx264"]})
+  "The default (libx264) burn's capabilities."
+  (capabilities-for default-encoder))
 
 (defn capable?
   "Whether `listings` ({:filters text :encoders text}) carries every
-   required capability. A nil listing (the binary did not answer) fails it."
-  [listings]
-  (every? (fn [[listing names]]
-            (let [text (get listings listing)]
-              (and text (every? #(lists-name? text %) names))))
-          required-capabilities))
+   capability `encoder` (default libx264) needs. A nil listing (the binary
+   did not answer) fails it."
+  ([listings] (capable? listings default-encoder))
+  ([listings encoder]
+   (every? (fn [[listing names]]
+             (let [text (get listings listing)]
+               (and text (every? #(lists-name? text %) names))))
+           (capabilities-for encoder))))
+
+(defn encoder-probe-args
+  "ffmpeg argv that opens `encoder` for real: one black 320x240 frame from
+   the lavfi source, encoded and thrown away. Exit 0 is the only evidence a
+   hardware encoder can start here; its listing row is not (see `encoders`).
+   320x240 clears NVENC's minimum frame size."
+  [{:keys [bin encoder] :or {bin "ffmpeg"}}]
+  [(str bin) "-hide_banner" "-loglevel" "error" "-nostdin"
+   "-f" "lavfi" "-i" "color=black:size=320x240:duration=0.1"
+   "-frames:v" "1" "-c:v" (:codec (encoder-spec encoder)) "-f" "null" "-"])
+
+(def hardware-open-failures
+  "Fragments of the lines ffmpeg's nvenc wrapper (libavcodec/nvenc.c) prints
+   when the encoder cannot be OPENED: no driver library, no device, a driver
+   older than the API, or no free encode session. `Cannot load libcuda.so.1`
+   is the one observed on a GPU-less host."
+  ["Cannot load libcuda"
+   "Cannot load libnvidia-encode"
+   "No capable devices found"
+   "No NVENC capable devices found"
+   "OpenEncodeSessionEx failed"
+   "CUDA_ERROR_"
+   "Driver does not support the required nvenc API version"
+   "minimum required Nvidia driver for nvenc"])
+
+(defn hardware-unavailable?
+  "Whether a failed burn's stderr says the hardware encoder could not be
+   opened, as opposed to the media or the filtergraph being at fault. Only
+   the former is worth re-running on the CPU: a bad source fails libx264
+   identically, and burning it twice doubles the cost of a failure."
+  [stderr]
+  (let [s (str stderr)]
+    (boolean (some #(str/includes? s %) hardware-open-failures))))
 
 (defn probe-binary
   "The ffprobe that ships beside `ffmpeg-bin`: same directory, same suffix,

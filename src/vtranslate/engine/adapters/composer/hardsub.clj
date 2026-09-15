@@ -5,12 +5,13 @@
 
    Boundary: the burner is chosen once, at wiring, by calc.burn from
    :composer-opts and one observation (whether the system ffmpeg is
-   capable), then resolved through the burner registry. Requiring both
+   capable), then resolved through the burner registry. Requiring the
    burner adapters here registers them, which is what makes the hardsub
    composer load ONLY on the :ffmpeg classpath (the JavaCV burner imports
    bytedeco)."
   (:require [hive-dsl.result :as r]
             [vtranslate.engine.adapters.burner.ffmpeg-cli :as cli-burner]
+            [vtranslate.engine.adapters.burner.ffmpeg-nvenc]
             [vtranslate.engine.adapters.burner.javacv]
             [vtranslate.engine.adapters.composer.support :as support]
             [vtranslate.engine.calc.burn :as burn]
