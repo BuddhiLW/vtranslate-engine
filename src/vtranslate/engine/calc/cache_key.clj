@@ -18,8 +18,18 @@
   "Every input that can change a transcript. Order is fixed so the key is stable
    across runs; a new field must be APPENDED, never inserted, or every existing
    cache entry silently misses. The audio is identified by CONTENT, not path, so
-   renaming or moving a video still hits and a same-sized replacement misses."
-  [:content-sha :provider :model :language :segmenter :span-pad-ms :asr-hygiene :transcriber-knobs])
+   renaming or moving a video still hits and a same-sized replacement misses.
+
+   :engine-version is here because the ENGINE is an input too. The named knobs
+   below only cover settings an operator can write in a config file; they cannot
+   see a better segmenter, a repaired transcriber adapter or a new hygiene rule.
+   Without it, shipping an improvement leaves every already-processed video on
+   its old transcript forever, and the only lever is a hand-maintained constant
+   like :asr-hygiene that somebody has to remember to bump. A release now
+   invalidates the cache by construction, which is the behaviour you want: the
+   algorithm changed, so the cached answer is stale by definition."
+  [:content-sha :provider :model :language :segmenter :span-pad-ms :asr-hygiene :transcriber-knobs
+   :engine-version])
 
 (defn transcript-key
   "Stable cache key for one transcription. `inputs` supplies :content-sha and the
