@@ -201,7 +201,15 @@
   ;; The proprietary video-KG addon. The catalog in vtranslate.engine.addons
   ;; has named this alias since the declarative addon flow landed; until now it
   ;; only existed as a -Sdeps :extra-paths shim the CLI built by hand.
+  ;;
+  ;; The engine is EXCLUDED from it. vtranslate-context depends on the engine,
+  ;; so without the exclusion this alias puts a whole second copy of every
+  ;; engine namespace on the engine's OWN classpath, at whatever version that
+  ;; context release happened to pin (measured 2026-09-15: 0.1.7, eleven
+  ;; releases stale, sitting behind src/ and shadowing nothing only by
+  ;; classpath order). Nothing here should ever load the engine from a jar.
   :addon-context {:extra-deps {io.github.buddhilw/vtranslate-context
-                               {:mvn/version "0.1.42"}}}
+                               {:mvn/version "0.1.50"
+                                :exclusions [io.github.buddhilw/vtranslate-engine]}}}
   :itest {:extra-paths ["test-int"]
             :main-opts ["-m" "kaocha.runner" "--config-file" "tests-int.edn"]}}}
