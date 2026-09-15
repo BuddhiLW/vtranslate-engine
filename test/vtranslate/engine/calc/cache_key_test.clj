@@ -20,10 +20,6 @@
   (is (= (ck/transcript-key {:content-sha "abc"}) (ck/transcript-key {:content-sha "abc" :model nil}))))
 
 (deftest the-engine-version-is-part-of-the-identity
-  ;; The named knobs only cover what an operator can write in a config file.
-  ;; They cannot see a better segmenter or a repaired transcriber adapter, so
-  ;; without this a shipped improvement leaves every already-processed video on
-  ;; its old transcript. A release must invalidate by construction.
   (is (not= (ck/transcript-key base)
             (ck/transcript-key (assoc base :engine-version "0.1.15")))
       "a new engine release is a different transcription identity")
@@ -32,9 +28,6 @@
       "a source checkout does not share a bucket with a released engine"))
 
 (deftest the-running-engine-reports-a-version
-  ;; A nil or blank version would silently collapse every release into one
-  ;; cache bucket, which is the failure this field exists to prevent.
   (let [v @(requiring-resolve 'vtranslate.engine.version/engine-version)]
     (is (string? v))
-    (is (seq v))
-    (is (= v (str v)) "already a string, never a Properties lookup returning nil")))
+    (is (seq v) "a blank version would collapse every release into one bucket")))
