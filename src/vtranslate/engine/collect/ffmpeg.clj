@@ -21,8 +21,10 @@
   (:require [vtranslate.engine.collect.protocols :as p]
             [vtranslate.engine.collect.units :as units]
             [clojure.string :as string]
+            [vtranslate.engine.calc.caption-layout :as layout]
             [vtranslate.engine.calc.captions :as captions]
-            [vtranslate.engine.calc.encoding :as encoding])
+            [vtranslate.engine.calc.encoding :as encoding]
+            [vtranslate.engine.collect.font-metrics :as font-metrics])
   (:import [org.bytedeco.javacv FFmpegFrameGrabber FFmpegFrameRecorder Frame
             Java2DFrameConverter]
            [org.bytedeco.ffmpeg.global avcodec avformat avutil]
@@ -31,7 +33,7 @@
            [org.bytedeco.ffmpeg.avcodec AVPacket AVCodecParameters AVCodec]
            [org.bytedeco.ffmpeg.avutil AVRational AVDictionary]
            [org.bytedeco.javacpp Pointer BytePointer PointerPointer]
-           [java.awt Color Font Graphics2D RenderingHints]
+           [java.awt Color Graphics2D RenderingHints]
            [java.awt.image BufferedImage]))
 
 (defrecord JavaCvMedia []
@@ -88,27 +90,25 @@
   (->JavaCvMedia))
 
 (defn- draw-lines!
-  "Draw `lines` centred onto BufferedImage `img`: a translucent plate per line,
-   then text with an outline. An outline alone is unreadable over light or busy
-   footage, which is what the plate is for; a zero plate opacity turns it off.
+  "Draw a calc.caption-layout result {:lines :font-size-px} centred onto
+   BufferedImage `img`: a translucent plate per line, then text with an
+   outline. An outline alone is unreadable over light or busy footage, which
+   is what the plate is for; a zero plate opacity turns it off.
 
-   `style` carries the caption knobs; size, placement and colour are resolved
-   by calc.captions from the frame's own height, so the same style renders the
-   same way at every resolution."
-  [^BufferedImage img lines style]
+   `style` carries the caption knobs; placement and colour are resolved by
+   calc.captions from the frame's own height, the line breaks and font size
+   come from the layout."
+  [^BufferedImage img {:keys [lines font-size-px]} style]
   (let [g2 ^Graphics2D (.getGraphics img)
         h  (.getHeight img)
         w  (.getWidth img)
-        resolved  (captions/style style)
-        font-size (captions/font-size-px h style)
+        font-size (long font-size-px)
         alpha     (captions/plate-alpha style)
         {:keys [text outline plate]} (captions/colors style)
         ->awt     (fn [[r g b] a] (Color. (int r) (int g) (int b) (int a)))]
     (doto g2
       (.setRenderingHint RenderingHints/KEY_ANTIALIASING RenderingHints/VALUE_ANTIALIAS_ON)
-      (.setFont (Font. ^String (:font-family resolved)
-                       (if (:bold? resolved) Font/BOLD Font/PLAIN)
-                       (int font-size))))
+      (.setFont (font-metrics/awt-font style font-size)))
     (let [fm      (.getFontMetrics g2)
           line-h  (.getHeight fm)
           ascent  (.getAscent fm)
@@ -167,14 +167,14 @@
   "Copy every frame g->rec, drawing active `lines-at` subtitle lines onto video
    frames that carry any (via the two converters); other frames pass through."
   [^FFmpegFrameGrabber g ^FFmpegFrameRecorder rec
-   ^Java2DFrameConverter grab-conv ^Java2DFrameConverter back-conv lines-at style]
+   ^Java2DFrameConverter grab-conv ^Java2DFrameConverter back-conv lines-at lay-out style]
   (loop []
     (when-let [^Frame frame (.grab g)]
       (let [lines (when (.image frame)
                     (lines-at (units/us->ms (.timestamp frame))))]
         (if (seq lines)
           (let [img (.convert grab-conv frame)]
-            (draw-lines! img lines style)
+            (draw-lines! img (lay-out (vec lines)) style)
             (.record rec (.convert back-conv img)))
           (.record rec frame)))
       (recur))))
@@ -187,9 +187,10 @@
 
 (defn burn-hardsub
   "Burn subtitle lines into `source-uri`, writing an H.264/AAC mp4 to `out-path`.
-   `lines-at` maps a frame timestamp (ms) to the lines to draw (nil = none): video
+   `lines-at` maps a frame timestamp (ms) to the cue's lines (nil = none): video
    frames with active lines are re-encoded with Graphics2D text drawn on the
-   decoded picture; all other frames pass through untouched. => out-path.
+   decoded picture, laid out by calc.caption-layout against the frame with
+   collect.font-metrics; all other frames pass through untouched. => out-path.
 
    `opts` may carry `:quality` (a calc.encoding preset, default `:source`) and
    any calc.captions style key. Absent, the output matches the input's
@@ -218,7 +219,10 @@
                                                   (int (:height plan))
                                                   (int ach))]
         (configure-recorder! rec g ach plan)
-        (transcode-frames! g rec grab-conv back-conv lines-at opts)
+        (let [measure (font-metrics/measure opts)]
+          (transcode-frames! g rec grab-conv back-conv lines-at
+                             (memoize #(layout/layout {:width w :height h} opts % measure))
+                             opts))
         (.stop rec))
       out-path)))
 

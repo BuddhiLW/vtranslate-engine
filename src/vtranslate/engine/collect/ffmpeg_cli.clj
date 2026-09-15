@@ -10,6 +10,7 @@
             [vtranslate.engine.calc.ass :as ass]
             [vtranslate.engine.calc.encoding :as encoding]
             [vtranslate.engine.calc.ffmpeg-args :as args]
+            [vtranslate.engine.collect.font-metrics :as font-metrics]
             [vtranslate.engine.collect.process :as process]
             [vtranslate.engine.collect.watermark :as mark]
             [vtranslate.engine.calc.watermark :as watermark]
@@ -126,7 +127,8 @@
                                  :source-audio-bitrate audio-bitrate
                                  :frame-rate frame-rate
                                  :quality (get opts :quality :source)})
-         script  (write-script! out (ass/document {:width width :height height} opts cues))
+         script  (write-script! out (ass/document {:width width :height height} opts cues
+                                                  (font-metrics/measure opts)))
          threads (encoding/encoder-threads (.availableProcessors (Runtime/getRuntime)))
          mark    (when (:watermark? opts)
                    (let [{:keys [path] :as geo}

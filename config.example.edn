@@ -71,7 +71,7 @@
  ;; --- video compositing opts (read when :composer is :hard) -------------
  :composer-opts
  {:font-size 28                              ; burn-in font size in pixels
-  :wrap      42                              ; word-wrap width in characters
+  :wrap      42                              ; most characters per line; lines also break to fit the frame width
   ;; :burn-backend :auto                     ; :auto | :ffmpeg-cli | :javacv
   ;;                                         ; :auto takes the system ffmpeg (libass + libx264,
   ;;                                         ; one process) when it answers, else in-process JavaCV

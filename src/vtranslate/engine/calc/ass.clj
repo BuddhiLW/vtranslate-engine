@@ -3,8 +3,8 @@
    calc.captions style the Java2D path draws, expressed as one [V4+ Styles] row,
    and one Dialogue line per overlay cue. Strings in, one string out. No IO."
   (:require [clojure.string :as str]
-            [vtranslate.engine.calc.captions :as captions]
-            [vtranslate.engine.calc.overlay :as overlay]))
+            [vtranslate.engine.calc.caption-layout :as layout]
+            [vtranslate.engine.calc.captions :as captions]))
 
 (defn timestamp
   "ASS clock for `ms`: H:MM:SS.cc, centiseconds truncated. A negative time
@@ -47,24 +47,21 @@
       (str/replace "}" "｝")
       (str/replace #"\r?\n" "\\\\N")))
 
-(defn wrapped-lines
-  "The display lines of a cue after the style's `:wrap`, the same greedy wrap
-   the Java2D path applies, so both backends break text identically."
-  [lines wrap]
-  (if wrap
-    (vec (mapcat #(overlay/wrap-line % wrap) lines))
-    (vec lines)))
-
 (def side-margin-fraction
-  "Horizontal margin on each side as a fraction of the frame width. Inside
-   it libass re-breaks a line the character wrap left too wide for the
-   frame, which is what happens to a 42-character line on a 9:16 video."
+  "MarginL and MarginR as a fraction of the frame width: the box libass
+   wraps inside. Narrower than calc.caption-layout/margin-fraction, the box
+   the lines are already broken to fit."
   0.04)
 
 (defn side-margin-px
   "MarginL and MarginR for a frame `width` px wide."
   ^long [width]
   (long (Math/round (* side-margin-fraction (double width)))))
+
+(defn stroke-px
+  "Outline width for a `font-size` px caption, as the Java2D path strokes it."
+  ^long [font-size]
+  (max 1 (quot (long font-size) 14)))
 
 (defn style-row
   "The single [V4+ Styles] row for a `width` x `height` frame and `requested`
@@ -80,7 +77,7 @@
         {:keys [text outline plate]} (captions/colors requested)
         margin-v  (- (long height) (captions/block-bottom-px height requested))
         margin-lr (side-margin-px width)
-        stroke    (max 1 (quot font-size 14))
+        stroke    (stroke-px font-size)
         border    (if (pos? alpha) 4 1)]
     (str/join "," ["Style: Default"
                    (font-name (:font-family resolved))
@@ -99,12 +96,22 @@
 
 (defn dialogue-line
   "One Events row for a plain overlay cue {:start-ms :end-ms :lines}, or nil
-   for a cue that ends before it starts or has nothing to show."
-  [{:keys [start-ms end-ms lines]} wrap]
-  (let [shown (remove str/blank? (wrapped-lines lines wrap))]
+   for a cue that ends before it starts or has nothing to show.
+
+   `lay-out` is (fn [lines] -> {:lines :font-size-px}), a calc.caption-layout
+   result for the cue; nil shows the lines as they are. The row carries the
+   laid-out line breaks as \\N, and an {\\fs \\bord} override when the laid-out
+   size differs from the style row's `base-size`."
+  [{:keys [start-ms end-ms lines]} base-size lay-out]
+  (let [{laid :lines size :font-size-px} (if lay-out
+                                           (lay-out (vec lines))
+                                           {:lines (vec lines) :font-size-px base-size})
+        shown (remove str/blank? laid)]
     (when (and (seq shown) (< (long start-ms) (long end-ms)))
       (str "Dialogue: 0," (timestamp start-ms) "," (timestamp end-ms)
            ",Default,,0,0,0,,"
+           (when (and size base-size (not= (long size) (long base-size)))
+             (str "{\\fs" size "\\bord" (stroke-px size) "}"))
            (str/join "\\N" (map escape-text shown))))))
 
 (def ^:private styles-format
@@ -117,12 +124,17 @@
   "The whole script for `cues` (plain overlay cues, as calc.overlay/timeline
    yields) on a `width` x `height` frame in `requested` style. PlayRes pins
    the script's coordinate space to the frame, so a font size in pixels here
-   is the same size the Java2D path draws. The lines arrive already broken
-   by `:wrap`, a character count; WrapStyle 0 lets libass break again, evenly,
-   any line that is still wider than the frame minus the side margins, so a
-   portrait video does not get a caption running off both edges."
-  ^String [{:keys [width height]} requested cues]
-  (let [wrap (:wrap (captions/style requested))]
+   is the same size the Java2D path draws.
+
+   Each cue is laid out by calc.caption-layout with `measure` (default
+   calc.caption-layout/approximate-measure): broken by measured width and
+   shrunk when a word alone is too wide. WrapStyle 0 stays as the safety net
+   for a line libass measures wider than `measure` did."
+  (^String [frame requested cues]
+   (document frame requested cues (layout/approximate-measure requested)))
+  (^String [{:keys [width height] :as frame} requested cues measure]
+  (let [base    (captions/font-size-px height requested)
+        lay-out (fn [lines] (layout/layout frame requested lines measure))]
     (str/join "\n"
               (concat ["[Script Info]"
                        "ScriptType: v4.00+"
@@ -137,5 +149,5 @@
                        ""
                        "[Events]"
                        events-format]
-                      (keep #(dialogue-line % wrap) cues)
-                      [""]))))
+                      (keep #(dialogue-line % base lay-out) cues)
+                      [""])))))
