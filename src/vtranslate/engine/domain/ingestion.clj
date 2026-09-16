@@ -62,13 +62,20 @@
 
 (defn ready
   "Mark a probed asset ready for ingress. Video/audio require an audio stream;
-   subtitles are always ready.
+   subtitles are always ready. With {:allow-silent-video? true}, a :media/video
+   whose probe reports :has-video? true is also ready without audio.
    => (r/ok asset') | (r/err :error/no-audio-stream {:source-id ...})."
-  [{:keys [kind probe] :as asset}]
-  (if (or (= (:adt/variant kind) :media/subtitle)
-          (:has-audio? probe))
-    (r/ok (assoc asset :status (asset-status :asset/ready)))
-    (r/err :error/no-audio-stream {:source-id (str (:id asset))})))
+  ([{:keys [kind probe] :as asset}]
+   (ready asset nil))
+  ([{:keys [kind probe] :as asset} opts]
+   (if (or (= (:adt/variant kind) :media/subtitle)
+           (:has-audio? probe)
+           (and opts
+                (:allow-silent-video? opts)
+                (= (:adt/variant kind) :media/video)
+                (true? (:has-video? probe))))
+     (r/ok (assoc asset :status (asset-status :asset/ready)))
+     (r/err :error/no-audio-stream {:source-id (str (:id asset))}))))
 
 (defn reject
   "Move an asset to terminal :asset/rejected."
