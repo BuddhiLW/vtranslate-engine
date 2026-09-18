@@ -75,9 +75,10 @@
                  id gen/string-alphanumeric]
     (let [res       (sut/make-translated-cues
                      {:id id :transcript-id "trs" :source-language s :target-language t})
-          valid?    (fn [x] (contains? shared/supported-languages x))
-          both-ok   (and (valid? s) (valid? t))
-          should-ok (and both-ok (not= s t))]
+          ;; BCP-47 is case-insensitive: the registry answers in its own spelling
+          canon     (fn [x] (shared/canonical-tag shared/supported-languages x))
+          both-ok   (and (canon s) (canon t))
+          should-ok (boolean (and both-ok (not= (canon s) (canon t))))]
       (and (= should-ok (r/ok? res))
            (= should-ok (not (r/err? res)))
            (if should-ok

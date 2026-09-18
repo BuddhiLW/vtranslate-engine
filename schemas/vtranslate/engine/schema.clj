@@ -30,7 +30,8 @@
 
 (def language-tags
   ["und" "en" "en-us" "pt" "pt-BR" "es" "es-419" "fr" "de" "ru"
-   "zh" "zh-hans" "zh-cn" "zh-tw" "ja" "ar" "he" "fa"])
+   "zh" "zh-hans" "zh-cn" "zh-tw" "ja" "ar" "he" "fa"
+   "uk" "it" "ko" "tr" "pl" "nl" "hi" "id"])
 
 (def Language
   "A supported BCP-47 tag."

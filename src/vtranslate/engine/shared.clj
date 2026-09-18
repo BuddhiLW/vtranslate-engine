@@ -27,7 +27,8 @@
    capability, and Whisper rejects a regional variant outright rather than
    falling back to its base. Keep in sync with the ASR adapter capability table.
    \"und\" is the undetermined-source sentinel."
-  #{"und" "en" "pt" "es" "fr" "de" "ru" "zh" "ja" "ar" "he" "fa"})
+  #{"und" "en" "pt" "es" "fr" "de" "ru" "zh" "ja" "ar" "he" "fa"
+    "uk" "it" "ko" "tr" "pl" "nl" "hi" "id"})
 
 (def target-languages
   "Tags a TRANSLATOR will render into. Wider than the source set and gated by a
@@ -40,35 +41,49 @@
    \"und\" is in BOTH sets: it is the undetermined sentinel rather than a
    language, and a transcription-only job records it as its target."
   #{"und" "en" "en-us" "pt" "pt-BR" "es" "es-419" "fr" "de" "ru"
-    "zh" "zh-hans" "zh-cn" "zh-tw" "ja" "ar" "he" "fa"})
+    "zh" "zh-hans" "zh-cn" "zh-tw" "ja" "ar" "he" "fa"
+    "uk" "it" "ko" "tr" "pl" "nl" "hi" "id"})
 
 (def supported-languages
   "Every tag the engine accepts anywhere. The union, kept so a caller that does
    not care which side it is on still has one set to ask."
   (into source-languages target-languages))
 
+(defn canonical-tag
+  "The member of `registry` equal to `tag` ignoring case (BCP-47 tags are
+   case-insensitive), or nil. \"zh-Hans\" -> \"zh-hans\", \"PT-br\" -> \"pt-BR\"."
+  [registry tag]
+  (when (string? tag)
+    (if (contains? registry tag)
+      tag
+      (let [lower (str/lower-case tag)]
+        (some #(when (= lower (str/lower-case %)) %) registry)))))
+
 (defn make-language
-  "Validate a BCP-47 tag against the union registry.
+  "Validate a BCP-47 tag against the union registry. Tags compare
+   case-insensitively (BCP-47); the registry's own spelling is returned.
    => (r/ok tag) | (r/err :error/unsupported-language {:language tag})."
   [tag]
-  (if (contains? supported-languages tag)
-    (r/ok tag)
+  (if-let [canonical (canonical-tag supported-languages tag)]
+    (r/ok canonical)
     (r/err :error/unsupported-language {:language tag})))
 
 (defn make-source-language
-  "Validate a tag a transcriber will be asked to hear.
+  "Validate a tag a transcriber will be asked to hear, case-insensitively; the
+   registry's own spelling is returned.
    => (r/ok tag) | (r/err :error/unsupported-language {:language tag :side :source})."
   [tag]
-  (if (contains? source-languages tag)
-    (r/ok tag)
+  (if-let [canonical (canonical-tag source-languages tag)]
+    (r/ok canonical)
     (r/err :error/unsupported-language {:language tag :side :source})))
 
 (defn make-target-language
-  "Validate a tag a translator will be asked to render into.
+  "Validate a tag a translator will be asked to render into, case-insensitively;
+   the registry's own spelling is returned.
    => (r/ok tag) | (r/err :error/unsupported-language {:language tag :side :target})."
   [tag]
-  (if (contains? target-languages tag)
-    (r/ok tag)
+  (if-let [canonical (canonical-tag target-languages tag)]
+    (r/ok canonical)
     (r/err :error/unsupported-language {:language tag :side :target})))
 
 ;; --- Time (value objects) --------------------------------------------------
