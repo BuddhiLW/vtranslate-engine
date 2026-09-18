@@ -13,6 +13,44 @@
   (is (= "" (h/normalize-text nil))
       "nil becomes empty string"))
 
+(deftest foreign-speech-placeholders-in-any-casing-or-bracket-style
+  (doseq [t ["(speaking foreign language)" "[SPEAKING FOREIGN LANGUAGE]"
+             "(Speaking in foreign language)" "*speaks foreign language*"
+             "[foreign language]" "  ( speaking  foreign language )  "]]
+    (is (= {:kind :foreign-speech :language-hint nil} (h/classify-placeholder t)) t))
+  (is (= {:kind :foreign-speech :language-hint "de"} (h/classify-placeholder "[speaking German]")))
+  (is (= {:kind :foreign-speech :language-hint "de"} (h/classify-placeholder "(SPEAKING GERMAN)")))
+  (is (= {:kind :foreign-speech :language-hint "es"} (h/classify-placeholder "[in Spanish]"))))
+
+(deftest sound-placeholders
+  (doseq [t ["[Music]" "(music)" "(upbeat music playing)" "*applause*" "[BLANK_AUDIO]"
+             "♪♪" "♪ ♪" "(Alle lachen)" "[Applaus]" "(risos)"]]
+    (is (= {:kind :sound} (h/classify-placeholder t)) t)))
+
+(deftest speech-is-not-a-placeholder
+  (doseq [t ["Ich bin ein Berliner" "I take pride in the words \"Ich bin ein Berliner.\""
+             "Hello (laughs)" "[en segment 1]" "Music is my life" ""
+             "(a very long parenthetical remark about music and life)"]]
+    (is (nil? (h/classify-placeholder t)) t)))
+
+(deftest mark-placeholder-keeps-the-text-and-says-what-it-is
+  (is (= {:text "[speaking German]" :start 0 :end 1
+          :asr/placeholder :foreign-speech :asr/language-hint "de"}
+         (h/mark-placeholder {:text "[speaking German]" :start 0 :end 1})))
+  (is (= {:text "[Music]" :asr/placeholder :sound} (h/mark-placeholder {:text "[Music]"})))
+  (is (= {:text "hi"} (h/mark-placeholder {:text "hi"})) "speech is untouched")
+  (is (h/placeholder? {:text "anything" :asr/placeholder :sound}) "the mark alone suffices"))
+
+(deftest placeholder-count-by-kind
+  (let [segs [{:text "[Music]"} {:text "(speaking foreign language)"} {:text "hi"}]]
+    (is (= 2 (h/placeholder-count segs)))
+    (is (= 1 (h/placeholder-count segs :foreign-speech)))
+    (is (= 1 (h/placeholder-count segs :sound)))))
+
+(deftest the-hygiene-version-names-the-placeholder-rule
+  (is (re-find #"placeholder" h/version)
+      "the rule is part of the transcript cache identity"))
+
 (deftest collapse-runs-three-repeated
   (is (= [{:start 0 :end 3 :text "Thank you." :asr/loop-collapsed 3}
           {:start 3 :end 4 :text "Bye"}]

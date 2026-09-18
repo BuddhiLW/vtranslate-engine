@@ -1,12 +1,15 @@
 (ns vtranslate.engine.calc.asr-hygiene
-  "Pure: collapse decoder loops in raw ASR segments without losing speech.
+  "Pure: collapse decoder loops in raw ASR segments without losing speech, and
+   recognise decoder PLACEHOLDERS — annotation such as \"(speaking foreign
+   language)\" or \"[Music]\" that stands where speech was not transcribed.
    A loop is the same words repeated; collapsing keeps the time the words
-   covered and says so on the segment. Nothing is ever deleted."
+   covered and says so on the segment. A placeholder is marked, never
+   translated as speech, and keeps its text. Nothing is ever deleted."
   (:require [clojure.string :as str]))
 
 (def version
   "Bump when the rule changes; it is part of the transcript cache identity."
-  "loop-collapse-1")
+  "loop-collapse-1+placeholder-1")
 
 (def defaults
   "Default values for the collapse heuristics."
@@ -99,3 +102,84 @@
    the result. Returns a vector of segments with loop artifacts collapsed."
   [segments opts]
   (collapse-runs (mapv #(collapse-inner-repetition % opts) segments) opts))
+
+(def language-names
+  "Language names an ASR placeholder may carry -> the registry tag they name."
+  {"english" "en" "german" "de" "portuguese" "pt" "brazilian" "pt" "spanish" "es"
+   "french" "fr" "russian" "ru" "ukrainian" "uk" "chinese" "zh" "mandarin" "zh"
+   "cantonese" "zh" "japanese" "ja" "arabic" "ar" "hebrew" "he" "persian" "fa"
+   "farsi" "fa" "italian" "it" "korean" "ko" "turkish" "tr" "polish" "pl"
+   "dutch" "nl" "hindi" "hi" "indonesian" "id"})
+
+(def ^:private sound-words
+  "Words that make a short annotation a SOUND description rather than speech,
+   in the languages whisper writes its annotations in."
+  #{"music" "applause" "laughter" "laughs" "laughing" "noise" "silence"
+    "blank" "static" "cheering" "cheers" "inaudible" "unintelligible"
+    "clapping" "sighs" "coughs" "indistinct" "chatter" "musik" "applaus"
+    "lachen" "lacht" "gelächter" "beifall" "música" "musica" "aplausos"
+    "risos" "risas" "musique" "rires" "silêncio" "silencio"})
+
+(def ^:private foreign-words
+  #{"foreign" "language" "languages" "speaking" "speaks" "spoken"})
+
+(defn- annotation-body
+  "The inner words of `text` when ALL of it is bracketed/parenthesised/asterisked
+   annotation, e.g. \"[speaking German]\" -> [\"speaking\" \"german\"]; else nil."
+  [text]
+  (let [t (str/trim (str text))]
+    (when (re-matches #"(?s)(?:\s*(?:\[[^\[\]]*\]|\([^()]*\)|\*[^*]*\*)\s*)+" t)
+      (vec (re-seq #"\p{L}+" (str/lower-case t))))))
+
+(def max-sound-words
+  "Longest annotation, in words, still read as a sound description."
+  4)
+
+(defn classify-placeholder
+  "What kind of ASR placeholder `text` is, or nil when it is speech.
+   A placeholder is text made ENTIRELY of annotation (brackets, parentheses,
+   asterisks) or of music notes.
+   => nil
+    | {:kind :foreign-speech :language-hint tag-or-nil}  — speech the decoder
+        heard but did not transcribe: \"(speaking foreign language)\",
+        \"[speaking German]\", \"[in Spanish]\"
+    | {:kind :sound}  — an annotation of at most `max-sound-words` words naming a
+        sound: \"[Music]\", \"(applause)\", \"(Alle lachen)\", \"♪♪\", \"[BLANK_AUDIO]\""
+  [text]
+  (let [t (str/trim (str text))]
+    (if (and (seq t) (re-matches #"[\s♪♫#~.]+" t) (re-find #"[♪♫]" t))
+      {:kind :sound}
+      (when-let [words (annotation-body t)]
+        (let [named (some language-names words)]
+          (cond
+            (or named (some foreign-words words))
+            {:kind :foreign-speech :language-hint named}
+
+            (and (some sound-words words) (<= (count words) max-sound-words))
+            {:kind :sound}))))))
+
+(defn mark-placeholder
+  "`segment` carrying :asr/placeholder (the `classify-placeholder` kind) and, for
+   foreign speech that names its language, :asr/language-hint. The text is kept
+   verbatim; a speech segment comes back unchanged."
+  [segment]
+  (if-let [{:keys [kind language-hint]} (classify-placeholder (:text segment))]
+    (cond-> (assoc segment :asr/placeholder kind)
+      language-hint (assoc :asr/language-hint language-hint))
+    segment))
+
+(defn placeholder?
+  "True when `segment` is a decoder placeholder rather than speech: it carries an
+   :asr/placeholder mark, or its text classifies as one."
+  [segment]
+  (boolean (or (:asr/placeholder segment)
+               (classify-placeholder (:text segment)))))
+
+(defn placeholder-count
+  "How many of `segments` are placeholders of `kind` (any kind when nil)."
+  ([segments] (placeholder-count segments nil))
+  ([segments kind]
+   (count (filter (fn [s]
+                    (when-let [c (classify-placeholder (:text s))]
+                      (or (nil? kind) (= kind (:kind c)))))
+                  segments))))

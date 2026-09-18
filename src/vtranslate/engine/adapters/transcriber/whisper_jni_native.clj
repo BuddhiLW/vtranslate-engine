@@ -57,11 +57,15 @@
                 (swap! ctx-cache assoc k ctx)
                 ctx))))))
 
-(defn- lang-code
-  "Whisper wants an ISO-639-1 primary subtag (\"en\"), not a full BCP-47 tag
-   (\"en-US\"); take the first subtag, lower-cased. nil/blank => nil (auto-detect)."
+(defn lang-code
+  "The language string whisper.cpp is handed. An explicit BCP-47 tag becomes its
+   ISO-639-1 primary subtag, lower-cased (\"en-US\" -> \"en\"). nil/blank/\"auto\"
+   => \"auto\", whisper's per-call language detection. Never nil: whisper-jni's
+   WhisperFullParams defaults .language to \"en\", so leaving it unset forces
+   English rather than detecting."
   [language]
-  (some-> language str str/trim not-empty (str/split #"-") first str/lower-case not-empty))
+  (or (some-> language str str/trim not-empty (str/split #"-") first str/lower-case not-empty)
+      "auto"))
 
 (defn default-threads
   "Threads to give whisper.cpp. Its own default is 4 regardless of the machine,
@@ -73,7 +77,8 @@
 (defn transcribe-samples
   "Run whisper.cpp over `samples` (16 kHz mono float[]) via the cached context for
    `model-path`, returning RAW hypotheses for support/normalize-segments to shape.
-   `run-opts` may carry :threads and :print-progress?.
+   `language` nil/\"auto\" makes whisper detect the language of THIS call (see
+   `lang-code`). `run-opts` may carry :threads and :print-progress?.
    => (r/ok [{:start-ms n :end-ms n :text s} ...]) | (r/err :error/asr-failed {...}).
    Fails loud: a non-zero `full` rc or any interop throw becomes :error/asr-failed,
    never a fake/empty transcript."
@@ -87,9 +92,9 @@
      (let [^WhisperJNI w   @jni
            ^WhisperContext ctx (context-for w model-path use-gpu?)
            ^WhisperFullParams params (WhisperFullParams.)
-           lang (lang-code language)
+           ^String lang (lang-code language)
            threads (long (or (:threads run-opts) (default-threads)))]
-       (when lang (set! (.-language params) lang))
+       (set! (.-language params) lang)
        (set! (.-nThreads params) (int threads))
        ;; progress goes to stderr, which is the only signal a caller has that a
        ;; multi-minute transcription is alive

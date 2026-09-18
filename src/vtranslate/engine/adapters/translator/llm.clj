@@ -25,39 +25,65 @@
 
 ;; --- HTTP / prompt ----------------------------------------------------------
 
+(def quoted-foreign-policies
+  "How a phrase quoted in a language other than the line's own is rendered.
+   :translate (default) — translated like the rest of the line.
+   :keep-original — left verbatim, in its original language.
+   :both — translated, followed by the original in parentheses."
+  #{:translate :keep-original :both})
+
+(defn- quoted-foreign-instruction
+  "The system-prompt sentence for quoted-foreign `policy` (nil => :translate)."
+  [policy]
+  (case (or policy :translate)
+    :keep-original
+    (str "When a line quotes a phrase in a language other than its own, keep that "
+         "quoted phrase verbatim in its original language. ")
+    :both
+    (str "When a line quotes a phrase in a language other than its own, translate "
+         "that quoted phrase too, then give the original after it in parentheses. ")
+    (str "When a line quotes a phrase in a language other than its own (a famous "
+         "quotation, a slogan), translate that quoted phrase into the target "
+         "language too, keeping the quotation marks. ")))
+
 (defn- system-prompt
   "Static translator instruction. Carries NO source or target language: those go
    in the trailing message, so this text plus the source array form a prefix that
    is byte-identical across every target of the same chunk and can be cached.
-   `suffix` is an opaque instruction string appended verbatim, or nil."
-  [context? suffix]
-  (str "You are a professional subtitle translator. The user message is a JSON "
-       "array of subtitle strings. Translate each element into the target "
-       "language named in the final instruction. Keep meaning, tone, and a "
-       "subtitle-appropriate length. "
-       "Translate FULLY into the target language: do not leave source-language "
-       "words in the output when the target has an ordinary equivalent, and do "
-       "not calque the source word order. Render common technical and idiomatic "
-       "vocabulary the way a native speaker of the target writing for a general "
-       "audience would. "
-       "Leave a term untranslated ONLY when it is a proper noun (a person, "
-       "company, product or brand) or an acronym with no established "
-       "translation. "
-       "Return ONLY a JSON array of translated "
-       "strings the SAME length and order as the input. No prose, no markdown, "
-       "no code fences."
-       (when context?
-         (str " Lines under PRECEDING CONTEXT / FOLLOWING CONTEXT are reference "
-              "only do NOT translate them and do NOT include them in your output."))
-       suffix))
+   `suffix` is an opaque instruction string appended verbatim, or nil.
+   `quoted` is the policy for a phrase quoted in another language (see
+   `quoted-foreign-instruction`); nil means :translate."
+  ([context? suffix] (system-prompt context? suffix nil))
+  ([context? suffix quoted]
+   (str "You are a professional subtitle translator. The user message is a JSON "
+        "array of subtitle strings. Translate each element into the target "
+        "language named in the final instruction. Keep meaning, tone, and a "
+        "subtitle-appropriate length. "
+        "Translate FULLY into the target language: do not leave source-language "
+        "words in the output when the target has an ordinary equivalent, and do "
+        "not calque the source word order. Render common technical and idiomatic "
+        "vocabulary the way a native speaker of the target writing for a general "
+        "audience would. "
+        "Leave a term untranslated ONLY when it is a proper noun (a person, "
+        "company, product or brand) or an acronym with no established "
+        "translation. "
+        (quoted-foreign-instruction quoted)
+        "Return ONLY a JSON array of translated "
+        "strings the SAME length and order as the input. No prose, no markdown, "
+        "no code fences."
+        (when context?
+          (str " Lines under PRECEDING CONTEXT / FOLLOWING CONTEXT are reference "
+               "only do NOT translate them and do NOT include them in your output."))
+        suffix)))
 
 (defn- target-instruction
   "The trailing message naming the languages. LAST on purpose: it is the only
    part that differs between two targets of the same chunk, so everything before
-   it stays a shared cacheable prefix."
+   it stays a shared cacheable prefix. An absent or undetermined (\"und\") source
+   is left for the model to recognise."
   [src tgt]
   (str "Translate the JSON array above from "
-       (or src "its source language") " to " tgt
+       (if (contains? #{nil "" "und"} src) "its source language" src) " to " tgt
        ". Return ONLY the JSON array of translated strings, same length and order."))
 
 (defn- context-block
@@ -76,8 +102,9 @@
 
 (defn- chat-body
   "Build the chat-completions request body translating `texts` from `src` to `tgt`,
-   weaving opts :context/before + :context/after (reference context) and the opaque
-   :prompt/system-suffix instruction into the system prompt.
+   weaving opts :context/before + :context/after (reference context), the
+   :prompt/quoted-foreign policy and the opaque :prompt/system-suffix
+   instruction into the system prompt.
 
    Message ORDER carries the cost: everything before the trailing instruction is
    byte-identical across every target of the same chunk, which is what a
@@ -88,7 +115,8 @@
     (chat/chat-body-messages
      model
      [{:role "system" :content (system-prompt (boolean (or (seq before) (seq after)))
-                                              suffix)}
+                                              suffix
+                                              (:prompt/quoted-foreign opts))}
       {:role "user"   :content (user-content texts before after)}
       {:role "user"   :content (target-instruction src tgt)}]
      {})))
@@ -161,7 +189,8 @@
       ;; :api-key is attached at build time by resolve-translator; the lazy
       ;; lookup remains for a record constructed directly.
       (if-let [api-key (or (:api-key this) (chat/resolve-key secret-env secret-pass))]
-        (let [active-model (or (:model opts) model)]
+        (let [active-model (or (:model opts) model)
+              opts         (merge (select-keys this [:prompt/quoted-foreign]) opts)]
           (translate-repairing
            (fn [batch]
              (r/let-ok [content (chat/post-chat
@@ -193,20 +222,24 @@
 (defn make-translator
   "Build an LLM translator for `provider-key`. Per-provider overrides (api-url /
    model / secret-env / secret-pass) may be supplied under config
-   [:translator-opts] (a map); absent => the built-in provider defaults. NOTE:
+   [:translator-opts] (a map); absent => the built-in provider defaults.
+   [:translator-opts :quoted-foreign] picks a `quoted-foreign-policies` member
+   (keyword or string; default :translate). NOTE:
    the [:translator] key itself is the routing SELECTION (a provider keyword), not
    an opts map — opts live under [:translator-opts] to avoid that collision."
   [provider-key config]
-  (let [d    (get provider-defaults provider-key)
-        opts (get config :translator-opts)]
-    (->LlmTranslator provider-key
-                     (or (:api-url opts) (:api-url d))
-                     (or (:model opts) (:model d))
-                     (or (:secret-env opts) (:secret-env d))
-                     (if (and (map? opts) (contains? opts :secret-pass))
-                       (:secret-pass opts)
-                       (:secret-pass d))
-                     (:pricing opts))))
+  (let [d      (get provider-defaults provider-key)
+        opts   (get config :translator-opts)
+        quoted (some-> (:quoted-foreign opts) name keyword quoted-foreign-policies)]
+    (cond-> (->LlmTranslator provider-key
+                             (or (:api-url opts) (:api-url d))
+                             (or (:model opts) (:model d))
+                             (or (:secret-env opts) (:secret-env d))
+                             (if (and (map? opts) (contains? opts :secret-pass))
+                               (:secret-pass opts)
+                               (:secret-pass d))
+                             (:pricing opts))
+      quoted (assoc :prompt/quoted-foreign quoted))))
 
 (defn resolved
   "Attach the API key AT BUILD TIME. Resolving lazily at first translate meant a

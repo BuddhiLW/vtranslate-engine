@@ -224,14 +224,16 @@
 (defn- translate-indexed-group
   [translator target-language on-provider-attempt model
    [source-language indexed-segments]]
-  (let [{:keys [indices values]} (batch/group-payload indexed-segments :text)]
-    (r/let-ok [targets (p.tr/translate-batch translator values source-language target-language
-                                             {:segment-indices indices
-                                              :on-provider-attempt on-provider-attempt
-                                              :model model})]
-      (batch/zip-indices indices targets
-                         (fn [expected actual]
-                           (c.tr/translation-count-error source-language expected actual))))))
+  (if (= c.tr/verbatim-group source-language)
+    (c.tr/verbatim-translations indexed-segments)
+    (let [{:keys [indices values]} (batch/group-payload indexed-segments :text)]
+      (r/let-ok [targets (p.tr/translate-batch translator values source-language target-language
+                                               {:segment-indices indices
+                                                :on-provider-attempt on-provider-attempt
+                                                :model model})]
+        (batch/zip-indices indices targets
+                           (fn [expected actual]
+                             (c.tr/translation-count-error source-language expected actual)))))))
 
 (defn- collect-translations [translator target-language groups on-provider-attempt model]
   (reduce (fn [acc group]
@@ -248,7 +250,8 @@
   (let [segments (:segments transcript)
         groups   (batch/index-groups
                   segments
-                  #(c.tr/segment-source-language transcript fallback-source-language %))]
+                  #(c.tr/translation-group transcript fallback-source-language
+                                           target-language %))]
     (r/let-ok [pairs (collect-translations translator target-language groups
                                            on-provider-attempt model)]
       (batch/scatter (count segments) pairs

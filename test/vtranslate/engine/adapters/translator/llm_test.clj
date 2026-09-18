@@ -52,6 +52,27 @@
                                             {:context/before ["pre"] :context/after ["post"]
                                              :prompt/system-suffix suffix}))})
 
+(deftest quoted-foreign-policy-shapes-the-system-prompt
+  (let [prompt (fn [policy] (#'llm/system-prompt false nil policy))]
+    (is (re-find #"translate that quoted phrase into the target language too" (prompt nil))
+        "the default translates a quotation in another language")
+    (is (= (prompt nil) (prompt :translate)))
+    (is (re-find #"keep that quoted phrase verbatim" (prompt :keep-original)))
+    (is (re-find #"original after it in parentheses" (prompt :both)))
+    (is (= (#'llm/system-prompt false nil) (prompt nil))
+        "the two-arity prompt is the default policy")))
+
+(deftest quoted-foreign-policy-comes-from-translator-opts
+  (is (= :keep-original
+         (:prompt/quoted-foreign
+          (llm/make-translator :venice {:translator-opts {:quoted-foreign "keep-original"}}))))
+  (is (nil? (:prompt/quoted-foreign
+             (llm/make-translator :venice {:translator-opts {:quoted-foreign :nonsense}})))
+      "an unknown policy falls back to the default rather than reaching the prompt"))
+
+(deftest an-undetermined-source-is-left-to-the-model
+  (is (re-find #"from its source language to pt-BR" (#'llm/target-instruction "und" "pt-BR"))))
+
 ;; =============================================================================
 ;; PROPERTY — the count/order contract.
 ;; =============================================================================

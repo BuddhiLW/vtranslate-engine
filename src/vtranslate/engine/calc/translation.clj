@@ -4,7 +4,8 @@
   (:require [clojure.string :as str]
             [hive-dsl.result :as r]
             [vtranslate.engine.shared :as shared]
-            [vtranslate.engine.domain.translation :as tr]))
+            [vtranslate.engine.domain.translation :as tr]
+            [vtranslate.engine.calc.asr-hygiene :as hygiene]))
 
 (defn build-translated-cues
   "Align `translations` onto transcript segments and fold a completed TranslatedCues.
@@ -57,6 +58,30 @@
    \"und\". Pure — the grouping key for language-routed translation batches."
   [transcript fallback segment]
   (or (:language segment) fallback (:language transcript) "und"))
+
+(def verbatim-group
+  "Grouping key for segments whose target text is their own text: decoder
+   placeholders (not speech), and speech already in the target language. That
+   group is never sent to a translator: `verbatim-translations` carries it."
+  ::verbatim)
+
+(defn translation-group
+  "The batch a `segment` translates in: `verbatim-group` for a decoder
+   placeholder or for speech whose source language is `target-language`, else
+   its source language (`segment-source-language`). Segments in different
+   source languages land in different batches, each translated from its own
+   language."
+  [transcript fallback target-language segment]
+  (let [source (segment-source-language transcript fallback segment)]
+    (if (or (hygiene/placeholder? segment) (= source target-language))
+      verbatim-group
+      source)))
+
+(defn verbatim-translations
+  "[[index text] ...] for an indexed `verbatim-group`: each segment's own text,
+   unchanged. => (r/ok [[index text] ...])."
+  [indexed-segments]
+  (r/ok (mapv (fn [[i seg]] [i (:text seg)]) indexed-segments)))
 
 (defn translation-count-error
   "The canonical :error/translation-failed Result for a batch whose produced count

@@ -38,9 +38,10 @@
 
 (defn make-segment
   "Build a Segment over a shared/TimeRange. Validates a 1-based index, a non-blank
-   text, confidence, and optional source language.
+   text, confidence, and optional source language. An :asr/placeholder kind (see
+   calc.asr-hygiene) rides along on the Segment unchanged.
    => (r/ok Segment) | (r/err ...)."
-  [{:keys [index start-ms end-ms text confidence language]}]
+  [{:keys [index start-ms end-ms text confidence language] :as data}]
   (r/let-ok [range (shared/make-time-range start-ms end-ms)
              conf  (make-confidence confidence)
              lang  (if language (shared/make-language language) (r/ok nil))]
@@ -52,7 +53,8 @@
       (r/err :error/asr-failed {:reason "segment text is blank"})
 
       :else
-      (r/ok (->Segment index range text conf lang)))))
+      (r/ok (cond-> (->Segment index range text conf lang)
+              (:asr/placeholder data) (assoc :asr/placeholder (:asr/placeholder data)))))))
 
 ;; --- Aggregate root --------------------------------------------------------
 
