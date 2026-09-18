@@ -337,7 +337,10 @@
   (pf/with-result
     state
     (fn [{:keys [spec job transcript] :as ctx}]
-      (let [tr      (augment/wrap-opts translator (:translate/opts ctx))
+      ;; :translate/decorate is an opaque (fn [translator] translator') a
+      ;; pre-translate middleware may leave in ctx; opts augment outermost.
+      (let [decorate (or (:translate/decorate ctx) identity)
+            tr      (augment/wrap-opts (decorate translator) (:translate/opts ctx))
             targets (c.tr/normalize-targets spec)
             done    (atom 0)]
         (cond
