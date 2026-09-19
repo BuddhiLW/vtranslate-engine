@@ -27,7 +27,8 @@
             [vtranslate.engine.adapters.translator.augment :as augment]
             [vtranslate.engine.calc.progress :as c.progress]
             [vtranslate.engine.domain.transcription :as tx]
-            [vtranslate.engine.providers.decorators :as decorators]))
+            [vtranslate.engine.providers.decorators :as decorators]
+            [vtranslate.engine.calc.reflow.optimal]))
 
 ;; ---------------------------------------------------------------------------
 ;; Language helpers
@@ -389,13 +390,15 @@
       (r/ok (merge result extra)))))
 
 (defn- render-one-output
-  "Build and render the subtitle track for one translated target.
+  "Build and render the subtitle track for one translated target, its cues
+   shaped by the spec's `:reflow` rules when it has any.
    => Result<output> with :subtitle-track and :rendered added."
-  [renderer {:keys [job-id format]} multi? {:keys [target-language translated] :as output}]
+  [renderer {:keys [job-id format reflow]} multi? {:keys [target-language translated] :as output}]
   (r/let-ok [track    (c.rd/build-subtitle-track
                        translated
                        {:id (str job-id "-sub" (lang-suffix multi? target-language))
-                        :format format})
+                        :format format
+                        :reflow reflow})
              rendered (p.sub/render-bytes renderer track)]
     (r/ok (assoc output :subtitle-track track :rendered rendered))))
 
@@ -552,7 +555,7 @@
   [{:keys [media segmenter transcriber translator renderer muxer config
            transcript-cache on-progress]}
    {:keys [job-id source source-language target-language target-languages
-           mux-languages asset-kind format output caption quality watermark?]
+           mux-languages asset-kind format output caption quality watermark? reflow]
     :or   {asset-kind :media/video format :format/srt}}]
   (let [targets (c.tr/normalize-targets {:target-language target-language
                                          :target-languages target-languages})
@@ -583,6 +586,8 @@
                    :caption caption
                    :quality quality
                    :watermark? watermark?
+                   ;; the job's own rules, else the deployment's
+                   :reflow (or reflow (:reflow config))
                    :output output})]
       (when (r/ok? result)
         (stage-progress! resources :completed 100))
@@ -662,14 +667,18 @@
     (r/ok :non-empty)
     (r/err :error/render-failed {:reason "no cues parsed from source"})))
 
+(defn- reflow-cues
+  "`cues` shaped by the spec's `:reflow` rules, untouched when there are none."
+  [cues reflow]
+  (if reflow (c.reflow/try-reflow cues reflow) (r/ok cues)))
+
 (defn- parse-subtitle-source [{:keys [parser]} state]
   (pf/with-result
     state
     (fn [{:keys [spec text] :as ctx}]
       (let [{:keys [format reflow]} spec]
         (r/let-ok [parsed (p.sub/parse parser text format)
-                   cues   (r/ok (let [cs (:cues parsed)]
-                                  (if reflow (c.reflow/reflow cs reflow) cs)))
+                   cues   (reflow-cues (:cues parsed) reflow)
                    _      (non-empty-cues cues)]
                   (r/ok (assoc ctx :cues cues)))))))
 

@@ -10,7 +10,8 @@
    Reading order of the pipeline: drop non-speech -> merge overlaps -> cap long
    -> extend short -> enforce gap -> wrap lines -> split high-CPS -> snap grid ->
    re-index."
-  (:require [clojure.string :as str]))
+  (:require [clojure.string :as str]
+            [hive-dsl.result :as r]))
 
 ;; --- cue-map accessors (pure) ----------------------------------------------
 
@@ -22,7 +23,7 @@
   [{:keys [lines]}]
   (reduce + 0 (map count lines)))
 
-(defn- words
+(defn words
   "Whitespace-tokenize a cue's lines into a flat vector of non-blank words."
   [lines]
   (->> lines
@@ -78,12 +79,12 @@
 (defn- music-cue? [{:keys [lines]}]
   (and (seq lines) (every? marker-line? lines)))
 
-(defn- drop-music [cue-maps]
+(defn drop-music [cue-maps]
   (vec (remove music-cue? cue-maps)))
 
 ;; --- rule: merge overlapping cues (structural normalization) ---------------
 
-(defn- merge-overlaps
+(defn merge-overlaps
   "Sort by time and fold truly-overlapping cues (next start < current end) into
    one — union time span, concatenated lines. Touching cues (end == next start)
    are left intact."
@@ -215,7 +216,7 @@
                      :lines   (piece-lines max-chars (nth groups i))})
                   (range g))))))))
 
-(defn- split-cues [max-cps max-chars max-lines cue-maps]
+(defn split-cues [max-cps max-chars max-lines cue-maps]
   (vec (mapcat #(split-cue max-cps max-chars max-lines %) cue-maps)))
 
 ;; --- rule: snap boundaries to a grid ---------------------------------------
@@ -223,7 +224,7 @@
 (defn- snap-ms [snap ms]
   (* snap (Math/round (/ (double ms) snap))))
 
-(defn- snap-cues
+(defn snap-cues
   "Round each cue's start/end to the nearest `snap`-ms grid, keeping end > start."
   [snap cue-maps]
   (mapv (fn [c]
@@ -234,19 +235,38 @@
 
 ;; --- re-index (structural, always last) ------------------------------------
 
-(defn- reindex [cue-maps]
+(defn reindex [cue-maps]
   (vec (map-indexed (fn [i c] (assoc c :index (inc i)))
                     (sort-by (juxt :start-ms :end-ms) cue-maps))))
 
 ;; --- public entry ----------------------------------------------------------
 
-(defn reflow
-  "Cutting phase B — shape parsed cue-maps by a data-driven rule table. `rules` =
-   {:drop-music? bool, :max-dur-ms ms, :min-dur-ms ms, :min-gap-ms ms,
-    :max-chars-line n, :max-lines n, :max-cps n, :snap ms} — every key optional;
-    an absent key disables its rule. Overlap-merge and 1-based re-index always
-    run. Returns cue-maps re-numbered 1-based in time order.
-   Pure + total: [cue-map] -> [cue-map]."
+(defn- strategy-of [rules]
+  (or (some-> (:strategy rules) name keyword) :greedy))
+
+(defmulti shape
+  "One reflow strategy: [cue-maps rules] -> cue-maps, dispatched on the rules'
+   `:strategy` (default `:greedy`). Open for extension: a new strategy is a
+   `defmethod` in its own namespace, and this file does not change.
+
+   Every strategy honours the same contract, so one can stand in for another
+   (the shared properties in reflow-test run against all of them): the result
+   is a vector of well-formed cue-maps, time-ordered and non-overlapping
+   (before `:snap`), numbered 1-based, no line wider than `:max-chars-line`,
+   and with every word of the input once and in order. Pure and total."
+  (fn [_cue-maps rules] (strategy-of rules)))
+
+(defn strategies
+  "The strategy keys `reflow` accepts right now."
+  []
+  (disj (set (keys (methods shape))) :default))
+
+(defmethod shape :default [_ rules]
+  (throw (ex-info (str "unknown reflow strategy " (pr-str (:strategy rules)))
+                  {:strategy (:strategy rules) :known (strategies)})))
+
+;; The rule table: each rule decides locally and once, in a fixed order.
+(defmethod shape :greedy
   [cue-maps {:keys [drop-music? max-dur-ms min-dur-ms min-gap-ms
                     max-chars-line max-lines max-cps snap]}]
   (let [steps (cond-> []
@@ -259,3 +279,28 @@
                 max-cps        (conj #(split-cues max-cps max-chars-line max-lines %))
                 snap           (conj #(snap-cues snap %)))]
     (reindex (reduce (fn [cs step] (step cs)) (vec cue-maps) steps))))
+
+(defn reflow
+  "Cutting phase B: shape parsed cue-maps. `rules` =
+   {:strategy :greedy|:optimal, :drop-music? bool, :max-dur-ms ms,
+    :min-dur-ms ms, :min-gap-ms ms, :max-chars-line n, :max-lines n,
+    :max-cps n, :snap ms}.
+
+   `:greedy` (the default) is the rule table: every key optional, an absent key
+   disables its rule. `:optimal` (calc.reflow.optimal, loaded by the api)
+   solves the whole track at once and fills absent limits with its defaults.
+   Overlap-merge and 1-based re-index always run. Returns cue-maps re-numbered
+   1-based in time order. Pure; throws only on a strategy nobody registered."
+  [cue-maps rules]
+  (shape cue-maps rules))
+
+(defn try-reflow
+  "`reflow` for a caller that speaks Result: a strategy nobody registered is
+   the caller's mistake, said as one.
+   => (r/ok [cue-map ...]) | (r/err :error/render-failed {:reason s})."
+  [cue-maps rules]
+  (if (contains? (strategies) (strategy-of rules))
+    (r/ok (reflow cue-maps rules))
+    (r/err :error/render-failed
+           {:reason (str "unknown reflow strategy " (pr-str (:strategy rules))
+                         "; known: " (vec (sort (strategies))))})))
