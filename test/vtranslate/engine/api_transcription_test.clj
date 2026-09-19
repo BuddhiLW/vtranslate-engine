@@ -100,3 +100,49 @@
     (is (false? (get-in small [:ok :transcript-cached?])))
     (is (false? (get-in large [:ok :transcript-cached?])))
     (is (true? (get-in large-again [:ok :transcript-cached?])))))
+
+(defn- silent-transcriber
+  "An ITranscriber that hears nothing, counting its calls in `calls`."
+  [calls]
+  (reify p.asr/ITranscriber
+    (transcribe [_ _ _ _]
+      (swap! calls inc)
+      (r/ok {:segments []}))))
+
+(deftest a-silent-transcript-is-never-stored
+  (let [calls   (atom 0)
+        entries (atom {})
+        run     (fn [job-id]
+                  (api/run-transcription-job
+                   (assoc (mock-ports (silent-transcriber calls))
+                          :transcript-cache (->MemoryCache entries))
+                   {:job-id job-id :source "/music-only.mp4"
+                    :source-language "en"}))
+        first-run  (run "first")
+        second-run (run "second")]
+    (is (r/ok? first-run) "silence is still an answer for the run that heard it")
+    (is (empty? @entries) "a transcript with no speech is not kept")
+    (is (= 2 @calls) "the next run on the same source asks ASR again")
+    (is (false? (get-in second-run [:ok :transcript-cached?])))))
+
+(deftest a-silent-transcript-already-in-the-cache-is-a-miss
+  (let [silent  (get-in (api/run-transcription-job
+                         (mock-ports (silent-transcriber (atom 0)))
+                         {:job-id "old" :source "/v.mp4" :source-language "en"})
+                        [:ok :transcript])
+        entries (atom {})
+        poisoned (reify p.cache/ITranscriptCache
+                   (fetch [_ _] (r/ok silent))
+                   (store! [_ key transcript]
+                     (swap! entries assoc key transcript)
+                     (r/ok key))
+                   (forget! [_ key] (r/ok key))
+                   (evict! [_ _] (r/ok 0)))
+        res     (api/run-transcription-job
+                 (assoc (mock-ports) :transcript-cache poisoned)
+                 {:job-id "new" :source "/v.mp4" :source-language "en"})]
+    (is (empty? (:segments silent)) "fixture: the entry an older engine stored")
+    (is (false? (get-in res [:ok :transcript-cached?]))
+        "an empty cached transcript is not reused")
+    (is (= ["hello" "world"] (mapv :text (get-in res [:ok :transcript :segments]))))
+    (is (= 1 (count @entries)) "the fresh transcript replaces the empty one")))

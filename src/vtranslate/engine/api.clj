@@ -171,10 +171,20 @@
                             :language (transcript-language source-language)
                             :segments (:segments asr)})))
 
+(defn- cacheable-transcript?
+  "True when `transcript` carries speech and may be stored in, or reused from,
+   the transcript cache. A silent or otherwise segment-less transcript is
+   neither stored nor trusted as a hit."
+  [transcript]
+  (boolean (seq (:segments transcript))))
+
 (defn- transcribe-media
   "ASR, or the cached transcript of an identical earlier run. ASR is the only
    stage that costs minutes, so its result is persisted: a later failure —
-   an expired key, a bad mux — never makes it run twice."
+   an expired key, a bad mux — never makes it run twice.
+
+   Only a transcript that carries speech is stored or reused (see
+   `cacheable-transcript?`); an empty one always sends the job back to ASR."
   [{:keys [transcript-cache] :as resources} state]
   (stage-progress! resources :transcribing 25)
   (pf/with-result
@@ -182,11 +192,14 @@
     (fn [{:keys [spec asset job probe audio] :as ctx}]
       (let [cache (or transcript-cache p.cache/disabled)
             key   (transcript-cache-key spec probe (:config resources))]
-        (r/let-ok [cached (p.cache/fetch cache key)
+        (r/let-ok [found  (p.cache/fetch cache key)
+                   cached (r/ok (when (cacheable-transcript? found) found))
                    transcript (if cached
                                 (r/ok cached)
                                 (r/let-ok [fresh (run-asr resources spec asset probe audio)
-                                           _     (p.cache/store! cache key fresh)]
+                                           _     (if (cacheable-transcript? fresh)
+                                                   (p.cache/store! cache key fresh)
+                                                   (r/ok nil))]
                                   (r/ok fresh)))
                    job (job/advance job)]
           (r/ok (assoc ctx
