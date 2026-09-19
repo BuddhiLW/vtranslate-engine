@@ -4,8 +4,7 @@
   (:require [clojure.string :as str]
             [hive-dsl.result :as r]
             [vtranslate.engine.shared :as shared]
-            [vtranslate.engine.domain.translation :as tr]
-            [vtranslate.engine.calc.asr-hygiene :as hygiene]))
+            [vtranslate.engine.domain.translation :as tr]))
 
 (defn build-translated-cues
   "Align `translations` onto transcript segments and fold a completed TranslatedCues.
@@ -60,20 +59,21 @@
   (or (:language segment) fallback (:language transcript) "und"))
 
 (def verbatim-group
-  "Grouping key for segments whose target text is their own text: decoder
-   placeholders (not speech), and speech already in the target language. That
-   group is never sent to a translator: `verbatim-translations` carries it."
+  "Grouping key for segments whose target text is their own text: segments marked
+   :segment/verbatim? (e.g. an addon's decoder-placeholder marking), and speech
+   already in the target language. That group is never sent to a translator:
+   `verbatim-translations` carries it."
   ::verbatim)
 
 (defn translation-group
-  "The batch a `segment` translates in: `verbatim-group` for a decoder
-   placeholder or for speech whose source language is `target-language`, else
-   its source language (`segment-source-language`). Segments in different
+  "The batch a `segment` translates in: `verbatim-group` for a segment marked
+   :segment/verbatim? or for speech whose source language is `target-language`,
+   else its source language (`segment-source-language`). Segments in different
    source languages land in different batches, each translated from its own
    language."
   [transcript fallback target-language segment]
   (let [source (segment-source-language transcript fallback segment)]
-    (if (or (hygiene/placeholder? segment) (= source target-language))
+    (if (or (:segment/verbatim? segment) (= source target-language))
       verbatim-group
       source)))
 

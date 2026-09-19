@@ -14,7 +14,7 @@
         res (#'sut/transcribe-with-spans fake "model.bin" false samples 16000 "en"
                                          [{:start-ms 1000 :end-ms 1500}
                                           {:start-ms 2500 :end-ms 3000}] 0
-                                         {:threads 7})]
+                                         {:threads 7} #'sut/plain-route)]
     (is (r/ok? res))
     (is (= [8000 8000] @seen))
     (is (= [{:threads 7} {:threads 7}] @opts)
@@ -29,7 +29,8 @@
                (reset! seen (alength ^floats samples))
                (r/ok [{:start-ms 0 :end-ms 10 :text "whole"}]))
         samples (float-array 1234)
-        res (#'sut/transcribe-with-spans fake "model.bin" false samples 16000 nil nil 0 nil)]
+        res (#'sut/transcribe-with-spans fake "model.bin" false samples 16000 nil nil 0 nil
+                                         #'sut/plain-route)]
     (is (r/ok? res))
     (is (= 1234 @seen))
     (is (= [{:start-ms 0 :end-ms 10 :text "whole"}] (:ok res)))))
@@ -52,49 +53,29 @@
 (def ^:private one-second-spans
   [{:start-ms 0 :end-ms 1000} {:start-ms 1000 :end-ms 2000}])
 
-(deftest auto-language-detects-and-tags-each-window
+(deftest each-window-is-decoded-through-the-route-hook
   (let [calls (atom [])
         fake  (scripted-decoder calls
-                                {0 {:any [{:start-ms 0 :end-ms 900 :text "einer der berühmtesten Reden seines Lebens."}]}
-                                 1 {:any [{:start-ms 0 :end-ms 900 :text "wherever they may live, our citizens of Berlin."}]}})
-        res   (#'sut/transcribe-with-spans fake "m" false (windows 2) 16000 nil
-                                           one-second-spans 0 nil)]
-    (is (r/ok? res))
-    (is (= [[0 nil] [1 nil]] @calls)
-        "each window is decoded on its own, asked to detect (nil => auto)")
-    (is (= ["de" "en"] (mapv :language (:ok res)))
-        "every segment carries the language its window was spoken in")))
-
-(deftest forced-language-window-with-a-foreign-placeholder-is-decoded-again
-  (let [calls (atom [])
-        fake  (scripted-decoder calls
-                                {0 {"en" [{:start-ms 0 :end-ms 900 :text "I take pride in the words"}]}
-                                 1 {"en"   [{:start-ms 0 :end-ms 900 :text "[speaking German]"}]
-                                    "de"   [{:start-ms 0 :end-ms 900 :text "Das hat die Menschen beeindruckt."}]}})
+                                {0 {:any [{:start-ms 0 :end-ms 900 :text "first"}]}
+                                 1 {"en" [{:start-ms 0 :end-ms 900 :text "second"}]
+                                    "de" [{:start-ms 0 :end-ms 900 :text "zweite"}]}})
+        route (fn [decode language]
+                (r/let-ok [raw (decode language)]
+                  (if (= "second" (:text (first raw)))
+                    (r/let-ok [again (decode "de")]
+                      (r/ok (mapv #(assoc % :language "de") again)))
+                    (r/ok raw))))
         res   (#'sut/transcribe-with-spans fake "m" false (windows 2) 16000 "en"
-                                           one-second-spans 0 nil)]
+                                           one-second-spans 0 nil route)]
     (is (= [[0 "en"] [1 "en"] [1 "de"]] @calls)
-        "only the placeholder window is decoded again, in the language it names")
-    (is (= ["I take pride in the words" "Das hat die Menschen beeindruckt."]
-           (mapv :text (:ok res))))
-    (is (= [nil "de"] (mapv :language (:ok res))))))
+        "the route decides how each window is decoded, window by window")
+    (is (= [["first" nil] ["zweite" "de"]] (mapv (juxt :text :language) (:ok res))))))
 
-(deftest unnamed-foreign-placeholder-retries-with-detection
+(deftest the-plain-route-decodes-once-in-the-asked-language
   (let [calls (atom [])
-        fake  (scripted-decoder calls
-                                {0 {"en"   [{:start-ms 0 :end-ms 900 :text "(speaking foreign language)"}]
-                                    "auto" [{:start-ms 0 :end-ms 900 :text "Ich bin ein Berliner"}]}})
-        res   (#'sut/transcribe-with-spans fake "m" false (windows 1) 16000 "en"
-                                           [{:start-ms 0 :end-ms 1000}] 0 nil)]
-    (is (= [[0 "en"] [0 "auto"]] @calls))
-    (is (= [{:start-ms 0 :end-ms 900 :text "Ich bin ein Berliner" :language "de"}] (:ok res)))))
-
-(deftest a-retry-that-does-not-help-keeps-the-first-hypothesis
-  (let [calls (atom [])
-        fake  (scripted-decoder calls
-                                {0 {:any [{:start-ms 0 :end-ms 900 :text "(speaking foreign language)"}]}})
-        res   (#'sut/transcribe-with-spans fake "m" false (windows 1) 16000 "en"
-                                           [{:start-ms 0 :end-ms 1000}] 0 nil)]
-    (is (= [[0 "en"] [0 "auto"]] @calls))
+        fake  (scripted-decoder calls {0 {:any [{:start-ms 0 :end-ms 900 :text "(speaking foreign language)"}]}})
+        res   (#'sut/transcribe-with-spans fake "m" false (windows 1) 16000 nil
+                                           [{:start-ms 0 :end-ms 1000}] 0 nil #'sut/plain-route)]
+    (is (= [[0 nil]] @calls))
     (is (= ["(speaking foreign language)"] (mapv :text (:ok res)))
-        "nothing is deleted: the placeholder stays for hygiene to mark")))
+        "no addon, no re-decode: the text is kept as decoded")))

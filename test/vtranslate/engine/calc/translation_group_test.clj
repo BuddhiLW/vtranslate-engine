@@ -9,11 +9,12 @@
   (is (= "de" (sut/translation-group transcript nil "pt-BR" {:text "Ich bin" :language "de"})))
   (is (= "en" (sut/translation-group transcript nil "pt-BR" {:text "All free" :language "en"}))))
 
-(deftest placeholders-and-target-language-speech-are-verbatim
+(deftest marked-segments-and-target-language-speech-are-verbatim
   (is (= sut/verbatim-group
-         (sut/translation-group transcript nil "pt-BR" {:text "(speaking foreign language)" :language "en"})))
-  (is (= sut/verbatim-group
-         (sut/translation-group transcript nil "pt-BR" {:text "hi" :asr/placeholder :sound})))
+         (sut/translation-group transcript nil "pt-BR" {:text "(speaking foreign language)" :language "en"
+                                                       :segment/verbatim? true})))
+  (is (= "en" (sut/translation-group transcript nil "pt-BR" {:text "(speaking foreign language)" :language "en"}))
+      "the engine names no placeholder; only the mark makes a segment verbatim")
   (is (= sut/verbatim-group
          (sut/translation-group transcript nil "pt" {:text "Eu sou" :language "pt"})))
   (is (= "pt" (sut/translation-group transcript nil "pt-BR" {:text "Eu sou" :language "pt"}))

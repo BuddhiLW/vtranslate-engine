@@ -125,3 +125,21 @@
 
 (deftest default-phase-has-no-middleware
   (is (= [] (ext/middleware :vtranslate.pipeline/no-such-phase {}))))
+
+(deftest several-addons-contribute-to-one-phase
+  (reset! captured nil)
+  (let [trail (atom [])
+        mw    (fn [tag] (fn [_ ctx] (swap! trail conj tag) (r/ok ctx)))]
+    (ext/contribute! :vtranslate.pipeline/pre-translate ::b (mw :b) 20)
+    (ext/contribute! :vtranslate.pipeline/pre-translate ::a (mw :a) 10)
+    (ext/contribute! :vtranslate.pipeline/pre-translate ::a (mw :a2) 10)
+    (try
+      (let [res (api/run-job mock-ports {:job-id "j6" :source "/v.mp4"
+                                         :source-language "en" :target-language "pt-BR"})]
+        (is (r/ok? res))
+        (is (= [:a2 :b] @trail)
+            "contributions run after the defmethod's list, by :order; an id registered again replaces")
+        (is (= "SUFFIX-X" (:prompt/system-suffix @captured)) "the defmethod's middleware still ran"))
+      (finally
+        (ext/retract! :vtranslate.pipeline/pre-translate ::a)
+        (ext/retract! :vtranslate.pipeline/pre-translate ::b)))))

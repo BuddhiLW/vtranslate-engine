@@ -10,7 +10,8 @@
             [vtranslate.engine.providers.fetcher-registry :as fetch-reg]
             [vtranslate.engine.port.fetcher :as p.fetch]
             [vtranslate.engine.port.transcript-cache :as p.cache]
-            [vtranslate.engine.providers.compatibility :as compat]))
+            [vtranslate.engine.providers.compatibility :as compat]
+            [vtranslate.engine.providers.decorators :as decorators]))
 
 (defmulti build-port
   "Build a port impl for a port key. Extension point: adapters register methods
@@ -88,13 +89,11 @@
     (r/ok {:source source :parser parser :translator translator :renderer renderer})))
 
 (defn- decorate-translator
-  "Wrap `translator` with the decorators config asks for (contextual windowing,
-   then chunked batching outermost), else return it unchanged.
-   => (r/ok translator) | (r/err ...) when a configured decorator can't be built."
+  "Wrap `translator` with the decorators addons contribute (innermost), then
+   chunked batching outermost. => (r/ok translator) | (r/err ...) when a
+   decorator can't be built."
   [translator config]
-  (let [translator (if-let [wrap (requiring-resolve 'vtranslate.engine.adapters.translator.contextual/wrap)]
-                     (wrap translator config)
-                     translator)]
+  (r/let-ok [translator (decorators/decorate :translator translator config)]
     (if-let [wrap (requiring-resolve 'vtranslate.engine.adapters.translator.chunked/wrap)]
       (wrap translator config)
       (r/ok translator))))
@@ -107,10 +106,12 @@
     (r/ok decorated)))
 
 (defmethod build-port :transcriber
-  ;; L2 resolve-routing picks the provider key; L4 router builds it (fail-loud).
+  ;; L2 resolve-routing picks the provider key; L4 router builds it (fail-loud);
+  ;; then every transcriber decorator an addon contributed wraps it.
   [_ config]
-  (r/let-ok [routing (cfg/resolve-routing config)]
-    (router/resolve-active-transcriber routing (merge config routing))))
+  (r/let-ok [routing     (cfg/resolve-routing config)
+             transcriber (router/resolve-active-transcriber routing (merge config routing))]
+    (decorators/decorate :transcriber transcriber (merge config routing))))
 
 (defmethod build-port :transcript-cache
   ;; On by default — ASR is the only stage worth minutes, so throwing it away on

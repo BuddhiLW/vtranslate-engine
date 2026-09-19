@@ -25,10 +25,8 @@
      greedy decoder loops on for a non-speech tail can never PROPAGATE forward into
      real speech. Segments are shifted back to absolute clip time before being merged.
    - `temperature` and `prompt` are sent ONLY when explicitly configured (opt-in,
-     opt-out silence). Per-segment `compression_ratio` and `no_speech_prob` from
-     verbose_json are fed into `asr-hygiene/clean`, which collapses decoder loops
-     (same words repeated across consecutive segments or within one) instead of
-     deleting time ranges — speech is never lost.
+     opt-out silence). Each reply's raw verbose_json segments, metrics attached,
+     go through the optional `:asr/clean` call-opt hook before normalising.
    - Extra form fields under `[:transcriber-opts :extra-form]` are appended
      verbatim, so operator-specific speaches knobs (`hotwords`,
      `without_timestamps=false`, …) reach the server without another code
@@ -38,7 +36,6 @@
             [hive-dsl.result :as r]
             [vtranslate.engine.port.transcriber :as p.asr]
             [vtranslate.engine.adapters.transcriber.support :as sup]
-            [vtranslate.engine.calc.asr-hygiene :as ah]
             [vtranslate.engine.providers.transcriber-registry :as reg]
             [vtranslate.engine.adapters.support.secrets :as secrets])
   (:import [java.io ByteArrayOutputStream File]
@@ -132,21 +129,25 @@
 
 ;; --- response shaping -------------------------------------------------------
 
+(defn- clean-raw
+  "Apply the `:asr/clean` hook of `opts` — (fn [raw-segments opts] => raw-segments),
+   contributed by a transcriber decorator — to one reply's raw verbose_json
+   segments, while their per-segment metrics are still attached. No hook, no change."
+  [segs opts]
+  (if-let [clean (:asr/clean opts)]
+    (clean segs opts)
+    segs))
+
 (defn segments-from
   "Promote a verbose_json reply into contract segments. When the server returns
    per-segment timestamps use them; when it returns only :text, emit ONE segment
-   spanning the whole clip (duration read from the WAV, else 0).
-
-   Before normalising, per-segment metrics are used to filter the classic
-   Whisper repetition-loop: a window carrying BOTH high :no_speech_prob AND
-   high :compression_ratio is what the decoder itself would have suppressed
-   had temperature-fallback not exhausted. The filter is fail-open — a reply
-   without these metrics is unaffected."
+   spanning the whole clip (duration read from the WAV, else 0). Timestamped
+   segments pass through the `:asr/clean` hook first (see `clean-raw`)."
   [resp fallback-path opts]
   (let [segs (:segments resp)]
     (if (seq segs)
       (-> segs
-          (ah/clean opts)
+          (clean-raw opts)
           (sup/normalize-segments {:unit :s}))
       (sup/normalize-segments
        [{:start 0
@@ -188,7 +189,7 @@
     (if (zero? samples)
       (r/ok [])
       (r/let-ok [resp (transcribe-bytes transcriber language opts bytes)]
-        (let [segs       (ah/clean (:segments resp) opts)
+        (let [segs       (clean-raw (:segments resp) opts)
               window-end (+ (long offset-ms)
                             (long (Math/round (* 1000.0 (/ (double samples) sample-rate)))))]
           (r/ok (sup/clamp-to-window offset-ms window-end
@@ -227,8 +228,7 @@
             ;; the same layering the local backend uses.
             merged  (merge opts (select-keys call-opts
                                              [:temperature :prompt :extra-form
-                                              :min-repeats :compression-ratio-thr
-                                              :slice-spans?]))
+                                              :slice-spans? :asr/clean]))
             spans   (seq (:spans call-opts))]
         (if (and (:slice-spans? merged) spans)
           (transcribe-with-spans this path language merged spans pad-ms)
@@ -255,12 +255,12 @@
    NOT here (`:api-url`, `:model`, `:secret-env`, `:secret-pass`) is a build
    knob and stays out of the per-call form."
   [:temperature :prompt :extra-form :span-pad-ms
-   :min-repeats :compression-ratio-thr :slice-spans?])
+   :slice-spans?])
 
 (defn make-transcriber
   "Build an OpenAiTranscriber for `provider-key`, resolving its key. Per-provider
    overrides (:api-url :model :secret-env :secret-pass :temperature :prompt
-   :extra-form :span-pad-ms :min-repeats :compression-ratio-thr) may live
+   :extra-form :span-pad-ms) may live
    under config [:transcriber-opts]. => OpenAiTranscriber."
   [provider-key config]
   (let [d    (get provider-defaults provider-key)

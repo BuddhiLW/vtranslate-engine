@@ -7,7 +7,6 @@
             [vtranslate.engine.calc.translation :as c.tr]
             [vtranslate.engine.calc.rendering :as c.rd]
             [vtranslate.engine.calc.paths :as c.paths]
-            [vtranslate.engine.calc.asr-hygiene :as asr-hygiene]
             [vtranslate.engine.version :as engine-version]
             [vtranslate.engine.calc.cache-key :as ck]
             [vtranslate.engine.port.transcript-cache :as p.cache]
@@ -27,7 +26,8 @@
             [vtranslate.engine.pipeline.extensions :as ext]
             [vtranslate.engine.adapters.translator.augment :as augment]
             [vtranslate.engine.calc.progress :as c.progress]
-            [vtranslate.engine.domain.transcription :as tx]))
+            [vtranslate.engine.domain.transcription :as tx]
+            [vtranslate.engine.providers.decorators :as decorators]))
 
 ;; ---------------------------------------------------------------------------
 ;; Language helpers
@@ -156,8 +156,8 @@
     :language    source-language
     :segmenter   (get-in config [:providers :segmenter] (:segmenter config))
     :span-pad-ms (get-in config [:transcriber-opts :span-pad-ms] 200)
-    :asr-hygiene asr-hygiene/version
-    :transcriber-knobs (pr-str (into (sorted-map) (select-keys (:transcriber-opts config) [:slice-spans? :temperature :prompt :min-repeats :compression-ratio-thr])))
+    :decorators  (pr-str (decorators/identities :transcriber config))
+    :transcriber-knobs (pr-str (into (sorted-map) (select-keys (:transcriber-opts config) [:slice-spans? :temperature :prompt])))
     :engine-version engine-version/engine-version}))
 
 (defn- run-asr
@@ -200,7 +200,7 @@
   [phase resources ctx]
   (reduce (fn [acc mw] (r/let-ok [c acc] (mw resources c)))
           (r/ok ctx)
-          (ext/middleware phase resources)))
+          (ext/phase-middleware phase resources)))
 
 (defn- apply-extensions
   "OCP extension point: fold every registered pre-translate middleware over the

@@ -37,39 +37,6 @@
    :non-string   (#'llm/parse-translations "[1,2]" 2)
    :unparseable  (#'llm/parse-translations "not json at all" 2)})
 
-;; GOLDEN — prompt/body strings are EDN-safe scalars/plain maps.
-
-(deftest-golden prompt-golden
-  "test/golden/llm-prompts.edn"
-  {:system     (#'llm/system-prompt true suffix)
-   :system-min (#'llm/system-prompt false nil)
-   :instruction (#'llm/target-instruction "en" "pt-BR")
-   :instruction-auto (#'llm/target-instruction nil "ja")
-   :context    (#'llm/context-block "PRECEDING CONTEXT" ["l1" "l2"])
-   :context-nil (#'llm/context-block "X" [])
-   :user       (#'llm/user-content ["a" "b"] ["ctx"] nil)
-   :body       (parse-body (#'llm/chat-body "model-x" "en" "pt-BR" ["a" "b"]
-                                            {:context/before ["pre"] :context/after ["post"]
-                                             :prompt/system-suffix suffix}))})
-
-(deftest quoted-foreign-policy-shapes-the-system-prompt
-  (let [prompt (fn [policy] (#'llm/system-prompt false nil policy))]
-    (is (re-find #"translate that quoted phrase into the target language too" (prompt nil))
-        "the default translates a quotation in another language")
-    (is (= (prompt nil) (prompt :translate)))
-    (is (re-find #"keep that quoted phrase verbatim" (prompt :keep-original)))
-    (is (re-find #"original after it in parentheses" (prompt :both)))
-    (is (= (#'llm/system-prompt false nil) (prompt nil))
-        "the two-arity prompt is the default policy")))
-
-(deftest quoted-foreign-policy-comes-from-translator-opts
-  (is (= :keep-original
-         (:prompt/quoted-foreign
-          (llm/make-translator :venice {:translator-opts {:quoted-foreign "keep-original"}}))))
-  (is (nil? (:prompt/quoted-foreign
-             (llm/make-translator :venice {:translator-opts {:quoted-foreign :nonsense}})))
-      "an unknown policy falls back to the default rather than reaching the prompt"))
-
 (deftest an-undetermined-source-is-left-to-the-model
   (is (re-find #"from its source language to pt-BR" (#'llm/target-instruction "und" "pt-BR"))))
 
@@ -140,38 +107,26 @@
 ;; chat-body — opts weaving into the produced request body.
 ;; =============================================================================
 
-(deftest chat-body-weaves-context-and-suffix
-  (let [body (#'llm/chat-body "M" "en" "pt-BR" ["one" "two"]
-                              {:context/before ["Prev line"]
-                               :context/after  ["Next line"]
-                               :prompt/system-suffix suffix})
-        sys  (sys-of body)
-        usr  (usr-of body)
+(deftest the-plain-prompt-carries-the-suffix-and-the-payload
+  (let [body (#'llm/chat-body "M" "en" "pt-BR" ["one" "two"] {:prompt/system-suffix suffix})
         p    (parse-body body)]
     (is (= "M" (:model p)))
-    (is (= 3 (count (:messages p)))
-        "system, shared payload, then the target instruction LAST")
-    (is (= "system" (:role (first (:messages p)))))
-    (is (= "user" (:role (second (:messages p)))))
-    ;; the opaque suffix is appended verbatim to the SYSTEM prompt
-    (is (str/includes? sys suffix))
-    ;; context present => the do-not-translate context clause appears
-    (is (str/includes? sys "PRECEDING CONTEXT / FOLLOWING CONTEXT"))
-    ;; context blocks + the payload array woven into the USER message
-    (is (str/includes? usr "PRECEDING CONTEXT:"))
-    (is (str/includes? usr "Prev line"))
-    (is (str/includes? usr "FOLLOWING CONTEXT:"))
-    (is (str/includes? usr "Next line"))
-    (is (str/includes? usr "[\"one\",\"two\"]"))))
+    (is (= 3 (count (:messages p))) "system, payload, then the target instruction LAST")
+    (is (str/includes? (sys-of body) suffix) "the opaque suffix is appended to the system prompt")
+    (is (= "[\"one\",\"two\"]" (usr-of body)))))
 
 (deftest chat-body-without-suffix-omits-it
   (let [sys (sys-of (#'llm/chat-body "M" "en" "pt-BR" ["x"] {}))]
     (is (not (str/includes? sys suffix)) "no :prompt/system-suffix => nothing appended")))
 
-(deftest chat-body-no-context-omits-context-clause
-  (let [sys (sys-of (#'llm/chat-body "M" "en" "pt-BR" ["x"] {}))]
-    (is (not (str/includes? sys "PRECEDING CONTEXT / FOLLOWING CONTEXT"))
-        "no context opts => no context clause")))
+(deftest a-prompt-messages-hook-builds-the-messages
+  (let [seen (atom nil)
+        hook (fn [req] (reset! seen req) [{:role "user" :content "CUSTOM"}])
+        p    (parse-body (#'llm/chat-body "M" "en" "pt-BR" ["x"] {:prompt/messages hook :k 1}))]
+    (is (= [{:role "user" :content "CUSTOM"}] (:messages p)))
+    (is (= {:texts ["x"] :source-language "en" :target-language "pt-BR"}
+           (dissoc @seen :opts)))
+    (is (= 1 (get-in @seen [:opts :k])) "the hook sees the call's opts")))
 
 ;; =============================================================================
 ;; make-translator — provider defaults vs [:translator-opts] overrides.

@@ -11,7 +11,6 @@
             [vtranslate.engine.port.transcriber :as p.asr]
             [vtranslate.engine.providers.transcriber-registry :as reg]
             [vtranslate.engine.adapters.transcriber.support :as sup]
-            [vtranslate.engine.calc.asr-hygiene :as ah]
             [vtranslate.engine.adapters.transcriber.openai-compatible :as oai]))
 
 (defn- with-tmp-wav [f]
@@ -196,17 +195,28 @@
         (is (not (contains? fields "temperature")) "nil temperature -> no temperature sent")
         (is (not (contains? fields "prompt")) "nil prompt -> no prompt sent"))))
 
-;; --- nil thresholds do not throw --------------------------------------------
+;; --- the :asr/clean hook sees each reply's raw segments ----------------------
 
-(deftest nil-thresholds-do-not-throw
-  (is (= [{:start 0.0 :end 1.0 :text "x"}]
-         (ah/clean [{:start 0.0 :end 1.0 :text "x"}]
-                   {:min-repeats nil :compression-ratio-thr nil}))
-      "explicit nil thresholds fall back to defaults, pass-through unchanged"))
+(deftest the-clean-hook-sees-raw-segments-with-their-metrics
+  (with-tmp-wav
+    (fn [path]
+      (let [seen (atom nil)]
+        (with-redefs [oai/post-multipart
+                      (fn [_ _ _] (r/ok {:segments [{:start 0.0 :end 1.0 :text "thank you" :compression_ratio 3.1}
+                                                    {:start 1.0 :end 2.0 :text "Thank you."}
+                                                    {:start 2.0 :end 3.0 :text "thank you!"}]}))]
+          (let [clean  (fn [segs _opts]
+                         (reset! seen segs)
+                         [(assoc (first segs) :end (:end (last segs)))])
+                result (p.asr/transcribe
+                        (oai/->OpenAiTranscriber "http://mock" "m" "k" {}) path "en"
+                        {:asr/clean clean})
+                segs   (:segments (:ok result))]
+            (is (= 3.1 (:compression_ratio (first @seen))) "server metrics are still attached")
+            (is (= 1 (count segs)) "what the hook returns is what is normalised")
+            (is (= 3000 (:end-ms (first segs))))))))))
 
-;; --- three repeated segments are collapsed into one -------------------------
-
-(deftest three-repeated-segments-come-back-as-one
+(deftest no-clean-hook-keeps-every-segment
   (with-tmp-wav
     (fn [path]
       (with-redefs [oai/post-multipart
@@ -214,8 +224,5 @@
                                                   {:start 1.0 :end 2.0 :text "Thank you."}
                                                   {:start 2.0 :end 3.0 :text "thank you!"}]}))]
         (let [result (p.asr/transcribe
-                      (oai/->OpenAiTranscriber "http://mock" "m" "k" {}) path "en" {})
-              segs (:segments (:ok result))]
-          (is (= 1 (count segs)) "three repeated segments collapse into one")
-          (is (= 0 (:start-ms (first segs))) "collapsed start is first segment's start")
-          (is (= 3000 (:end-ms (first segs))) "collapsed end is last segment's end"))))))
+                      (oai/->OpenAiTranscriber "http://mock" "m" "k" {}) path "en" {})]
+          (is (= 3 (count (:segments (:ok result))))))))))
