@@ -12,7 +12,8 @@
    Mirrors hive-mcp embeddings/env_config split: hive-di resolves data, bespoke
    registries instantiate providers."
   (:require [hive-di.source :as src]
-            [hive-di.resolve :as di]))
+            [hive-di.resolve :as di]
+            [hive-dsl.result :as r]))
 
 (defn config-path
   "Where the user config file is read from.
@@ -63,9 +64,29 @@
    :addons           (src/file cfg-path [:addons]
                                :type :vector :required false :default [])})
 
+(def ^:private override-keys
+  [:segmenter :transcriber :translator :composer :fetcher
+   :segmenter-opts :transcriber-opts :translator-opts :composer-opts :fetcher-opts
+   :addons])
+
+(def ^:private opts-keys
+  #{:segmenter-opts :transcriber-opts :translator-opts :composer-opts :fetcher-opts})
+
+(defn- refine-opts
+  "`overrides` with each option map laid over the one `base` resolved, so a
+   caller's option refines the deployment's and never erases its other keys."
+  [base overrides]
+  (reduce (fn [acc k]
+            (if (and (opts-keys k) (map? (get acc k)))
+              (update acc k #(merge (get base k) %))
+              acc))
+          overrides
+          (keys overrides)))
+
 (defn resolve-routing
   "Resolve active provider routing + option maps.
-   `overrides` (job-spec :config) win over env/file/default for selected keys.
+   `overrides` (job-spec :config) win over env/file/default for selected keys;
+   an option map (`:translator-opts` ...) wins key by key over the resolved one.
    `:config-path` in `overrides` names the config file to read instead of the
    ambient one; it selects the source and is never itself a routing key.
    => (r/ok {:segmenter kw :transcriber kw|nil :translator kw :composer kw
@@ -74,8 +95,11 @@
       | (r/err :config/resolution-failed {:errors [...] :partial {...}})."
   ([] (resolve-routing {}))
   ([overrides]
-   (di/resolve-config (routing-fields (config-path (:config-path overrides)))
-                      (select-keys overrides [:segmenter :transcriber :translator :composer
-                                              :fetcher :segmenter-opts :transcriber-opts
-                                              :translator-opts :composer-opts :fetcher-opts
-                                              :addons]))))
+   (let [fields    (routing-fields (config-path (:config-path overrides)))
+         selected  (select-keys overrides override-keys)
+         base      (when (some opts-keys (keys selected))
+                     (di/resolve-config fields {}))]
+     (di/resolve-config fields
+                        (if (and base (r/ok? base))
+                          (refine-opts (:ok base) selected)
+                          selected)))))

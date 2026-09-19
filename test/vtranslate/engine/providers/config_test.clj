@@ -75,6 +75,23 @@
         (is (= {:model "override-model" :secret-pass "Venice/api-key"}
                (get-in res [:ok :translator-opts])))))))
 
+(deftest a-callers-opts-refine-the-files-and-never-erase-them
+  ;; The app sends every job its model and pricing under :translator-opts. The
+  ;; deployment's chunking, context window and timeout live in the same map in
+  ;; the file, and must survive that.
+  (let [path (temp-config {:providers {:translator :venice}
+                           :translator-opts {:chunk-size 40 :concurrency 4
+                                             :context 4 :timeout-ms 240000
+                                             :model "file-model"}})
+        res  (sut/resolve-routing {:config-path path
+                                   :translator-opts {:model "job-model"
+                                                     :deliver-partial? true}})]
+    (is (r/ok? res))
+    (is (= {:chunk-size 40 :concurrency 4 :context 4 :timeout-ms 240000
+            :model "job-model" :deliver-partial? true}
+           (get-in res [:ok :translator-opts]))
+        "the file's keys stay, and the caller's win where both name one")))
+
 (deftest wiring-builds-translator-with-file-opts
   (require 'vtranslate.engine.adapters.translator.llm)
   (require 'vtranslate.engine.adapters.support.llm-chat)
