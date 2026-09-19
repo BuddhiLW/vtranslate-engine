@@ -96,5 +96,32 @@
     (finally
       (remove-method ext/middleware :vtranslate.pipeline/post-translate))))
 
+(deftest middleware-may-decorate-the-translator
+  (reset! captured nil)
+  (let [seen (atom nil)]
+    (.addMethod ^clojure.lang.MultiFn ext/middleware :vtranslate.pipeline/pre-translate
+                (fn [_ _] [(fn [_ ctx]
+                             (r/ok (assoc ctx
+                                          :translate/opts {:prompt/system-suffix "SUFFIX-X"}
+                                          :translate/decorate
+                                          (fn [inner]
+                                            (reify p.tr/ITranslator
+                                              (translate-batch [_ txts src tgt opts]
+                                                (reset! seen opts)
+                                                (r/let-ok [out (p.tr/translate-batch inner txts src tgt opts)]
+                                                  (r/ok (mapv #(str "[" % "]") out)))))))))]))
+    (try
+      (let [res (api/run-job mock-ports {:job-id "j5" :source "/v.mp4"
+                                         :source-language "en" :target-language "pt-BR"})]
+        (is (r/ok? res))
+        (is (= "[hello-pt]" (get-in res [:ok :translated :units 0 :target-text]))
+            "the decorator wraps the translator the stage translates with")
+        (is (= "SUFFIX-X" (:prompt/system-suffix @seen))
+            ":translate/opts reach the decorator, outermost")
+        (is (= [0] (:segment-indices @seen)) "and so do the batch's segment indices"))
+      (finally
+        (.addMethod ^clojure.lang.MultiFn ext/middleware
+                    :vtranslate.pipeline/pre-translate (fn [_ _] [tag-mw]))))))
+
 (deftest default-phase-has-no-middleware
   (is (= [] (ext/middleware :vtranslate.pipeline/no-such-phase {}))))
