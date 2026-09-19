@@ -8,11 +8,14 @@
             [clojure.string :as str]
             [hive-dsl.result :as r]
             [vtranslate.engine.adapters.support.secrets :as secrets])
-  (:import (java.net URI)
+  (:import (java.io IOException)
+           (java.net URI)
            (java.net.http HttpClient HttpRequest HttpRequest$BodyPublishers
                           HttpResponse$BodyHandlers HttpTimeoutException)
            (java.math RoundingMode)
-           (java.time Duration)))
+           (java.time Duration)
+           (java.util.concurrent CompletableFuture ExecutionException
+                                 TimeUnit TimeoutException)))
 
 (defonce ^:private last-request-at
   (atom 0))
@@ -109,9 +112,10 @@
       (reset! last-request-at (now-ms)))))
 
 (def default-request-timeout-s
-  "Per-request ceiling. A batch of subtitle cues through an LLM routinely runs
-   past a minute, and a timeout here discards the whole batch, so this is
-   generous by design. Override with VT_LLM_TIMEOUT_S."
+  "Per-request ceiling on the whole exchange, headers AND body. A batch of
+   subtitle cues through an LLM routinely runs past a minute, and a timeout
+   here discards the whole batch, so this is generous by design. Override with
+   VT_LLM_TIMEOUT_S."
   300)
 
 (defn request-timeout-s
@@ -121,16 +125,60 @@
   (or (some-> (System/getenv "VT_LLM_TIMEOUT_S") str parse-long (as-> n (when (pos? n) n)))
       default-request-timeout-s))
 
-(defn- chat-request [api-url api-key body]
+(defn- chat-request [api-url api-key body timeout-ms]
   (.. (HttpRequest/newBuilder (URI/create api-url))
-      (timeout (Duration/ofSeconds (request-timeout-s)))
+      (timeout (Duration/ofMillis timeout-ms))
       (header "Content-Type" "application/json")
       (header "Authorization" (str "Bearer " api-key))
       (POST (HttpRequest$BodyPublishers/ofString body))
       (build)))
 
-(defn- send-chat-request [req]
-  (.send ^HttpClient @http-client req (HttpResponse$BodyHandlers/ofString)))
+(defn- deadline-exceeded
+  "The HttpTimeoutException a whole-exchange deadline of `deadline` raises,
+   carrying `cause` when there is one."
+  ^HttpTimeoutException [^Duration deadline cause]
+  (let [e (HttpTimeoutException.
+           (str "request timed out: no complete response within "
+                (.toMillis deadline) " ms"))]
+    (when cause (.initCause e cause))
+    e))
+
+(defn- await-response
+  "Waits on the `sendAsync` future `fut` for the whole response, headers and
+   body, at most `deadline` (a Duration, or nil for no bound), counted from
+   this call. On expiry the exchange is cancelled and an HttpTimeoutException
+   is thrown, the class the timeout-retry path catches; an IOException that
+   ends the exchange once the deadline has passed is reported the same way.
+   Any other failure is rethrown unwrapped, as a blocking `.send` would."
+  [^CompletableFuture fut ^Duration deadline]
+  (let [expires-at (when deadline (+ (System/nanoTime) (.toNanos deadline)))]
+    (try
+      (if deadline
+        (.get fut (.toMillis deadline) TimeUnit/MILLISECONDS)
+        (.get fut))
+      (catch TimeoutException _
+        (.cancel fut true)
+        (throw (deadline-exceeded deadline nil)))
+      (catch ExecutionException e
+        (let [cause (or (.getCause e) e)]
+          (throw (if (and expires-at
+                          (instance? IOException cause)
+                          (not (instance? HttpTimeoutException cause))
+                          (<= expires-at (System/nanoTime)))
+                   (deadline-exceeded deadline cause)
+                   cause))))
+      (catch InterruptedException e
+        (.cancel fut true)
+        (.interrupt (Thread/currentThread))
+        (throw e)))))
+
+(defn- send-chat-request
+  "Sends `req` and returns its response, bounding the WHOLE exchange by the
+   request's own timeout (HttpRequest.timeout alone is specified to bound only
+   the wait for headers)."
+  [^HttpRequest req]
+  (await-response (.sendAsync ^HttpClient @http-client req (HttpResponse$BodyHandlers/ofString))
+                  (.orElse (.timeout req) nil)))
 
 (defn- response-status [resp]
   (if (map? resp)
@@ -227,9 +275,10 @@
 
 (defn- post-chat* [api-url api-key body opts]
   (let [{:keys [max-retries base-delay-ms throttle-ms on-attempt provider model
-                pricing max-retry-after-ms max-timeout-retries]}
+                pricing max-retry-after-ms max-timeout-retries request-timeout-ms]}
         (merge default-post-opts opts)
-        req (chat-request api-url api-key body)]
+        req (chat-request api-url api-key body
+                          (or request-timeout-ms (* 1000 (request-timeout-s))))]
     (loop [attempt 0 timeouts 0]
       (throttle! throttle-ms)
       (let [started-at (now-ms)
@@ -301,6 +350,8 @@
   "POST a chat-completions `body`, returning the assistant message content.
    Retries retryable HTTP statuses (429 and 5xx) with exponential backoff, and
    a request that stalled past its timeout `:max-timeout-retries` more times.
+   The timeout bounds the WHOLE exchange (headers and body) per attempt:
+   `:request-timeout-ms` in opts, else VT_LLM_TIMEOUT_S (see request-timeout-s).
    => (r/ok content-string) | (r/err error-kw {:status n :body s :attempts n} | {...})."
   ([error-kw api-url api-key body]
    (post-chat error-kw api-url api-key body nil))
