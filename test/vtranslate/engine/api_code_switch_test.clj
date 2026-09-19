@@ -1,8 +1,9 @@
 (ns vtranslate.engine.api-code-switch-test
   "A transcript whose speakers switch language mid-stream: every language is
-   translated from its own source language, a decoder placeholder is never sent
-   to the translator and keeps its text, and speech already in the target
-   language is carried over verbatim. Mock ports, no IO."
+   translated from its own source language, a segment marked :segment/verbatim?
+   (as an addon marks a decoder placeholder) is never sent to the translator and
+   keeps its text, and speech already in the target language is carried over
+   verbatim. Mock ports, no IO."
   (:require [clojure.test :refer [deftest is testing]]
             [clojure.string :as str]
             [hive-dsl.result :as r]
@@ -15,7 +16,8 @@
 (def ^:private segments
   [{:start-ms 0    :end-ms 1000 :text "einer der berühmtesten Reden" :language "de" :confidence 1.0}
    {:start-ms 1000 :end-ms 2000 :text "All free men, wherever they may live" :language "en" :confidence 1.0}
-   {:start-ms 2000 :end-ms 3000 :text "(speaking foreign language)" :language "en" :confidence 1.0}
+   {:start-ms 2000 :end-ms 3000 :text "(speaking foreign language)" :language "en" :confidence 1.0
+    :segment/verbatim? true}
    {:start-ms 3000 :end-ms 4000 :text "Das hat die Menschen beeindruckt" :language "de" :confidence 1.0}
    {:start-ms 4000 :end-ms 5000 :text "Eu sou um berlinense" :language "pt" :confidence 1.0}])
 

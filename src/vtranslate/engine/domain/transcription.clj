@@ -36,10 +36,16 @@
 
 (defrecord Segment [index range text confidence language])
 
+(defn- annotations
+  "The namespaced keys of segment `data`: annotations an adapter or addon attached
+   (e.g. :segment/verbatim?). They ride along on the Segment unchanged."
+  [data]
+  (into {} (filter (comp qualified-keyword? key)) data))
+
 (defn make-segment
   "Build a Segment over a shared/TimeRange. Validates a 1-based index, a non-blank
-   text, confidence, and optional source language. An :asr/placeholder kind (see
-   calc.asr-hygiene) rides along on the Segment unchanged.
+   text, confidence, and optional source language. Namespaced keys of `data` ride
+   along on the Segment unchanged.
    => (r/ok Segment) | (r/err ...)."
   [{:keys [index start-ms end-ms text confidence language] :as data}]
   (r/let-ok [range (shared/make-time-range start-ms end-ms)
@@ -53,8 +59,7 @@
       (r/err :error/asr-failed {:reason "segment text is blank"})
 
       :else
-      (r/ok (cond-> (->Segment index range text conf lang)
-              (:asr/placeholder data) (assoc :asr/placeholder (:asr/placeholder data)))))))
+      (r/ok (merge (->Segment index range text conf lang) (annotations data))))))
 
 ;; --- Aggregate root --------------------------------------------------------
 

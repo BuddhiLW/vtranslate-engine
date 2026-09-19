@@ -25,6 +25,13 @@
   (and (.canExecute (File. ^String ffmpeg-bin))
        (cli/capable? (cli/ffmpeg-cli ffmpeg-bin))))
 
+(defn- skipped
+  "The skip path still asserts, as the silero suite's does: kaocha fails a
+   test that ran no assertions."
+  []
+  (testing (str "skipped: no libass-capable ffmpeg at " ffmpeg-bin)
+    (is (not usable?) (str "run it with VT_FFMPEG pointing at a libass-capable ffmpeg"))))
+
 (defn- temp-dir ^File []
   (.toFile (Files/createTempDirectory "vt-env-int" (make-array FileAttribute 0))))
 
@@ -44,7 +51,7 @@
 
 (deftest a-real-burn-survives-the-sanitized-environment
   (if-not usable?
-    (println "skipping: no libass-capable ffmpeg at" ffmpeg-bin)
+    (skipped)
     (let [dir (temp-dir)]
       (try
         (let [src  (source! dir)
@@ -61,7 +68,7 @@
 
 (deftest the-sanitized-burn-is-byte-identical-to-an-inherited-one
   (if-not usable?
-    (println "skipping: no libass-capable ffmpeg at" ffmpeg-bin)
+    (skipped)
     (let [dir (temp-dir)]
       (try
         (let [src      (source! dir)

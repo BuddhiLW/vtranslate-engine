@@ -23,11 +23,7 @@
   (:require [hive-dsl.result :as r]
             [vtranslate.engine.port.transcriber :as p.asr]
             [vtranslate.engine.adapters.transcriber.support :as sup]
-            [vtranslate.engine.providers.transcriber-registry :as reg]
-            [clojure.string :as str]
-            [vtranslate.engine.calc.asr-hygiene :as hygiene]
-            [vtranslate.engine.calc.language-id :as lid]
-            [vtranslate.engine.shared :as shared]))
+            [vtranslate.engine.providers.transcriber-registry :as reg]))
 
 ;; The native interop lives ONE ns over so its top-level (:import ...) of the
 ;; whisperjni types is never touched unless the backend is present. We reach it
@@ -113,62 +109,17 @@
                              label (/ (- now t0) 1000.0))))
           (recur (if due? now last-report)))))))
 
-(defn- auto-language?
-  "True when `language` asks whisper to detect rather than naming a language."
-  [language]
-  (contains? #{nil "" "auto" "multi" "und"} language))
-
-(defn- tag-language
-  "The raw segments of ONE decode call, each carrying :language. `known`, when a
-   registry tag, is the language whisper was told to decode in and tags every
-   segment. Otherwise each segment takes the language its own text decides
-   (language-id), falling back to the language of the window's whole speech
-   text, since whisper settles one language per call. A segment neither decides
-   is left untagged."
-  ([raw] (tag-language raw nil))
-  ([raw known]
-   (let [known? (contains? shared/source-languages known)
-         speech (remove #(hygiene/classify-placeholder (:text %)) raw)
-         window (if known?
-                  known
-                  (lid/identify (str/join " " (map :text speech))))
-         tag-of (if known?
-                  (constantly known)
-                  #(or (when-not (hygiene/classify-placeholder (:text %))
-                         (lid/identify (:text %)))
-                       window))]
-     (mapv (fn [seg] (if-let [tag (tag-of seg)] (assoc seg :language tag) seg)) raw))))
-
-(defn- retry-language
-  "The language to re-decode a window in when its decode `raw` holds foreign-
-   speech placeholders, or nil for no retry: the language a placeholder names,
-   else \"auto\" when the first pass was forced to a language."
-  [raw language]
-  (when (pos? (hygiene/placeholder-count raw :foreign-speech))
-    (or (some (comp :asr/language-hint hygiene/mark-placeholder) raw)
-        (when-not (auto-language? language) "auto"))))
-
-(defn- decode-routed
-  "Decode one window through `decode` ([lang] => Result<raw>) and route its
-   language. Asked to detect, the segments come back tagged with the detected
-   language. A window whose decode holds foreign-speech placeholders is decoded
-   again in `retry-language`; the retry replaces it only when it carries fewer
-   placeholders. => Result<raw>."
+(defn- plain-route
+  "The default window route: decode the window once, in `language`."
   [decode language]
-  (r/let-ok [raw (decode language)]
-    (if-let [again (retry-language raw language)]
-      (r/let-ok [retry (decode again)]
-        (r/ok (if (< (hygiene/placeholder-count retry :foreign-speech)
-                     (hygiene/placeholder-count raw :foreign-speech))
-                (tag-language retry again)
-                (if (auto-language? language) (tag-language raw) (vec raw)))))
-      (r/ok (if (auto-language? language) (tag-language raw) raw)))))
+  (decode language))
 
 (defn- transcribe-with-spans
   "Decode `samples` window by window — one per span, else the whole clip — each
-   through `decode-routed`, so a detected language is settled PER WINDOW and
-   recorded on its segments. => Result<[raw-segment ...]> in absolute ms."
-  [transcribe-samples model-path use-gpu? samples sample-rate language spans span-pad-ms run-opts]
+   through `route` ((fn [decode language] => Result<raw>), where `decode` is
+   [lang] => Result<raw>), so a transcriber decorator may re-decode or tag a
+   window. => Result<[raw-segment ...]> in absolute ms."
+  [transcribe-samples model-path use-gpu? samples sample-rate language spans span-pad-ms run-opts route]
   (if (seq spans)
     (let [total (count spans)
           t0    (System/currentTimeMillis)]
@@ -182,7 +133,7 @@
                (let [window (slice-samples samples start end)]
                  (r/let-ok [raw (decode-with-heartbeat
                                  (format "span %d/%d" (inc i) total)
-                                 #(decode-routed
+                                 #(route
                                    (fn [lang] (transcribe-samples model-path use-gpu? window
                                                                   lang run-opts))
                                    language))]
@@ -207,7 +158,7 @@
                        (/ (alength ^floats samples) (double sample-rate))))
       (decode-with-heartbeat
        "clip"
-       #(decode-routed
+       #(route
          (fn [lang] (transcribe-samples model-path use-gpu? samples lang run-opts))
          language)))))
 
@@ -222,7 +173,8 @@
                        (let [transcribe-samples @(requiring-resolve native-transcribe-sym)]
                          (transcribe-with-spans transcribe-samples model-path use-gpu?
                                                 samples sample-rate language (:spans opts)
-                                                span-pad-ms run-opts)))]
+                                                span-pad-ms run-opts
+                                                (or (:asr/route-window opts) plain-route))))]
         (r/ok {:segments (sup/normalize-segments raw {:unit :ms})}))
       (r/err :error/asr-failed {:reason "audio-source carries no path"}))))
 
