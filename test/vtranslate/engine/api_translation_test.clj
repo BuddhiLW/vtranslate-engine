@@ -10,7 +10,8 @@
             [vtranslate.engine.port.media :as p.media]
             [vtranslate.engine.port.transcriber :as p.asr]
             [vtranslate.engine.port.translator :as p.tr]
-            [vtranslate.engine.port.subtitle :as p.sub]))
+            [vtranslate.engine.port.subtitle :as p.sub]
+            [vtranslate.engine.adapters.translator.observed :as observed]))
 
 (defn- ports
   "Mock ports whose translator refuses every language in `broken`."
@@ -73,6 +74,23 @@
     (is (r/ok? res))
     (is (= targets (mapv :target-language (get-in res [:ok :outputs]))))
     (is (nil? (get-in res [:ok :failed-targets])))))
+
+(deftest every-translated-batch-reaches-the-progress-listener
+  (let [seen (atom [])
+        res  (api/run-job (-> (ports #{})
+                              (update :translator observed/wrap)
+                              (assoc :config {} :on-progress #(swap! seen conj %)))
+                          {:job-id "j" :source "/v.mp4" :source-language "en"
+                           :target-languages targets :format :format/srt})
+        chunks (filter #(= :translation-chunk (:type %)) @seen)]
+    (is (r/ok? res))
+    (is (= (set targets) (set (map :target-language chunks))) "one report per language here")
+    (is (every? #(= ["hello" "world"] (:sources %)) chunks))
+    (is (every? #(= [0 1] (:indices %)) chunks) "positions in the transcript")
+    (is (every? #(= (mapv (fn [s] (str s "-" (:target-language %))) ["hello" "world"])
+                    (:translations %))
+                chunks))
+    (is (every? #(= "j" (:job-id %)) chunks))))
 
 (deftest target-concurrency-follows-the-request-up-to-a-cap
   ;; Measured 2026-09-13: a 7-language job at concurrency 3 ran its languages

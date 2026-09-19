@@ -11,7 +11,8 @@
             [hive-weave.parallel :as par]
             [vtranslate.engine.calc.batching :as batch]
             [vtranslate.engine.port.translator :as p.tr]
-            [vtranslate.engine.providers.translator-registry :as reg]))
+            [vtranslate.engine.providers.translator-registry :as reg]
+            [vtranslate.engine.adapters.translator.observed :as observed]))
 
 (def ^:private default-chunk-size 50)
 (def ^:private default-concurrency 4)
@@ -39,13 +40,19 @@
 (defn- translate-chunks
   "Translate every chunk concurrently under a hard concurrency + per-chunk timeout
    bound, chunk order preserved. A chunk that overruns :timeout-ms yields the loud
-   chunk-timeout-error (never a silently dropped chunk).
+   chunk-timeout-error (never a silently dropped chunk). Each chunk is told where
+   it starts in the whole request as `:chunk-offset`, so a decorator below can
+   name its texts' positions.
    => vector of per-chunk Results (one Result per chunk)."
   [{:keys [inner fallback concurrency timeout-ms]} chunks source-language target-language opts]
-  (par/bounded-pmap
-   {:concurrency concurrency :timeout-ms timeout-ms :fallback chunk-timeout-error}
-   (fn [chunk] (translate-chunk inner fallback chunk source-language target-language opts))
-   chunks))
+  (let [base    (long (or (:chunk-offset opts) 0))
+        offsets (reductions + 0 (map count chunks))]
+    (par/bounded-pmap
+     {:concurrency concurrency :timeout-ms timeout-ms :fallback chunk-timeout-error}
+     (fn [[offset chunk]]
+       (translate-chunk inner fallback chunk source-language target-language
+                        (assoc opts :chunk-offset (+ base offset))))
+     (map vector offsets chunks))))
 
 (defrecord ChunkedTranslator [inner chunk-size concurrency fallback timeout-ms]
   p.tr/ITranslator
@@ -77,16 +84,19 @@
 
 (defn wrap
   "Return `inner` wrapped with chunked batching when [:translator-opts :chunk-size]
-   is a positive int, else `inner` unchanged. [:translator-opts :fallback-translator]
-   names a provider key resolved via the translator registry as the per-chunk retry.
+   is a positive int, else `inner` unchanged. Each chunk is reported as it lands
+   to the call's `:on-chunk-translated` (adapters.translator.observed).
+   [:translator-opts :fallback-translator] names a provider key resolved via the
+   translator registry as the per-chunk retry.
    => (r/ok translator) | (r/err ...) when the fallback provider can't be built."
   [inner config]
   (let [{:keys [chunk-size concurrency timeout-ms fallback-translator]}
         (get config :translator-opts)]
     (if (and (integer? chunk-size) (pos? chunk-size))
       (r/let-ok [fallback (resolve-fallback fallback-translator config)]
-        (r/ok (make-chunked inner {:chunk-size  chunk-size
-                                   :concurrency (or concurrency default-concurrency)
-                                   :timeout-ms  (or timeout-ms default-timeout-ms)
-                                   :fallback    fallback})))
+        (r/ok (make-chunked (observed/wrap inner)
+                            {:chunk-size  chunk-size
+                             :concurrency (or concurrency default-concurrency)
+                             :timeout-ms  (or timeout-ms default-timeout-ms)
+                             :fallback    fallback})))
       (r/ok inner))))

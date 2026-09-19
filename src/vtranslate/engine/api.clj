@@ -332,6 +332,10 @@
    does not. `:translated` stays bound to the first target so a single-target
    job's result shape is unchanged.
 
+   Every batch the translator returns is reported as a `:translation-chunk`
+   (its sources, translations and positions), so a caller can show the job's
+   phrases as they are translated. See adapters.translator.observed.
+
    A SILENT transcript (media with no speech) translates to nothing and says so:
    there is no batch to send, so the stage advances the job with no outputs and
    the render stage produces an empty track rather than the job failing."
@@ -343,7 +347,13 @@
       ;; :translate/decorate is an opaque (fn [translator] translator') a
       ;; pre-translate middleware may leave in ctx; opts augment outermost.
       (let [decorate (or (:translate/decorate ctx) identity)
-            tr      (augment/wrap-opts (decorate translator) (:translate/opts ctx))
+            tr      (augment/wrap-opts
+                     (decorate translator)
+                     (assoc (:translate/opts ctx)
+                            :on-chunk-translated
+                            #(notify-progress! resources
+                                               (assoc % :type :translation-chunk
+                                                        :job-id (:job-id spec)))))
             targets (c.tr/normalize-targets spec)
             done    (atom 0)]
         (cond
