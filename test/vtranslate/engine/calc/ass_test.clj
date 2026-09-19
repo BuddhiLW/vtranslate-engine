@@ -8,6 +8,7 @@
             [clojure.test.check.properties :as prop]
             [clojure.test.check.clojure-test :refer [defspec]]
             [hive-test.golden :refer [deftest-golden]]
+            [vtranslate.engine.calc.caption-layout :as layout]
             [vtranslate.engine.calc.captions :as captions]
             [vtranslate.engine.calc.ass :as sut]))
 
@@ -39,18 +40,26 @@
   (is (= "Noto Sans" (sut/font-name "Noto Sans")) "a real family passes through"))
 
 (deftest dialogue-line-skips-what-cannot-show
-  (is (nil? (sut/dialogue-line {:start-ms 1000 :end-ms 1000 :lines ["x"]} nil))
+  (is (nil? (sut/dialogue-line {:start-ms 1000 :end-ms 1000 :lines ["x"]} 45 nil))
       "zero-length cue")
-  (is (nil? (sut/dialogue-line {:start-ms 2000 :end-ms 1000 :lines ["x"]} nil))
+  (is (nil? (sut/dialogue-line {:start-ms 2000 :end-ms 1000 :lines ["x"]} 45 nil))
       "cue ending before it starts")
-  (is (nil? (sut/dialogue-line {:start-ms 0 :end-ms 1000 :lines ["" "  "]} nil))
+  (is (nil? (sut/dialogue-line {:start-ms 0 :end-ms 1000 :lines ["" "  "]} 45 nil))
       "only blank lines")
   (is (= "Dialogue: 0,0:00:01.00,0:00:02.50,Default,,0,0,0,,hello\\Nworld"
-         (sut/dialogue-line {:start-ms 1000 :end-ms 2500 :lines ["hello" "world"]} nil))))
+         (sut/dialogue-line {:start-ms 1000 :end-ms 2500 :lines ["hello" "world"]} 45 nil))))
 
-(deftest dialogue-line-wraps-like-the-java2d-path
-  (is (= "Dialogue: 0,0:00:00.00,0:00:01.00,Default,,0,0,0,,one two\\Nthree"
-         (sut/dialogue-line {:start-ms 0 :end-ms 1000 :lines ["one two three"]} 8))))
+(deftest dialogue-line-draws-the-layout-it-is-given
+  (let [lay-out (fn [lines]
+                  (layout/layout {:width 1920 :height 1080} {:wrap 8} lines
+                                 (layout/approximate-measure {})))]
+    (is (= "Dialogue: 0,0:00:00.00,0:00:01.00,Default,,0,0,0,,one two\\Nthree"
+           (sut/dialogue-line {:start-ms 0 :end-ms 1000 :lines ["one two three"]} 45 lay-out))
+        "the breaks are the layout's; the size matches the style row, so no override")
+    (is (= "Dialogue: 0,0:00:00.00,0:00:01.00,Default,,0,0,0,,{\\fs30\\bord2}big"
+           (sut/dialogue-line {:start-ms 0 :end-ms 1000 :lines ["big"]} 45
+                              (constantly {:lines ["big"] :font-size-px 30})))
+        "a size the layout shrank rides as an override tag")))
 
 (deftest style-row-follows-calc-captions
   (let [row (sut/style-row 1920 1080 {})

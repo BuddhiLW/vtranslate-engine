@@ -7,28 +7,23 @@
    Loaded ONLY on the :ffmpeg classpath (delegates to collect.ffmpeg, which
    imports bytedeco)."
   (:require [hive-dsl.result :as r]
-            [vtranslate.engine.calc.captions :as captions]
             [vtranslate.engine.calc.overlay :as overlay]
             [vtranslate.engine.collect.ffmpeg :as ffmpeg]
             [vtranslate.engine.port.burner :as p.burner]
             [vtranslate.engine.providers.burner-registry :as reg]))
 
 (defn- lines-at-fn
-  "Close a rendered SubtitleTrack + style into (fn [t-ms] -> [line ...] | nil):
-   the active cue's lines at a frame timestamp, word-wrapped to `:wrap`."
-  [track style]
-  (let [tl   (overlay/timeline track)
-        wrap (:wrap (captions/style style))]
-    (fn [t-ms]
-      (when-let [lines (overlay/active-lines tl t-ms)]
-        (if wrap
-          (vec (mapcat #(overlay/wrap-line % wrap) lines))
-          lines)))))
+  "Close a rendered SubtitleTrack into (fn [t-ms] -> [line ...] | nil): the
+   active cue's lines at a frame timestamp, unbroken. collect.ffmpeg lays
+   them out against the frame."
+  [track]
+  (let [tl (overlay/timeline track)]
+    (fn [t-ms] (overlay/active-lines tl t-ms))))
 
 (defrecord JavaCvBurner []
   p.burner/IHardsubBurner
   (burn! [_ video-source out-path track style]
-    (ffmpeg/burn-hardsub video-source out-path (lines-at-fn track style) style)))
+    (ffmpeg/burn-hardsub video-source out-path (lines-at-fn track) style)))
 
 (defmethod reg/resolve-burner :javacv [_ _opts]
   (r/ok (->JavaCvBurner)))
