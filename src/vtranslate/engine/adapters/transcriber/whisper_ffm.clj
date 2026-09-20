@@ -174,8 +174,18 @@
           (.invokeWithArguments (h :free) (object-array [ctx])))))))
 
 (defrecord WhisperFfmTranscriber [lib-path model-path params-bytes]
+  ;; :asr/clean and nothing else. This backend hands whisper.cpp the WHOLE clip
+  ;; in one whisper_full call, so there is no decode window for
+  ;; :asr/route-window to route, and the by-value struct hazard (see the ns
+  ;; docstring) means it cannot set params.language either — a re-decode in
+  ;; another language would decode the same audio the same way and cost a full
+  ;; pass to learn nothing. Declaring a hook it cannot serve is the LSP defect
+  ;; the stub had; leaving it undeclared is what lets `p.asr/inert-hooks` tell
+  ;; the truth about this adapter.
+  p.asr/IDeclaresHooks
+  (hooks-honoured [_] #{:asr/clean})
   p.asr/ITranscriber
-  (transcribe [_ audio-source _language _opts]
+  (transcribe [_ audio-source _language opts]
     ;; _language is accepted but not applied: setting params.language requires
     ;; writing into the struct, which we deliberately don't model (see ns docstring)
     ;; — whisper decodes with its built-in default language.
@@ -186,9 +196,10 @@
         (r/let-ok [wav (sup/read-wav-mono-floats path)
                    raw (r/try-effect* :error/asr-failed
                          (run-whisper (bound-lib lib-path params-bytes) model-path (:samples wav)))]
-          ;; funnel through support/normalize-segments — the LSP guardrail: ordered,
-          ;; non-overlapping, start<=end, non-blank text, BY CONSTRUCTION.
-          (r/ok {:segments (sup/normalize-segments raw {:unit :ms})})))
+          ;; clean BEFORE the guardrail: the hook collapses decoder loops out of
+          ;; raw segments, and normalize-segments is what makes the result
+          ;; ordered, non-overlapping and non-blank BY CONSTRUCTION.
+          (r/ok {:segments (sup/normalize-segments (p.asr/cleaned opts raw) {:unit :ms})})))
       (r/err :error/asr-failed {:reason "audio-source carries no path"}))))
 
 ;; --- provider registry ------------------------------------------------------

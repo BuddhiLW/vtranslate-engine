@@ -17,7 +17,8 @@
             [clojure.java.io :as io]
             [clojure.string :as str]
             [hive-dsl.result :as r]
-            [vtranslate.engine.adapters.transcriber.support :as sup])
+            [vtranslate.engine.adapters.transcriber.support :as sup]
+            [vtranslate.engine.port.transcriber :as p.asr])
   (:import [org.bytedeco.onnxruntime Env SessionOptions Session RunOptions
                                      OrtAllocator Value AllocatorWithDefaultOptions
                                      ValueVector]
@@ -426,7 +427,11 @@
 
    The implementation reads PCM, builds Whisper's log-mel tensor, runs the encoder,
    greedily steps a cacheless decoder graph, decodes byte-level BPE, projects
-   timestamp tokens, and funnels every segment through the shared LSP guardrail."
+   timestamp tokens, and funnels every segment through the shared LSP guardrail.
+
+   The :asr/clean hook the record declares is honoured HERE, because this is
+   where raw segments exist: after every chunk is decoded and before the
+   guardrail normalizes them."
   [model-dir path language opts]
   (let [wav (sup/read-wav-mono-floats path)]
     (if (r/err? wav)
@@ -438,8 +443,9 @@
                             {:sample-rate sample-rate})))
           (let [tokenizer (load-tokenizer
                            (model-path model-dir opts :tokenizer-file "tokenizer.json"))
-                raw (mapcat #(transcribe-chunk model-dir tokenizer language opts %)
-                            (sample-chunks samples))]
+                raw (p.asr/cleaned opts
+                                   (mapcat #(transcribe-chunk model-dir tokenizer language opts %)
+                                           (sample-chunks samples)))]
             (r/ok {:segments (sup/normalize-segments raw {:unit :s})})))
         (catch Throwable throwable
           (r/err :error/asr-failed

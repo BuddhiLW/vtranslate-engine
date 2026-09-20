@@ -125,6 +125,12 @@
               :text text}]))))
 
 (defrecord Qwen3AsrTranscriber [model-key model-dir span-pad-ms]
+  ;; :asr/clean only. This backend already decodes per SPAN, so it is the
+  ;; closest of the unrouted adapters to honouring :asr/route-window — but the
+  ;; span loop has no per-window `decode` fn to hand a route, and inventing one
+  ;; is a refactor, not a declaration. Undeclared until it is real.
+  p.asr/IDeclaresHooks
+  (hooks-honoured [_] #{:asr/clean})
   p.asr/ITranscriber
   (transcribe [_ audio-source language opts]
     (if-let [path (sup/audio->path audio-source)]
@@ -136,7 +142,7 @@
                          (transcribe-with-spans transcribe-fn model-key model-dir
                                                 samples sample-rate language (:spans opts)
                                                 span-pad-ms)))]
-        (r/ok {:segments (sup/normalize-segments raw {:unit :ms})}))
+        (r/ok {:segments (sup/normalize-segments (p.asr/cleaned opts raw) {:unit :ms})}))
       (r/err :error/asr-failed {:reason "audio-source carries no path"}))))
 
 ;; --- provider registry (OCP self-registration) ------------------------------

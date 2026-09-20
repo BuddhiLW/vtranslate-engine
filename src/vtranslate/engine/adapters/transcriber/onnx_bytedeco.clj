@@ -81,6 +81,16 @@
 ;; --- the adapter ------------------------------------------------------------
 
 (defrecord OnnxBytedecoTranscriber [model-dir opts]
+  ;; :asr/clean only, and it is honoured one level down: this record delegates
+  ;; the whole pipeline to the native ns, and the raw segments the hook is
+  ;; about only exist in there, before the LSP guardrail. The merged opts it is
+  ;; handed carry the hook, so the declaration here and the call there are the
+  ;; same fact. :asr/route-window is NOT declared: the native pipeline does
+  ;; chunk the samples, but a chunk is not a decode a route can be handed
+  ;; without a real refactor, and a declaration it cannot serve is the LSP
+  ;; defect this inventory exists to catch.
+  p.asr/IDeclaresHooks
+  (hooks-honoured [_] #{:asr/clean})
   p.asr/ITranscriber
   (transcribe [_ audio-source language call-opts]
     (if-let [path (sup/audio->path audio-source)]
