@@ -226,3 +226,32 @@
                            (<= (:start-ms s) (:end-ms s))
                            (<= (:end-ms s) hi)))
               out))))
+
+(deftest decode-opts-resolve-only-what-was-asked-for
+  (testing "run-opts with no knob asks for nothing, so every backend default stands"
+    (is (= {} (sup/resolve-decode-opts nil)))
+    (is (= {} (sup/resolve-decode-opts {})))
+    (is (= {} (sup/resolve-decode-opts {:threads 6 :print-progress? false}))
+        "the run-opts the adapter already used are not knobs"))
+
+  (testing "a knob explicitly set to nil is NOT asked for"
+    (is (= {} (sup/resolve-decode-opts {:beam-size nil :temperature nil}))
+        "nil must stay absent rather than clear the backend's own default"))
+
+  (testing "a knob that IS asked for comes back coerced to its field's type"
+    (let [out (sup/resolve-decode-opts {:beam-size 5 :temperature 0 :entropy-thold 2.4
+                                        :suppress-non-speech-tokens? true})]
+      (is (= #{:beam-size :temperature :entropy-thold :suppress-non-speech-tokens?}
+             (set (keys out))))
+      (is (instance? Integer (:beam-size out)))
+      (is (instance? Float (:temperature out)))
+      (is (instance? Float (:entropy-thold out)))
+      (is (true? (:suppress-non-speech-tokens? out)))))
+
+  (testing "false is a value a boolean knob can be asked for, not an absence"
+    (is (= {:suppress-non-speech-tokens? false}
+           (sup/resolve-decode-opts {:suppress-non-speech-tokens? false}))))
+
+  (testing "an unknown key is ignored, never passed through to the backend"
+    (is (= {:beam-size (int 5)}
+           (sup/resolve-decode-opts {:beam-size 5 :no-such-knob 1})))))
