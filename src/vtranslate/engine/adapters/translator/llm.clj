@@ -19,7 +19,8 @@
             [hive-dsl.result :as r]
             [vtranslate.engine.adapters.support.llm-chat :as chat]
             [vtranslate.engine.port.translator :as p.tr]
-            [vtranslate.engine.providers.translator-registry :as reg]))
+            [vtranslate.engine.providers.translator-registry :as reg]
+            [vtranslate.engine.adapters.support.model-catalogue :as cat]))
 
 ;; --- secret resolution: pass: ref (authoritative) > env var ----------------
 
@@ -153,22 +154,23 @@
                 :api-url api-url})))))
 
 (def ^:private provider-defaults
-  "Self-contained per-provider endpoint, model, and key sources."
-  {:openrouter {:api-url     "https://openrouter.ai/api/v1/chat/completions"
-                :secret-env  "OPENROUTER_API_KEY"
-                :secret-pass "openrouter/keys/hive-mcp"
-                :model       "z-ai/glm-5.2"}
-   :venice     {:api-url     "https://api.venice.ai/api/v1/chat/completions"
-                :secret-env  "VENICE_API_KEY"
-                :secret-pass "Venice/api-key"
-                :model       "zai-org-glm-5-2"}})
+  "Endpoint, key environment variable and model per provider for the
+   :translate role. The model ids live in the shared catalogue, not here, so
+   refreshing a pin does not mean hunting through five adapters."
+  (cat/provider-defaults :translate))
 
 (defn make-translator
   "Build an LLM translator for `provider-key`. Per-provider overrides (api-url /
    model / secret-env / secret-pass) may be supplied under config
-   [:translator-opts] (a map); absent => the built-in provider defaults. NOTE:
+   [:translator-opts] (a map); absent => the shared catalogue's defaults. NOTE:
    the [:translator] key itself is the routing SELECTION (a provider keyword), not
-   an opts map — opts live under [:translator-opts] to avoid that collision."
+   an opts map — opts live under [:translator-opts] to avoid that collision.
+
+   :secret-pass has no code-level default. Where a key sits in a password store
+   is a fact about the machine, so it comes from config: [:translator-opts
+   :secret-pass] for this adapter alone, else [:secrets provider-key :pass] for
+   every adapter at once. Nothing configured means the key is read from the
+   environment, which is how the cluster runs."
   [provider-key config]
   (let [d    (get provider-defaults provider-key)
         opts (get config :translator-opts)]
@@ -178,7 +180,7 @@
                      (or (:secret-env opts) (:secret-env d))
                      (if (and (map? opts) (contains? opts :secret-pass))
                        (:secret-pass opts)
-                       (:secret-pass d))
+                       (cat/secret-pass-for config provider-key))
                      (:pricing opts))))
 
 (defn resolved

@@ -13,7 +13,8 @@
             [hive-dsl.result :as r]
             [vtranslate.engine.adapters.support.llm-chat :as chat]
             [vtranslate.engine.port.translator :as p.tr]
-            [vtranslate.engine.adapters.translator.llm :as llm]))
+            [vtranslate.engine.adapters.translator.llm :as llm]
+            [vtranslate.engine.adapters.support.model-catalogue :as cat]))
 
 ;; --- fixtures ---------------------------------------------------------------
 
@@ -133,16 +134,21 @@
 ;; =============================================================================
 
 (deftest make-translator-uses-provider-defaults
+  ;; The model ids are asserted against the catalogue rather than spelled out
+  ;; again: a pin refresh is a one-line edit there, and a test that hardcodes
+  ;; the id would turn every refresh into a two-line edit for no added truth.
+  ;; What IS worth pinning down is that the adapter reads the :translate role
+  ;; and not some other one.
   (let [t (llm/make-translator :openrouter {})]
     (is (= "https://openrouter.ai/api/v1/chat/completions" (:api-url t)))
-    (is (= "z-ai/glm-5.2" (:model t)))
+    (is (= (cat/model-for :openrouter :translate) (:model t)))
     (is (= "OPENROUTER_API_KEY" (:secret-env t)))
-    (is (= "openrouter/keys/hive-mcp" (:secret-pass t))))
+    (is (nil? (:secret-pass t)) "no pass path unless config names one"))
   (let [t (llm/make-translator :venice {})]
     (is (= "https://api.venice.ai/api/v1/chat/completions" (:api-url t)))
-    (is (= "zai-org-glm-5-2" (:model t)))
+    (is (= (cat/model-for :venice :translate) (:model t)))
     (is (= "VENICE_API_KEY" (:secret-env t)))
-    (is (= "Venice/api-key" (:secret-pass t)))))
+    (is (nil? (:secret-pass t)) "no pass path unless config names one")))
 
 (deftest make-translator-opts-override-each-field
   (let [t (llm/make-translator :openrouter
@@ -157,11 +163,16 @@
 
 (deftest make-translator-secret-pass-only-overridden-when-key-present
   (let [t (llm/make-translator :openrouter {:translator-opts {:model "m2"}})]
-    (is (= "openrouter/keys/hive-mcp" (:secret-pass t))
-        "absent :secret-pass key => default pass survives"))
-  (let [t (llm/make-translator :openrouter {:translator-opts {:secret-pass nil}})]
     (is (nil? (:secret-pass t))
-        "explicit nil :secret-pass overrides the default (key present)")))
+        "no :secrets in config => no pass path, so nothing shadows the env"))
+  (let [t (llm/make-translator :openrouter {:secrets {:openrouter {:pass "or/key"}}
+                                            :translator-opts {:model "m2"}})]
+    (is (= "or/key" (:secret-pass t))
+        "config names the operator's own store layout"))
+  (let [t (llm/make-translator :openrouter {:secrets {:openrouter {:pass "or/key"}}
+                                            :translator-opts {:secret-pass nil}})]
+    (is (nil? (:secret-pass t))
+        "explicit nil :secret-pass still wins over :secrets (key present)")))
 
 ;; =============================================================================
 ;; translate-batch — no-network paths only.
