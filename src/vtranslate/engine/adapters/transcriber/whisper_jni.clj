@@ -212,14 +212,25 @@
    (when (and requested (not= :auto requested))
      (max 1 (min (long requested) (long available))))))
 
+(defn run-opts-for
+  "The per-decode options a whisper-local transcriber built from `config` carries:
+   the threads and the print flag it has always had, plus every decode knob the
+   operator set in :transcriber-opts. A knob nobody set stays ABSENT, so the
+   backend's own default stands rather than being overwritten with ours.
+   :threads and :print-progress? are resolved here and win over a knob of the
+   same name. Pure. => run-opts"
+  [config]
+  (merge (sup/resolve-decode-opts (:transcriber-opts config))
+         {:threads (resolve-threads (get-in config [:transcriber-opts :threads]))
+          :print-progress?
+          (boolean (get-in config [:transcriber-opts :print-progress?] true))}))
+
 (defmethod reg/resolve-transcriber :whisper-local
   [_ config]
   (let [model-path  (model-path-for config)
         use-gpu?    (boolean (get-in config [:transcriber-opts :use-gpu?] false))
         span-pad-ms (long (get-in config [:transcriber-opts :span-pad-ms] 500))
-        run-opts    {:threads (resolve-threads (get-in config [:transcriber-opts :threads]))
-                     :print-progress?
-                     (boolean (get-in config [:transcriber-opts :print-progress?] true))}]
+        run-opts    (run-opts-for config)]
     (cond
       ;; Two distinct unavailability causes, each with its own actionable hint,
       ;; so an operator sees WHICH half is missing (the jar or the weights).

@@ -106,3 +106,26 @@
     (is (= 1000 (:window-ms @told))
         "a composed route still reads the window's length")
     (is (= [{:start-ms 1000 :end-ms 1100 :text "w"}] (:ok res)))))
+
+(deftest decode-knobs-set-in-config-reach-the-decode
+  ;; no knob set: nothing of ours may override a backend default
+  (is (= #{:threads :print-progress?}
+         (set (keys (sut/run-opts-for {:transcriber-opts {:use-gpu?   true
+                                                          :model-path "models/x.bin"}})))))
+
+  ;; a knob an operator DID set travels to the decode, beside what was always carried
+  (let [out (sut/run-opts-for {:transcriber-opts {:threads                     8
+                                                  :use-gpu?                    true
+                                                  :suppress-non-speech-tokens? true
+                                                  :beam-size                   5}})]
+    (is (true? (:suppress-non-speech-tokens? out)))
+    (is (= 5 (:beam-size out)))
+    (is (= 8 (:threads out))))
+
+  ;; the :transcriber-opts keys that are NOT knobs never leak into the decode
+  (let [out (sut/run-opts-for {:transcriber-opts {:use-gpu?    true
+                                                  :model-path  "models/x.bin"
+                                                  :span-pad-ms 500}})]
+    (is (not (contains? out :use-gpu?)))
+    (is (not (contains? out :model-path)))
+    (is (not (contains? out :span-pad-ms)))))
