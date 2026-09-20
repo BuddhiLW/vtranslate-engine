@@ -161,6 +161,11 @@
                 :text     text}])))))
 
 (defrecord NemoTranscriber [model target-language span-pad-ms python-executable library-path device multilingual?]
+  ;; :asr/clean only, for the same reason as qwen3-asr: the span loop is not a
+  ;; decode window a route can be handed. Undeclared rather than
+  ;; declared-and-ignored, so `p.asr/inert-hooks` reports the gap honestly.
+  p.asr/IDeclaresHooks
+  (hooks-honoured [_] #{:asr/clean})
   p.asr/ITranscriber
   (transcribe [_ audio-source language opts]
     (if-let [path (sup/audio->path audio-source)]
@@ -186,7 +191,7 @@
                                                 language
                                                 (or (:target-language opts) target-language)
                                                 (:spans opts) span-pad-ms)))]
-        (r/ok {:segments (sup/normalize-segments raw {:unit :ms})}))
+        (r/ok {:segments (sup/normalize-segments (p.asr/cleaned opts raw) {:unit :ms})}))
       (r/err :error/asr-failed {:reason "audio-source carries no path"}))))
 
 ;; --- provider registry (OCP self-registration) ------------------------------

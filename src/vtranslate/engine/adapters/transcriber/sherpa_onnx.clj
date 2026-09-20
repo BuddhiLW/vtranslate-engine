@@ -147,8 +147,13 @@
   (some-> tag str str/trim not-empty (str/split #"-") first str/lower-case not-empty))
 
 (defrecord SherpaOnnxTranscriber [cfg]
+  ;; :asr/clean only: the native call decodes the WHOLE clip in one pass, so
+  ;; there is no decode window for :asr/route-window to route. Undeclared
+  ;; rather than declared-and-ignored, so `p.asr/inert-hooks` can say so.
+  p.asr/IDeclaresHooks
+  (hooks-honoured [_] #{:asr/clean})
   p.asr/ITranscriber
-  (transcribe [_ audio-source language _opts]
+  (transcribe [_ audio-source language opts]
     (if-let [path (sup/audio->path audio-source)]
       (r/let-ok [wav (sup/read-wav-mono-floats path)
                  raw (r/try-effect* :error/asr-failed
@@ -161,7 +166,7 @@
                               (:samples wav)
                               (int (:sample-rate wav)))))]
         (r/ok {:segments (sup/normalize-segments
-                          (result->raw-segments raw (sup/wav-duration-ms path))
+                          (p.asr/cleaned opts (result->raw-segments raw (sup/wav-duration-ms path)))
                           {:unit :s})}))
       (r/err :error/asr-failed {:reason "audio-source carries no path"}))))
 

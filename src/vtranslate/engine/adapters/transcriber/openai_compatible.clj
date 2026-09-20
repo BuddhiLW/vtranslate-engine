@@ -129,25 +129,16 @@
 
 ;; --- response shaping -------------------------------------------------------
 
-(defn- clean-raw
-  "Apply the `:asr/clean` hook of `opts` — (fn [raw-segments opts] => raw-segments),
-   contributed by a transcriber decorator — to one reply's raw verbose_json
-   segments, while their per-segment metrics are still attached. No hook, no change."
-  [segs opts]
-  (if-let [clean (:asr/clean opts)]
-    (clean segs opts)
-    segs))
-
 (defn segments-from
   "Promote a verbose_json reply into contract segments. When the server returns
    per-segment timestamps use them; when it returns only :text, emit ONE segment
    spanning the whole clip (duration read from the WAV, else 0). Timestamped
-   segments pass through the `:asr/clean` hook first (see `clean-raw`)."
+   segments pass through the port's `:asr/clean` hook first, while their
+   per-segment metrics are still attached."
   [resp fallback-path opts]
   (let [segs (:segments resp)]
     (if (seq segs)
-      (-> segs
-          (clean-raw opts)
+      (-> (p.asr/cleaned opts segs)
           (sup/normalize-segments {:unit :s}))
       (sup/normalize-segments
        [{:start 0
@@ -189,7 +180,7 @@
     (if (zero? samples)
       (r/ok [])
       (r/let-ok [resp (transcribe-bytes transcriber language opts bytes)]
-        (let [segs       (clean-raw (:segments resp) opts)
+        (let [segs       (p.asr/cleaned opts (:segments resp))
               window-end (+ (long offset-ms)
                             (long (Math/round (* 1000.0 (/ (double samples) sample-rate)))))]
           (r/ok (sup/clamp-to-window offset-ms window-end
@@ -220,6 +211,9 @@
     (r/ok {:segments (sup/normalize-segments raw {:unit :ms})})))
 
 (defrecord OpenAiTranscriber [api-url model api-key opts]
+  p.asr/IDeclaresHooks
+  (hooks-honoured [_] #{:asr/clean})
+
   p.asr/ITranscriber
   (transcribe [this audio-source language call-opts]
     (if-let [path (sup/audio->path audio-source)]

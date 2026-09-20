@@ -30,13 +30,19 @@
                   (range 0 dur win)))))
 
 (defrecord StubTranscriber [window-ms]
+  p.asr/IDeclaresHooks
+  ;; No real decode to re-run, so no :asr/route-window. It does hold raw
+  ;; segments, so a decorator's cleaner reaches them, which is what makes this
+  ;; stub a faithful double for the adapters that do the same.
+  (hooks-honoured [_] #{:asr/clean})
+
   p.asr/ITranscriber
-  (transcribe [_ audio-source language _opts]
+  (transcribe [_ audio-source language opts]
     (let [path        (sup/audio->path audio-source)
           duration-ms (or (:duration-ms audio-source)
                           (sup/wav-duration-ms path)
                           3000)]
-      (r/ok {:segments (stub-segments duration-ms window-ms language)}))))
+      (r/ok {:segments (p.asr/cleaned opts (stub-segments duration-ms window-ms language))}))))
 
 (defn make-transcriber
   "Build a StubTranscriber. Default window 5000ms; override via config
