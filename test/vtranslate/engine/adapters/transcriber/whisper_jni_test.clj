@@ -120,7 +120,10 @@
                                                   :beam-size                   5}})]
     (is (true? (:suppress-non-speech-tokens? out)))
     (is (= 5 (:beam-size out)))
-    (is (= 8 (:threads out))))
+    ;; resolve-threads CLAMPS to the box's core count, so the asked-for 8 is 8
+    ;; only on a box with 8 cores. Assert it still resolves, not what this
+    ;; machine happens to have.
+    (is (= (sut/resolve-threads 8) (:threads out))))
 
   ;; the :transcriber-opts keys that are NOT knobs never leak into the decode
   (let [out (sut/run-opts-for {:transcriber-opts {:use-gpu?    true
