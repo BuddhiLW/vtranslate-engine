@@ -28,10 +28,11 @@
                            (let [[s e] (shared/range-ms (:range seg))]
                              (r/let-ok [c acc
                                         u (tr/make-translation-unit
-                                           {:start-ms s :end-ms e
-                                            :source-language (:language seg)
-                                            :source-text (:text seg)
-                                            :target-text target-text})]
+                                           (merge (shared/annotations seg)
+                                                  {:start-ms s :end-ms e
+                                                   :source-language (:language seg)
+                                                   :source-text (:text seg)
+                                                   :target-text target-text}))]
                                (r/ok (tr/add-unit c u)))))
                          (r/ok (tr/begin c0))
                          (map vector segments translations))]
@@ -67,13 +68,15 @@
 
 (defn translation-group
   "The batch a `segment` translates in: `verbatim-group` for a segment marked
-   :segment/verbatim? or for speech whose source language is `target-language`,
+   :segment/verbatim? or :segment/omit? (text no viewer sees is not worth a
+   translator call) or for speech whose source language is `target-language`,
    else its source language (`segment-source-language`). Segments in different
    source languages land in different batches, each translated from its own
    language."
   [transcript fallback target-language segment]
   (let [source (segment-source-language transcript fallback segment)]
-    (if (or (:segment/verbatim? segment) (= source target-language))
+    (if (or (:segment/verbatim? segment) (:segment/omit? segment)
+            (= source target-language))
       verbatim-group
       source)))
 

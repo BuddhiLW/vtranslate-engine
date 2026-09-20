@@ -19,6 +19,11 @@
          (sut/translation-group transcript nil "pt" {:text "Eu sou" :language "pt"})))
   (is (= "pt" (sut/translation-group transcript nil "pt-BR" {:text "Eu sou" :language "pt"}))
       "a regional target still translates from the base language"))
+(deftest an-omitted-segment-is-never-sent-to-a-translator
+  (is (= sut/verbatim-group
+         (sut/translation-group transcript nil "pt-BR" {:text "Субтитры создавал DimaTorzok" :language "ru"
+                                                       :segment/omit? true}))))
+
 
 (deftest verbatim-translations-carry-each-text
   (is (= {:ok [[2 "[Music]"] [5 "hi"]]}

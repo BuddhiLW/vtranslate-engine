@@ -113,6 +113,42 @@
     (is (= :error/render-failed (:error res)))))
 
 ;; =============================================================================
+;; OMIT — a unit marked :segment/omit? stays in the aggregate, not in the track
+;; =============================================================================
+
+(defn- omitting
+  "A completed TranslatedCues whose units at the `omitted` positions carry
+   :segment/omit?, the way an addon's mark arrives from the source segment."
+  [units omitted]
+  (update (->tcues "es" units) :units
+          (fn [us] (vec (map-indexed (fn [i u] (cond-> u (omitted i) (assoc :segment/omit? true)))
+                                     us)))))
+
+(deftest an-omitted-unit-is-left-out-and-the-rest-renumber
+  (let [tc  (omitting [{:start-ms 0    :end-ms 1000 :target-text "a"}
+                       {:start-ms 1000 :end-ms 2000 :target-text "Subtitles by DimaTorzok"}
+                       {:start-ms 2000 :end-ms 3000 :target-text "c"}]
+                      #{1})
+        res (sut/build-subtitle-track tc {:id "s" :format :format/srt})]
+    (is (= [1 2] (mapv :index (get-in res [:ok :cues]))))
+    (is (= [["a"] ["c"]] (mapv :lines (get-in res [:ok :cues]))))
+    (is (= 3 (t/unit-count tc)) "nothing is deleted from the aggregate")))
+
+(deftest a-track-of-only-omitted-units-fails-loud
+  (let [res (sut/build-subtitle-track (omitting [{:start-ms 0 :end-ms 1 :target-text "x"}] #{0})
+                                      {:id "s" :format :format/srt})]
+    (is (= :error/render-failed (:error res)))))
+
+(defspec omitted-units-never-reach-the-track 100
+  (prop/for-all [units (gen/vector gen-unit 2 8)
+                 seed  gen/nat]
+    (let [omitted (set (filter #(odd? (+ seed %)) (range (count units))))
+          kept    (keep-indexed (fn [i u] (when-not (omitted i) u)) units)
+          res     (sut/build-subtitle-track (omitting units omitted) {:id "s" :format :format/srt})]
+      (and (= (mapv (comp vector :target-text) kept) (mapv :lines (get-in res [:ok :cues])))
+           (= (range 1 (inc (count kept))) (map :index (get-in res [:ok :cues])))))))
+
+;; =============================================================================
 ;; MUTATION — break the promotion rules, prove the assertions catch each
 ;; =============================================================================
 
