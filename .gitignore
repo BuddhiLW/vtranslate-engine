@@ -24,3 +24,6 @@ local.deps.edn
 
 # JVM crash dumps
 hs_err_pid*.log
+
+# Local git worktrees (never tracked)
+.worktrees/
