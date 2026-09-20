@@ -198,6 +198,14 @@
                (sup/normalize-segments [{:start-ms 0 :end-ms 100 :text "eins" :language "de"}
                                         {:start-ms 100 :end-ms 200 :text "dos" :language "es"}])))))
 
+(deftest annotations-ride-along-and-backend-fields-do-not
+  (is (= [{:start-ms 0 :end-ms 900 :text "Go, go, go!" :confidence 1.0
+           :asr/hallucination :unstable :segment/omit? true}]
+         (sup/normalize-segments [{:start-ms 0 :end-ms 900 :text "Go, go, go!"
+                                   :asr/hallucination :unstable :segment/omit? true
+                                   :avg_logprob -0.2 :tokens [1 2 3]}]))
+      "what a route judged about a hypothesis reaches the transcript"))
+
 ;; Property: for ANY generated set of ragged segments, the output is always
 ;; contract-shaped. This is the machine-checked LSP invariant.
 (def gen-raw-seg

@@ -36,6 +36,10 @@
 ;;   :asr/route-window  (fn [decode language] => Result<raw>), where `decode` is
 ;;                      (fn [language] => Result<raw>): how one decode window is
 ;;                      decoded (e.g. decoded again, or its segments tagged).
+;;                      An adapter that can also offers (decode language
+;;                      {:widen-ms n :transform f}): the window grown by n ms on
+;;                      each side and/or its samples through f (float[] =>
+;;                      float[]), times still relative to the window's start.
 ;;   :asr/clean         (fn [raw-segments opts] => raw-segments): applied to one
 ;;                      reply's raw segments while server metrics are attached.
 ;; A transcriber decorator adds its hook with `with-route` / `with-clean`, which
@@ -46,12 +50,20 @@
 
 (defn with-route
   "`opts` with `route` composed under the :asr/route-window already there, so
-   `route` sees the raw decode and the existing route sees `route`'s result."
+   `route` sees the raw decode and the existing route sees `route`'s result. A
+   decode the outer route asks for with decode opts goes to the adapter as asked:
+   it is a different decode, not the one `route` answers for. The adapter's
+   metadata on `decode` (:asr/window-ms) reaches every route."
   [opts route]
   (let [outer (or (:asr/route-window opts) plain-route)]
     (assoc opts :asr/route-window
            (fn [decode language]
-             (outer (fn [lang] (route decode lang)) language)))))
+             (outer (with-meta
+                      (fn
+                        ([lang] (route decode lang))
+                        ([lang decode-opts] (decode lang decode-opts)))
+                      (meta decode))
+                    language)))))
 
 (defn with-clean
   "`opts` with `clean` composed before the :asr/clean already there."

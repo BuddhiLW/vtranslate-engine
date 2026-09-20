@@ -163,10 +163,14 @@
                       end   (->ms (or (:end-ms s) (:end s)) unit)
                       text  (some-> (:text s) str str/trim)]
                   (when (and start (seq text) (not (non-speech-text? text)))
-                    (cond-> {:start-ms   start
-                             :end-ms     (max start (or end start))
-                             :text       text
-                             :confidence (double (or (:confidence s) default-confidence))}
+                    ;; a namespaced key is an annotation a route or decorator put
+                    ;; on the hypothesis (:asr/..., :segment/...): it rides along
+                    (cond-> (into {:start-ms   start
+                                   :end-ms     (max start (or end start))
+                                   :text       text
+                                   :confidence (double (or (:confidence s) default-confidence))}
+                                  (filter (fn [[k _]] (and (keyword? k) (namespace k))))
+                                  s)
                       (:language s) (assoc :language (:language s)))))))
         (sort-by :start-ms)
         (reduce (fn [acc seg]

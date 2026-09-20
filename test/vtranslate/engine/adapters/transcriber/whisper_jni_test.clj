@@ -1,7 +1,8 @@
 (ns vtranslate.engine.adapters.transcriber.whisper-jni-test
   (:require [clojure.test :refer [deftest is]]
             [hive-dsl.result :as r]
-            [vtranslate.engine.adapters.transcriber.whisper-jni :as sut]))
+            [vtranslate.engine.adapters.transcriber.whisper-jni :as sut]
+            [vtranslate.engine.port.transcriber :as p.asr]))
 
 (deftest transcribe-with-spans-slices-and-offsets
   (let [seen (atom [])
@@ -79,3 +80,29 @@
     (is (= [[0 nil]] @calls))
     (is (= ["(speaking foreign language)"] (mapv :text (:ok res)))
         "no addon, no re-decode: the text is kept as decoded")))
+
+(deftest a-route-may-decode-a-window-widened-and-treated
+  (let [seen  (atom [])
+        fake  (fn [_model-path _use-gpu? ^floats samples _language _run-opts]
+                (swap! seen conj [(alength samples) (aget samples 0)])
+                (r/ok [{:start-ms 0 :end-ms 100 :text "w"}]))
+        told  (atom nil)
+        route (fn [decode language]
+                (r/let-ok [raw (decode language)
+                           w   (decode language {:widen-ms 500})
+                           _   (decode language {:transform (fn [^floats fs]
+                                                              (float-array (map #(* 2 %) fs)))})]
+                  (reset! told {:wide w :window-ms (:asr/window-ms (meta decode))})
+                  (r/ok raw)))
+        opts  (p.asr/with-route {} route)
+        res   (#'sut/transcribe-with-spans fake "m" false (windows 3) 16000 "en"
+                                           [{:start-ms 1000 :end-ms 2000}] 0 nil
+                                           (:asr/route-window opts))]
+    (is (r/ok? res))
+    (is (= [[16000 1.0] [32000 0.0] [16000 2.0]] @seen)
+        "as is, grown by 500 ms on each side, and through the transform")
+    (is (= [{:start-ms -500 :end-ms -400 :text "w"}] (:wide @told))
+        "a widened decode is timed against the window it widens")
+    (is (= 1000 (:window-ms @told))
+        "a composed route still reads the window's length")
+    (is (= [{:start-ms 1000 :end-ms 1100 :text "w"}] (:ok res)))))

@@ -109,6 +109,27 @@
                              label (/ (- now t0) 1000.0))))
           (recur (if due? now last-report)))))))
 
+(defn- window-decoder
+  "The `decode` a route is handed for the window [start end) of `samples`.
+   [lang] decodes the window as it is. [lang {:keys [widen-ms transform]}]
+   decodes it grown by widen-ms on each side, kept inside the clip, and through
+   `transform` (float[] => float[]) when given. Raw times stay relative to
+   `start`, so a widened decode may return segments before 0 or past the window,
+   whose length the fn carries as :asr/window-ms metadata."
+  [transcribe-samples model-path use-gpu? samples sample-rate start end run-opts]
+  (with-meta
+    (fn decode
+      ([lang] (decode lang nil))
+      ([lang {:keys [widen-ms transform]}]
+       (let [grow  (long (* sample-rate (/ (double (or widen-ms 0)) 1000.0)))
+             from  (max 0 (- start grow))
+             to    (min (alength ^floats samples) (+ end grow))
+             audio (cond-> (slice-samples samples from to) transform transform)
+             shift (- (samples->ms from sample-rate) (samples->ms start sample-rate))]
+         (r/let-ok [raw (transcribe-samples model-path use-gpu? audio lang run-opts)]
+           (r/ok (offset-segments shift raw))))))
+    {:asr/window-ms (samples->ms (- end start) sample-rate)}))
+
 (defn- plain-route
   "The default window route: decode the window once, in `language`."
   [decode language]
@@ -116,27 +137,26 @@
 
 (defn- transcribe-with-spans
   "Decode `samples` window by window — one per span, else the whole clip — each
-   through `route` ((fn [decode language] => Result<raw>), where `decode` is
-   [lang] => Result<raw>), so a transcriber decorator may re-decode or tag a
-   window. => Result<[raw-segment ...]> in absolute ms."
+   through `route` ((fn [decode language] => Result<raw>), where `decode` is the
+   window's `window-decoder`), so a transcriber decorator may re-decode, widen,
+   treat or tag a window. => Result<[raw-segment ...]> in absolute ms."
   [transcribe-samples model-path use-gpu? samples sample-rate language spans span-pad-ms run-opts route]
-  (if (seq spans)
-    (let [total (count spans)
-          t0    (System/currentTimeMillis)]
-      (report! (str "transcribing " total " spans"))
-      (reduce
-       (fn [acc-res [i span]]
-         (r/let-ok [acc acc-res]
-           (let [[start end] (sample-range sample-rate (alength ^floats samples) span-pad-ms span)]
-             (if (= start end)
-               (r/ok acc)
-               (let [window (slice-samples samples start end)]
+  (let [decoder (fn [start end]
+                  (window-decoder transcribe-samples model-path use-gpu? samples
+                                  sample-rate start end run-opts))]
+    (if (seq spans)
+      (let [total (count spans)
+            t0    (System/currentTimeMillis)]
+        (report! (str "transcribing " total " spans"))
+        (reduce
+         (fn [acc-res [i span]]
+           (r/let-ok [acc acc-res]
+             (let [[start end] (sample-range sample-rate (alength ^floats samples) span-pad-ms span)]
+               (if (= start end)
+                 (r/ok acc)
                  (r/let-ok [raw (decode-with-heartbeat
                                  (format "span %d/%d" (inc i) total)
-                                 #(route
-                                   (fn [lang] (transcribe-samples model-path use-gpu? window
-                                                                  lang run-opts))
-                                   language))]
+                                 #(route (decoder start end) language))]
                    (report! (format "span %d/%d  audio %.1fs  elapsed %.1fs"
                                     (inc i) total
                                     (/ (:start-ms span) 1000.0)
@@ -150,17 +170,15 @@
                             ;; length, so hypotheses can run past the audio this window
                             ;; actually held; confine them before they reach the merge.
                             (sup/clamp-to-window window-start window-end
-                                                 (offset-segments window-start raw)))))))))))
-       (r/ok [])
-       (map-indexed vector spans)))
-    (do
-      (report! (format "transcribing one clip of %.1fs (no VAD spans)"
-                       (/ (alength ^floats samples) (double sample-rate))))
-      (decode-with-heartbeat
-       "clip"
-       #(route
-         (fn [lang] (transcribe-samples model-path use-gpu? samples lang run-opts))
-         language)))))
+                                                 (offset-segments window-start raw))))))))))
+         (r/ok [])
+         (map-indexed vector spans)))
+      (do
+        (report! (format "transcribing one clip of %.1fs (no VAD spans)"
+                         (/ (alength ^floats samples) (double sample-rate))))
+        (decode-with-heartbeat
+         "clip"
+         #(route (decoder 0 (alength ^floats samples)) language))))))
 
 (defrecord WhisperLocalTranscriber [model-path use-gpu? span-pad-ms run-opts]
   p.asr/ITranscriber
