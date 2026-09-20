@@ -38,6 +38,31 @@
   (is (= [{:start-ms 0 :end-ms 65000}] (sut/cap-spans 0 [{:start-ms 0 :end-ms 65000}]))
       "max-span-ms <= 0 disables capping"))
 
+(deftest merge-spans-joins-neighbours-up-to-the-budget
+  (is (= [{:start-ms 0 :end-ms 9000} {:start-ms 12000 :end-ms 13000}]
+         (sut/merge-spans 10000 [{:start-ms 0 :end-ms 600}
+                                 {:start-ms 2600 :end-ms 3400}
+                                 {:start-ms 5500 :end-ms 9000}
+                                 {:start-ms 12000 :end-ms 13000}]))
+      "spans join while the joined span fits; a cut stays in the silence before the one that does not")
+  (is (= [{:start-ms 0 :end-ms 20000} {:start-ms 20500 :end-ms 21000}]
+         (sut/merge-spans 10000 [{:start-ms 0 :end-ms 20000} {:start-ms 20500 :end-ms 21000}]))
+      "a span already over the budget is left for cap-spans and takes no neighbour")
+  (is (= [{:start-ms 0 :end-ms 600} {:start-ms 2600 :end-ms 3400}]
+         (sut/merge-spans 0 [{:start-ms 0 :end-ms 600} {:start-ms 2600 :end-ms 3400}]))
+      "merge-to-ms <= 0 disables merging")
+  (is (= [] (sut/merge-spans 10000 []))))
+
+(deftest speech-spans-from-probs-merges-short-utterances
+  (let [probs (vec (concat (repeat 10 0.9) (repeat 10 0.0) (repeat 10 0.9) (repeat 10 0.0)))
+        opts  {:sample-rate 16000 :audio-length-samples (* 40 512)
+               :min-speech-ms 1 :min-silence-ms 32 :speech-pad-ms 0}]
+    (is (= [{:start-ms 0 :end-ms 320} {:start-ms 640 :end-ms 960}]
+           (sut/speech-spans-from-probs probs (assoc opts :merge-to-ms 0))))
+    (is (= [{:start-ms 0 :end-ms 960}]
+           (sut/speech-spans-from-probs probs opts))
+        "two short utterances reach the decoder as one window by default")))
+
 (deftest speech-spans-from-probs-caps-a-saturated-utterance
   (is (= [{:start-ms 0 :end-ms 1000}
           {:start-ms 1000 :end-ms 2000}
