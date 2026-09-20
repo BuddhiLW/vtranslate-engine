@@ -21,7 +21,8 @@
      {:start-ms :end-ms :text} maps go to support/normalize-segments upstream (no
      per-segment confidence -> the normalizer's 1.0 default applies)."
   (:require [clojure.string :as str]
-            [hive-dsl.result :as r])
+            [hive-dsl.result :as r]
+            [vtranslate.engine.adapters.transcriber.support :as sup])
   (:import [io.github.givimad.whisperjni WhisperJNI WhisperContext
                                          WhisperContextParams WhisperFullParams]
            [java.nio.file Path]))
@@ -74,11 +75,31 @@
   []
   (max 1 (- (.availableProcessors (Runtime/getRuntime)) 2)))
 
+(defn- apply-decode-opts!
+  "Set on `params` exactly the knobs `resolved` holds, and no others. Effectful.
+   => `resolved`."
+  [^WhisperFullParams params resolved]
+  (doseq [[knob v] resolved]
+    (case knob
+      :beam-size                   (set! (.-beamSearchBeamSize params) (int v))
+      :best-of                     (set! (.-greedyBestOf params) (int v))
+      :temperature                 (set! (.-temperature params) (float v))
+      :temperature-inc             (set! (.-temperatureInc params) (float v))
+      :entropy-thold               (set! (.-entropyThold params) (float v))
+      :logprob-thold               (set! (.-logprobThold params) (float v))
+      :no-speech-thold             (set! (.-noSpeechThold params) (float v))
+      :suppress-blank?             (set! (.-suppressBlank params) (boolean v))
+      :suppress-non-speech-tokens? (set! (.-suppressNonSpeechTokens params) (boolean v))
+      :no-context?                 (set! (.-noContext params) (boolean v))
+      :initial-prompt              (set! (.-initialPrompt params) ^String v)))
+  resolved)
+
 (defn transcribe-samples
   "Run whisper.cpp over `samples` (16 kHz mono float[]) via the cached context for
    `model-path`, returning RAW hypotheses for support/normalize-segments to shape.
    `language` nil/\"auto\" makes whisper detect the language of THIS call (see
-   `lang-code`). `run-opts` may carry :threads and :print-progress?.
+   `lang-code`). `run-opts` may carry :threads, :print-progress? and any knob of
+   `decode-knobs`; a knob it does not carry keeps whisper-jni's own default.
    => (r/ok [{:start-ms n :end-ms n :text s} ...]) | (r/err :error/asr-failed {...}).
    Fails loud: a non-zero `full` rc or any interop throw becomes :error/asr-failed,
    never a fake/empty transcript."
@@ -101,6 +122,7 @@
        (set! (.-printProgress params) (boolean (get run-opts :print-progress? true)))
        (set! (.-printRealtime params) false)
        (set! (.-printTimestamps params) false)
+       (apply-decode-opts! params (sup/resolve-decode-opts run-opts))
        (locking ctx
          (let [rc (.full w ctx params samples (alength samples))]
            (when-not (zero? rc)

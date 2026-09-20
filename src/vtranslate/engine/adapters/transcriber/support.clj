@@ -163,10 +163,14 @@
                       end   (->ms (or (:end-ms s) (:end s)) unit)
                       text  (some-> (:text s) str str/trim)]
                   (when (and start (seq text) (not (non-speech-text? text)))
-                    (cond-> {:start-ms   start
-                             :end-ms     (max start (or end start))
-                             :text       text
-                             :confidence (double (or (:confidence s) default-confidence))}
+                    ;; a namespaced key is an annotation a route or decorator put
+                    ;; on the hypothesis (:asr/..., :segment/...): it rides along
+                    (cond-> (into {:start-ms   start
+                                   :end-ms     (max start (or end start))
+                                   :text       text
+                                   :confidence (double (or (:confidence s) default-confidence))}
+                                  (filter (fn [[k _]] (and (keyword? k) (namespace k))))
+                                  s)
                       (:language s) (assoc :language (:language s)))))))
         (sort-by :start-ms)
         (reduce (fn [acc seg]
@@ -358,3 +362,47 @@
                             (contains? seg :start)    (assoc :start (/ s' 1000.0))
                             (contains? seg :end)      (assoc :end (/ e' 1000.0))))))))
             segments))))
+
+(def decode-knobs
+  "The decode knobs a caller may carry in a transcriber's run-opts, each with the
+   coercion the backend field takes.
+
+   A knob that is ABSENT is left alone, so the backend's own default stands, and
+   whisper.cpp's defaults already ARE the fallback rule the Whisper paper
+   describes: temperature 0.0 rising by 0.4, entropy threshold 2.4,
+   average-logprob threshold -1.0, no-speech threshold 0.6, and no-context TRUE,
+   so a hypothesis is never conditioned on the previous window's text and cannot
+   be carried forward into the next. None of that is a default of ours to tune.
+   A knob exists for a caller who MEASURED that another value reads better on the
+   corpus — it is not a dial to turn on a hunch.
+
+   Lives here, core-safe, rather than beside the JNI imports, so the resolution
+   is testable without the native library on the classpath."
+  {:beam-size                   int
+   :best-of                     int
+   :temperature                 float
+   :temperature-inc             float
+   :entropy-thold               float
+   :logprob-thold               float
+   :no-speech-thold             float
+   :suppress-blank?             boolean
+   ;; whisper.cpp can suppress the NON-SPEECH token class at decode time: the
+   ;; "(Music)" / "[APPLAUSE]" / caption-credit family. The binding leaves it
+   ;; OFF, which is why such text reaches the transcript at all and has to be
+   ;; recognised downstream.
+   :suppress-non-speech-tokens? boolean
+   :no-context?                 boolean
+   :initial-prompt              str})
+
+(defn resolve-decode-opts
+  "The decode knobs `run-opts` actually asks for, coerced to the type its field
+   takes. Unknown keys are ignored; a knob whose value is nil is NOT asked for,
+   so it stays absent rather than clearing the backend's default. Pure.
+   => {knob coerced-value}"
+  [run-opts]
+  (reduce-kv (fn [acc knob coerce]
+               (if-some [v (get run-opts knob)]
+                 (assoc acc knob (coerce v))
+                 acc))
+             {}
+             decode-knobs))

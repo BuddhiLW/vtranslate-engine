@@ -21,6 +21,8 @@
 (def default-speech-pad-ms 30)
 (def default-max-span-ms 30000)
 
+(def default-merge-to-ms 15000)
+
 (defn- onnxruntime-present? []
   (try (Class/forName "ai.onnxruntime.OrtEnvironment") true
        (catch Throwable _ false)))
@@ -71,6 +73,22 @@
                        (min audio-length-samples
                             (+ (:end speech) speech-pad-samples))))))))))
 
+(defn merge-spans
+  "Join neighbouring spans while the joined span stays within merge-to-ms, so a
+   decoder hears whole sentences and every cut still falls in a silence.
+   merge-to-ms <= 0 disables merging. => vector of {:start-ms :end-ms}."
+  [merge-to-ms spans]
+  (if-not (pos? merge-to-ms)
+    (vec spans)
+    (reduce (fn [acc span]
+              (let [previous (peek acc)]
+                (if (and previous
+                         (<= (- (:end-ms span) (:start-ms previous)) merge-to-ms))
+                  (conj (pop acc) (assoc previous :end-ms (:end-ms span)))
+                  (conj acc span))))
+            []
+            spans)))
+
 (defn cap-spans
   "Split spans longer than max-span-ms into bounded consecutive windows, so a
    saturated VAD (one utterance = one blob) still yields granular progress
@@ -88,16 +106,19 @@
           spans)))
 
 (defn speech-spans-from-probs
-  "Pure Silero post-processing over per-window speech probabilities.
+  "Pure Silero post-processing over per-window speech probabilities: detected
+   speech, padded, merged up to merge-to-ms, then capped at max-span-ms.
    Returns ordered, non-overlapping `{:start-ms :end-ms}` spans."
   [speech-probs {:keys [sample-rate audio-length-samples threshold neg-threshold
-                        min-speech-ms min-silence-ms speech-pad-ms max-span-ms]
+                        min-speech-ms min-silence-ms speech-pad-ms max-span-ms
+                        merge-to-ms]
                  :or   {threshold default-threshold
                         neg-threshold default-neg-threshold
                         min-speech-ms default-min-speech-ms
                         min-silence-ms default-min-silence-ms
                         speech-pad-ms default-speech-pad-ms
-                        max-span-ms default-max-span-ms}}]
+                        max-span-ms default-max-span-ms
+                        merge-to-ms default-merge-to-ms}}]
   (if-not (and (sample-rate-supported? sample-rate) (nat-int? audio-length-samples))
     []
     (let [window-size         (window-size-samples sample-rate)
@@ -144,11 +165,12 @@
                    {:start-ms (samples->ms start sample-rate)
                     :end-ms   (samples->ms end sample-rate)}))
            (filterv #(< (:start-ms %) (:end-ms %)))
+           (merge-spans merge-to-ms)
            (cap-spans max-span-ms)))))
 
 (defrecord SileroVadSegmenter [model-path threshold neg-threshold
                                min-speech-ms min-silence-ms speech-pad-ms
-                               max-span-ms]
+                               max-span-ms merge-to-ms]
   p.seg/ISegmenter
   (segment [_ audio-source _opts]
     (if-let [path (sup/audio->path audio-source)]
@@ -171,7 +193,8 @@
                         :min-speech-ms min-speech-ms
                         :min-silence-ms min-silence-ms
                         :speech-pad-ms speech-pad-ms
-                        :max-span-ms max-span-ms})}))
+                        :max-span-ms max-span-ms
+                        :merge-to-ms merge-to-ms})}))
       (r/err :error/segmentation-failed {:reason "audio-source carries no path"}))))
 
 (defn make-segmenter [config]
@@ -195,7 +218,8 @@
              (long (or (:min-speech-ms opts) default-min-speech-ms))
              (long (or (:min-silence-ms opts) default-min-silence-ms))
              (long (or (:speech-pad-ms opts) default-speech-pad-ms))
-             (long (or (:max-span-ms opts) default-max-span-ms)))))))
+             (long (or (:max-span-ms opts) default-max-span-ms))
+             (long (or (:merge-to-ms opts) default-merge-to-ms)))))))
 
 (defmethod reg/resolve-segmenter :silero-vad
   [_ config]
