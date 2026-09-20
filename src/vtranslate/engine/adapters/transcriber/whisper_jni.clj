@@ -78,13 +78,11 @@
   (long (Math/round (* 1000.0 (/ (double sample) sample-rate)))))
 
 (defn- report!
-  "Emit one progress line on stderr — the channel the CLI streams to the panel.
-   whisper.cpp's own printProgress does not surface through whisper-jni, so this
-   is the only liveness signal a long transcription produces."
+  "One progress line on the port's notice channel. whisper.cpp's own
+   printProgress does not surface through whisper-jni, so this is the only
+   liveness signal a long transcription produces."
   [msg]
-  (binding [*out* *err*]
-    (println (str "[vtranslate/asr] " msg))
-    (flush)))
+  (p.asr/notice! msg))
 
 (def ^:private heartbeat-ms
   "Silence ceiling per decode call: a heartbeat line fires at least this often
@@ -129,11 +127,6 @@
          (r/let-ok [raw (transcribe-samples model-path use-gpu? audio lang run-opts)]
            (r/ok (offset-segments shift raw))))))
     {:asr/window-ms (samples->ms (- end start) sample-rate)}))
-
-(defn- plain-route
-  "The default window route: decode the window once, in `language`."
-  [decode language]
-  (decode language))
 
 (defn- transcribe-with-spans
   "Decode `samples` window by window — one per span, else the whole clip — each
@@ -181,6 +174,9 @@
          #(route (decoder 0 (alength ^floats samples)) language))))))
 
 (defrecord WhisperLocalTranscriber [model-path use-gpu? span-pad-ms run-opts]
+  p.asr/IDeclaresHooks
+  (hooks-honoured [_] #{:asr/route-window :asr/clean})
+
   p.asr/ITranscriber
   (transcribe [_ audio-source language opts]
     (if-let [path (sup/audio->path audio-source)]
@@ -192,7 +188,7 @@
                          (transcribe-with-spans transcribe-samples model-path use-gpu?
                                                 samples sample-rate language (:spans opts)
                                                 span-pad-ms run-opts
-                                                (or (:asr/route-window opts) plain-route))))]
+                                                #(p.asr/decoded opts %1 %2))))]
         (r/ok {:segments (sup/normalize-segments raw {:unit :ms})}))
       (r/err :error/asr-failed {:reason "audio-source carries no path"}))))
 

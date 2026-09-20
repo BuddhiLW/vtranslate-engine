@@ -3,7 +3,8 @@
    ITranscriber; the engine depends only on this protocol (DIP). The method returns
    a hive-dsl Result of plain boundary DATA — a vector of segment maps — which the
    pure calc layer (calc.transcription) promotes into a Transcript aggregate.
-   Effects-as-data: the adapter does the IO; the domain never sees the transport.")
+   Effects-as-data: the adapter does the IO; the domain never sees the transport."
+  (:require [hive-dsl.result :as r]))
 
 (defprotocol ITranscriber
   "Speech-to-text over an extracted audio source."
@@ -73,3 +74,53 @@
            (if outer
              (fn [segs o] (outer (clean segs o) o))
              clean))))
+
+;; --- running the hooks (the ONE definition of the order) ---------------------
+
+(def hook-keys
+  "Every call-opt hook this port defines, in the order they run over one
+   decode's raw segments."
+  [:asr/route-window :asr/clean])
+
+(defn cleaned
+  "`raw` through the :asr/clean hook of `opts`. No hook, no change."
+  [opts raw]
+  (if-let [clean (:asr/clean opts)] (clean raw opts) raw))
+
+(defn decoded
+  "One decode's raw segments through every hook `opts` carries, in this port's
+   order: routed, then cleaned. `decode` is (fn [language] => Result<raw>),
+   plus the (fn [language decode-opts]) arity an adapter may also offer.
+   An adapter that decodes by window calls THIS rather than reading the hook
+   keys itself. => Result<raw>"
+  [opts decode language]
+  (r/let-ok [routed ((or (:asr/route-window opts) plain-route) decode language)]
+    (r/ok (cleaned opts routed))))
+
+(defprotocol IDeclaresHooks
+  "Optional companion to ITranscriber: which of `hook-keys` this adapter reads.
+   An adapter that reads none does not implement it."
+  (hooks-honoured [this] "=> a set of hook keys"))
+
+(defn honoured
+  "The hooks `transcriber` declares it reads. Declaring nothing honours
+   nothing."
+  [transcriber]
+  (if (satisfies? IDeclaresHooks transcriber) (set (hooks-honoured transcriber)) #{}))
+
+(defn inert-hooks
+  "The hooks present in `opts` that `transcriber` does not read, so a decorator
+   can say that its contribution will do nothing instead of looking installed.
+   => a sorted set of hook keys"
+  [transcriber opts]
+  (let [live (honoured transcriber)]
+    (into (sorted-set) (remove live (filter opts hook-keys)))))
+
+(defn notice!
+  "One line on stderr, the channel the CLI streams to its panel. An adapter or
+   a transcriber decorator reports through this, so every such line carries one
+   prefix and a decorator does not have to invent its own channel."
+  [msg]
+  (binding [*out* *err*]
+    (println (str "[vtranslate/asr] " msg))
+    (flush)))

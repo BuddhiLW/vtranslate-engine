@@ -15,7 +15,7 @@
         res (#'sut/transcribe-with-spans fake "model.bin" false samples 16000 "en"
                                          [{:start-ms 1000 :end-ms 1500}
                                           {:start-ms 2500 :end-ms 3000}] 0
-                                         {:threads 7} #'sut/plain-route)]
+                                         {:threads 7} #(p.asr/decoded {} %1 %2))]
     (is (r/ok? res))
     (is (= [8000 8000] @seen))
     (is (= [{:threads 7} {:threads 7}] @opts)
@@ -31,7 +31,7 @@
                (r/ok [{:start-ms 0 :end-ms 10 :text "whole"}]))
         samples (float-array 1234)
         res (#'sut/transcribe-with-spans fake "model.bin" false samples 16000 nil nil 0 nil
-                                         #'sut/plain-route)]
+                                         #(p.asr/decoded {} %1 %2))]
     (is (r/ok? res))
     (is (= 1234 @seen))
     (is (= [{:start-ms 0 :end-ms 10 :text "whole"}] (:ok res)))))
@@ -72,14 +72,36 @@
         "the route decides how each window is decoded, window by window")
     (is (= [["first" nil] ["zweite" "de"]] (mapv (juxt :text :language) (:ok res))))))
 
-(deftest the-plain-route-decodes-once-in-the-asked-language
+(deftest no-route-hook-decodes-once-in-the-asked-language
   (let [calls (atom [])
         fake  (scripted-decoder calls {0 {:any [{:start-ms 0 :end-ms 900 :text "(speaking foreign language)"}]}})
         res   (#'sut/transcribe-with-spans fake "m" false (windows 1) 16000 nil
-                                           [{:start-ms 0 :end-ms 1000}] 0 nil #'sut/plain-route)]
+                                           [{:start-ms 0 :end-ms 1000}] 0 nil #(p.asr/decoded {} %1 %2))]
     (is (= [[0 nil]] @calls))
     (is (= ["(speaking foreign language)"] (mapv :text (:ok res)))
         "no addon, no re-decode: the text is kept as decoded")))
+
+(deftest the-port-runs-both-hooks-over-each-window-decode
+  (let [calls (atom [])
+        seen  (atom [])
+        fake  (scripted-decoder calls
+                                {0 {:any [{:start-ms 0 :end-ms 900 :text "one" :compression_ratio 3.1}]}
+                                 1 {:any [{:start-ms 0 :end-ms 900 :text "two" :compression_ratio 3.1}]}})
+        opts  {:asr/route-window (fn [decode language]
+                                   (r/let-ok [raw (decode language)]
+                                     (r/ok (mapv #(assoc % :routed? true) raw))))
+               :asr/clean (fn [raw o]
+                            (swap! seen conj [(mapv :text raw)
+                                              (:compression_ratio (first raw))
+                                              (every? :routed? raw)
+                                              (contains? o :asr/route-window)])
+                            (mapv #(assoc % :cleaned? true) raw))}
+        res   (#'sut/transcribe-with-spans fake "m" false (windows 2) 16000 "en"
+                                           one-second-spans 0 nil #(p.asr/decoded opts %1 %2))]
+    (is (= [[["one"] 3.1 true true] [["two"] 3.1 true true]] @seen)
+        "clean runs once per window, AFTER the route, on that decode's own metrics")
+    (is (every? #(and (:routed? %) (:cleaned? %)) (:ok res))
+        "and both hooks reach the segments the clip is built from")))
 
 (deftest a-route-may-decode-a-window-widened-and-treated
   (let [seen  (atom [])
