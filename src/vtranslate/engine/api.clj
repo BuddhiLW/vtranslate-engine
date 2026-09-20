@@ -746,3 +746,106 @@
     :target-language target-language
     :format format
     :reflow reflow}))
+
+;; ---------------------------------------------------------------------------
+;; Compose pipeline (burn-only ingress)
+;; ---------------------------------------------------------------------------
+
+(defn- start-compose [_ {:keys [asset-kind] :as spec}]
+  (start-job spec (or asset-kind :media/video) (constantly (r/ok nil))))
+
+(defn- read-compose-subtitle
+  "Read the sidecar subtitle named by `:subtitle`. The job's `:source` stays the
+   VIDEO, which is what the muxer burns into."
+  [{:keys [reader]} state]
+  (pf/with-result
+    state
+    (fn [{:keys [spec] :as ctx}]
+      (r/let-ok [text (p.src/read-text reader (:subtitle spec))]
+        (r/ok (assoc ctx :text text))))))
+
+(defn- parse-compose-subtitle [{:keys [parser]} state]
+  (pf/with-result
+    state
+    (fn [{:keys [spec text] :as ctx}]
+      (let [{:keys [format reflow]} spec]
+        (r/let-ok [parsed (p.sub/parse parser text format)
+                   cues   (r/ok (let [cs (:cues parsed)]
+                                  (if reflow (c.reflow/reflow cs reflow) cs)))
+                   _      (non-empty-cues cues)]
+          (r/ok (assoc ctx :cues cues)))))))
+
+(defn- compose-track
+  "The parsed cues as the single output `compose-video` will burn."
+  [_ state]
+  (pf/with-result
+    state
+    (fn [{:keys [spec asset cues] :as ctx}]
+      (let [{:keys [job-id target-language format]} spec]
+        (r/let-ok [track (c.si/build-subtitle-track
+                          cues {:id (str job-id "-sub")
+                                :source-id (:id asset)
+                                :language target-language
+                                :format format})]
+          (r/ok (assoc ctx
+                       :subtitle-track track
+                       :outputs [{:target-language target-language
+                                  :subtitle-track track}])))))))
+
+(defn- finalize-compose [_ state]
+  (pf/with-result
+    state
+    (fn [{:keys [spec job subtitle-track outputs output-video] :as ctx}]
+      (r/let-ok [job    (finalize-job job subtitle-track job/complete)
+                 result (merge-result-extra {:spec spec
+                                             :job job
+                                             :outputs outputs
+                                             :output-video output-video}
+                                            (:result/extra ctx))]
+        (r/ok result)))))
+
+(def ^:private compose-fsm
+  (pf/compile-stages
+   [(pf/stage pf/start-id start-compose)
+    (pf/stage :vtranslate.compose/read read-compose-subtitle)
+    (pf/stage :vtranslate.compose/parse parse-compose-subtitle)
+    (pf/stage :vtranslate.compose/track compose-track)
+    (pf/stage :vtranslate.pipeline/compose compose-video)
+    (pf/stage :vtranslate.compose/finalize finalize-compose)]))
+
+(defn run-compose-job
+  "Ingress D, burn-only: mux an ALREADY rendered subtitle into an ALREADY
+   demuxed video. No ingest, no ASR, no translation and no rendering, so it is
+   constructible without a transcriber and without a translator, and it reads no
+   plaintext beyond the subtitle it is handed.
+
+   `:source` is the video, `:subtitle` the rendered subtitle file and `:format`
+   how to parse it; `:caption`, `:quality`, `:watermark?` and `:output` mean
+   what they mean in `run-job`. One target only: burning is per-language by
+   nature, and a caller wanting several calls this once per language.
+   => (r/ok {:spec spec :job job :outputs [output] :output-video uri})
+    | (r/err TranslationError)."
+  [{:keys [muxer parser config on-progress] reader :source}
+   {:keys [job-id source subtitle target-language format reflow asset-kind
+           caption quality watermark? output]
+    :or   {format :format/srt asset-kind :media/video}}]
+  (let [resources {:reader reader
+                   :parser parser
+                   :muxer muxer
+                   :config config
+                   :on-progress on-progress
+                   :provider-attempts (atom [])
+                   :provider-attempt-counter (atom 0)}]
+    (pf/run-pipeline
+     (pf/pipeline resources compose-fsm)
+     {:job-id job-id
+      :source source
+      :subtitle subtitle
+      :target-language target-language
+      :asset-kind asset-kind
+      :format format
+      :reflow reflow
+      :caption caption
+      :quality quality
+      :watermark? watermark?
+      :output output})))
