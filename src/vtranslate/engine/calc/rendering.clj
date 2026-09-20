@@ -18,6 +18,10 @@
   "Turn a TranslatedCues aggregate into a render-ready SubtitleTrack: make the
    track, fill its cues (via the shared promote fold), seal it. `spec` =
    {:id :format}; language + source-id come from the TranslatedCues.
+
+   A unit marked :segment/omit? is left out of the track and the rest renumber
+   1..n. It stays in the Transcript and the TranslatedCues: an addon marks text
+   nobody spoke (a decoder's hallucinated credit), and only the viewer is spared it.
    => (r/ok SubtitleTrack) | (r/err :error/render-failed ...)."
   [translated-cues {:keys [id format]}]
   (r/let-ok [track  (rd/make-subtitle-track
@@ -25,5 +29,6 @@
                       :source-id (:id translated-cues)
                       :language (:target-language translated-cues)
                       :format format})
-             filled (promote/fill-cues track unit->cue (:units translated-cues))]
+             filled (promote/fill-cues track unit->cue
+                                       (remove :segment/omit? (:units translated-cues)))]
     (rd/render filled)))

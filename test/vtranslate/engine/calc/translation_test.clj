@@ -140,6 +140,19 @@
 ;; UNIT — failure modes fail loud
 ;; =============================================================================
 
+(deftest a-segment's-annotations-ride-along-on-its-unit
+  (let [res (sut/build-translated-cues
+             (transcript-with [{:index 1 :start-ms 0 :end-ms 1000 :text "Hello" :confidence 0.9}
+                               {:index 2 :start-ms 1000 :end-ms 2000 :text "Subtitles by X" :confidence 0.9
+                                :segment/omit? true :asr/hallucination :credit}])
+             ["Hola" "Subtitles by X"]
+             {:id "tc" :target-language "es"})
+        [spoken credit] (get-in res [:ok :units])]
+    (is (nil? (:segment/omit? spoken)))
+    (is (true? (:segment/omit? credit)))
+    (is (= :credit (:asr/hallucination credit)))
+    (is (= "Subtitles by X" (:target-text credit)) "the text is kept")))
+
 (deftest count-mismatch-is-translation-failed
   (let [res (sut/build-translated-cues (transcript-with sample-segs) ["a" "b"]
                                        {:id "c" :target-language "es"})]

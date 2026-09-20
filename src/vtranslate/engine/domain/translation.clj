@@ -23,14 +23,16 @@
 
 (defn make-translation-unit
   "Pair source text with its translation over a shared/TimeRange. Requires a
-   non-blank target-text (it becomes the rendered cue's visible text).
+   non-blank target-text (it becomes the rendered cue's visible text). Namespaced
+   keys of `data` (the source segment's annotations) ride along unchanged.
    => (r/ok TranslationUnit) | (r/err :error/translation-failed ...)."
-  [{:keys [start-ms end-ms source-language source-text target-text]}]
+  [{:keys [start-ms end-ms source-language source-text target-text] :as data}]
   (r/let-ok [range (shared/make-time-range start-ms end-ms)
              lang  (if source-language (shared/make-language source-language) (r/ok nil))]
     (if (str/blank? target-text)
       (r/err :error/translation-failed {:reason "translation unit has blank target-text"})
-      (r/ok (->TranslationUnit range lang source-text target-text)))))
+      (r/ok (merge (->TranslationUnit range lang source-text target-text)
+                   (shared/annotations data))))))
 
 ;; --- Aggregate root --------------------------------------------------------
 

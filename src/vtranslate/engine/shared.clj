@@ -124,3 +124,10 @@
     (if (contains? allowed from)
       (r/ok agg)
       (r/err :error/illegal-transition {:from from}))))
+
+(defn annotations
+  "The namespaced keys of `data`: annotations an adapter or addon attached (e.g.
+   :segment/verbatim?, :segment/omit?). They ride along unchanged, on a Segment
+   and on the TranslationUnit made from it."
+  [data]
+  (into {} (filter (comp qualified-keyword? key)) data))
