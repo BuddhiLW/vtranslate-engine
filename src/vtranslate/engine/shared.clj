@@ -44,6 +44,41 @@
     "zh" "zh-hans" "zh-cn" "zh-tw" "ja" "ar" "he" "fa"
     "uk" "it" "ko" "tr" "pl" "nl" "hi" "id"})
 
+(def function-words
+  "Latin-script registry tags -> high-frequency function words of that language.
+   Only words that are rare in the OTHER listed languages carry evidence, so a
+   token in NONE of these sets is a content word rather than a language marker."
+  {"en" #{"the" "and" "is" "are" "was" "were" "of" "to" "in" "that" "it" "with"
+          "for" "this" "they" "we" "you" "i" "my" "our" "not" "be" "have" "has"
+          "what" "which" "who" "will" "would" "there" "their" "may" "can" "as" "an"
+          "at" "on" "by" "from" "all" "but" "or" "if" "his" "her" "he" "she" "him"
+          "them" "when" "where" "wherever" "because" "these" "those"}
+   "de" #{"der" "die" "das" "und" "ist" "sind" "war" "nicht" "ich" "ein" "eine"
+          "einer" "mit" "für" "auf" "dem" "den" "des" "sich" "auch" "es" "wir"
+          "sie" "hat" "haben" "wie" "aber" "nur" "noch" "zu" "von" "bin" "denn"}
+   "pt" #{"o" "os" "as" "um" "uma" "não" "é" "são" "foi" "com" "para" "que"
+          "do" "da" "dos" "das" "em" "no" "na" "nos" "eu" "ele" "ela" "isso"
+          "mas" "muito" "também" "você" "seu" "sua"}
+   "es" #{"el" "los" "las" "un" "una" "y" "es" "son" "fue" "con" "para" "que"
+          "del" "al" "en" "por" "no" "yo" "él" "ella" "pero" "muy" "también"
+          "usted" "su" "lo" "está"}
+   "fr" #{"le" "la" "les" "un" "une" "et" "est" "sont" "était" "avec" "pour"
+          "que" "du" "des" "au" "aux" "dans" "par" "ne" "pas" "je" "il" "elle"
+          "nous" "vous" "mais" "très" "aussi" "ce" "cette" "qui"}
+   "it" #{"il" "lo" "gli" "della" "delle" "degli" "nel" "nella" "sono" "non"
+          "che" "per" "con" "una" "questo" "questa" "anche" "molto" "io" "noi"
+          "voi" "ma" "perché" "è" "essere" "stato"}
+   "nl" #{"de" "het" "een" "en" "van" "is" "niet" "ik" "wij" "zijn" "was" "met"
+          "voor" "op" "dat" "die" "maar" "ook" "naar" "bij" "hij" "zij" "u" "je"
+          "wat" "er" "nog" "om"}
+   "pl" #{"i" "w" "na" "nie" "jest" "się" "że" "to" "z" "do" "jak" "ale" "tak"
+          "ja" "my" "oni" "co" "czy" "są" "był" "było" "przez" "dla" "od"}
+   "tr" #{"ve" "bir" "bu" "da" "de" "için" "ile" "ben" "biz" "siz" "o" "ne"
+          "değil" "var" "yok" "gibi" "çok" "daha" "ama" "mi" "mı"}
+   "id" #{"dan" "yang" "di" "ke" "dari" "ini" "itu" "tidak" "adalah" "saya"
+          "kami" "kita" "mereka" "dengan" "untuk" "akan" "sudah" "juga" "ada"
+          "bisa" "karena"}})
+
 (def supported-languages
   "Every tag the engine accepts anywhere. The union, kept so a caller that does
    not care which side it is on still has one set to ask."
