@@ -113,6 +113,46 @@
     (is (r/ok? res))
     (is (= [1 2 3] (mapv :index (:segments (:ok res)))))))
 
+(deftest an-undetermined-language-is-resolved-from-what-the-segments-heard
+  (testing "an auto-detect job records the language, not the sentinel"
+    (doseq [declared [nil "" "und" "auto" "multi"]]
+      (let [res (sut/build-transcript
+                 {:id "t" :asset-id "a" :language declared
+                  :segments [{:start-ms 0 :end-ms 1000 :text "bom dia" :confidence 0.9 :language "pt"}
+                             {:start-ms 1000 :end-ms 2000 :text "tudo bem" :confidence 0.9}]})]
+        (is (r/ok? res) (str "declared=" (pr-str declared)))
+        (is (= "pt" (:language (:ok res))) (str "declared=" (pr-str declared)))
+        (is (= ["pt" "pt"] (mapv :language (:segments (:ok res)))))))))
+
+(deftest a-declared-language-is-never-overruled-by-the-segments
+  (let [res (sut/build-transcript
+             {:id "t" :asset-id "a" :language "en"
+              :segments [{:start-ms 0 :end-ms 1000 :text "bom dia" :confidence 0.9 :language "pt"}
+                         {:start-ms 1000 :end-ms 2000 :text "hello" :confidence 0.9}]})]
+    (is (r/ok? res))
+    (is (= "en" (:language (:ok res))))
+    (is (= ["pt" "en"] (mapv :language (:segments (:ok res)))))))
+
+(deftest nothing-detected-leaves-the-transcript-undetermined
+  (testing "no segment names a language, so neither does the transcript"
+    (let [res (sut/build-transcript
+               {:id "t" :asset-id "a" :language "und"
+                :segments [{:start-ms 0 :end-ms 1000 :text "mmm" :confidence 0.9}]})]
+      (is (r/ok? res))
+      (is (= "und" (:language (:ok res))))))
+  (testing "a tag outside the SOURCE registry is not evidence"
+    (let [res (sut/build-transcript
+               {:id "t" :asset-id "a" :language "und"
+                :segments [{:start-ms 0 :end-ms 1000 :text "oi" :confidence 0.9 :language "pt-BR"}]})]
+      (is (r/ok? res))
+      (is (= "und" (:language (:ok res)))))))
+
+(deftest the-most-common-tag-wins-and-a-tie-goes-to-the-one-heard-first
+  (is (= "pt" (sut/detected-language [{:language "en"} {:language "pt"} {:language "pt"}])))
+  (is (= "en" (sut/detected-language [{:language "en"} {:language "pt"}])))
+  (is (nil? (sut/detected-language [])))
+  (is (nil? (sut/detected-language [{:language "und"} {:language nil} {:language ""}]))))
+
 ;; =============================================================================
 ;; MUTATION — break indexing + language default, prove assertions catch each
 ;; =============================================================================
@@ -144,9 +184,16 @@
                                   (assoc seg :index 1 :language (or (:language seg) language))))]
    ["language-no-default" (partial build-with
                                    (fn [i _language seg]
-                                     (assoc seg :index (inc i) :language (:language seg))))]]
+                                     (assoc seg :index (inc i) :language (:language seg))))]
+   ["undetermined-left-unresolved" (partial build-with
+                                            (fn [i language seg]
+                                              (assoc seg :index (inc i)
+                                                     :language (or (:language seg) language))))]]
   (fn []
-    (let [res (sut/build-transcript {:id "t" :asset-id "a" :language "en" :segments mut-segs})]
+    (let [res  (sut/build-transcript {:id "t" :asset-id "a" :language "en" :segments mut-segs})
+          auto (sut/build-transcript {:id "t" :asset-id "a" :language "und" :segments mut-segs})]
       (is (r/ok? res))
       (is (= [1 2 3] (mapv :index (:segments (:ok res)))))
-      (is (= ["en" "fr" "en"] (mapv :language (:segments (:ok res))))))))
+      (is (= ["en" "fr" "en"] (mapv :language (:segments (:ok res)))))
+      (is (r/ok? auto))
+      (is (= "fr" (:language (:ok auto)))))))
