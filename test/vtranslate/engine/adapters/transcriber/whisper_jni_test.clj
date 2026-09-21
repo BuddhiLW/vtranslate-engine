@@ -129,6 +129,28 @@
         "a composed route still reads the window's length")
     (is (= [{:start-ms 1000 :end-ms 1100 :text "w"}] (:ok res)))))
 
+(deftest a-route-may-decode-a-window-with-other-weights
+  (let [seen  (atom [])
+        fake  (fn [model-path _use-gpu? ^floats samples language _run-opts]
+                (swap! seen conj [model-path language (alength samples)])
+                (r/ok [{:start-ms 0 :end-ms 100 :text (str model-path ":" language)}]))
+        route (fn [decode language]
+                (r/let-ok [raw (decode language)]
+                  (if (= "m:auto" (:text (first raw)))
+                    (decode "he" {:model-path "he.bin"})
+                    (r/ok raw))))
+        opts  (p.asr/with-route {} route)
+        res   (#'sut/transcribe-with-spans fake "m" false (windows 2) 16000 "auto"
+                                           one-second-spans 0 nil
+                                           (:asr/route-window opts))]
+    (is (r/ok? res))
+    (is (= [["m" "auto" 16000] ["he.bin" "he" 16000]
+            ["m" "auto" 16000] ["he.bin" "he" 16000]]
+           @seen)
+        "the adapter's own weights unless the route names others, window by window")
+    (is (= ["he.bin:he" "he.bin:he"] (mapv :text (:ok res)))
+        "and the routed decode is what the clip is built from")))
+
 (deftest decode-knobs-set-in-config-reach-the-decode
   ;; no knob set: nothing of ours may override a backend default
   (is (= #{:threads :print-progress?}

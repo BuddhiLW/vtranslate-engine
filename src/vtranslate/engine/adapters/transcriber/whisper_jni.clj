@@ -109,22 +109,26 @@
 
 (defn- window-decoder
   "The `decode` a route is handed for the window [start end) of `samples`.
-   [lang] decodes the window as it is. [lang {:keys [widen-ms transform]}]
-   decodes it grown by widen-ms on each side, kept inside the clip, and through
-   `transform` (float[] => float[]) when given. Raw times stay relative to
-   `start`, so a widened decode may return segments before 0 or past the window,
-   whose length the fn carries as :asr/window-ms metadata."
+   [lang] decodes the window as it is. [lang {:keys [widen-ms transform
+   model-path]}] decodes it grown by widen-ms on each side, kept inside the
+   clip, through `transform` (float[] => float[]) when given, and with the
+   weights at `model-path` instead of the adapter's own when given, so a route
+   may decode one window with a model fitted to the language it heard. Raw
+   times stay relative to `start`, so a widened decode may return segments
+   before 0 or past the window, whose length the fn carries as :asr/window-ms
+   metadata."
   [transcribe-samples model-path use-gpu? samples sample-rate start end run-opts]
   (with-meta
     (fn decode
       ([lang] (decode lang nil))
-      ([lang {:keys [widen-ms transform]}]
+      ([lang {:keys [widen-ms transform] other-weights :model-path}]
        (let [grow  (long (* sample-rate (/ (double (or widen-ms 0)) 1000.0)))
              from  (max 0 (- start grow))
              to    (min (alength ^floats samples) (+ end grow))
              audio (cond-> (slice-samples samples from to) transform transform)
              shift (- (samples->ms from sample-rate) (samples->ms start sample-rate))]
-         (r/let-ok [raw (transcribe-samples model-path use-gpu? audio lang run-opts)]
+         (r/let-ok [raw (transcribe-samples (or other-weights model-path) use-gpu?
+                                            audio lang run-opts)]
            (r/ok (offset-segments shift raw))))))
     {:asr/window-ms (samples->ms (- end start) sample-rate)}))
 
