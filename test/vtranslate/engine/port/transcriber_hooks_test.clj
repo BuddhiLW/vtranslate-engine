@@ -50,15 +50,17 @@
 
 (defn- adapter-names
   "The adapter namespaces on disk, by file name. `*_native.clj` are the JNI/FFM
-   shims behind an adapter, and `support.clj` is shared helpers; neither is an
-   adapter."
+   shims behind an adapter, `support.clj` is shared helpers, and
+   `whisper_budget.clj` is the pure VRAM admission policy the whisper-jni shim
+   decides over; none of the three is an adapter, so none of them has a hook
+   set to declare."
   []
   (->> (file-seq (io/file "src/vtranslate/engine/adapters/transcriber"))
        (filter #(.isFile ^java.io.File %))
        (map #(.getName ^java.io.File %))
        (filter #(str/ends-with? % ".clj"))
        (remove #(str/ends-with? % "_native.clj"))
-       (remove #{"support.clj"})
+       (remove #{"support.clj" "whisper_budget.clj"})
        (map #(str/replace % #"\.clj$" ""))
        set))
 
