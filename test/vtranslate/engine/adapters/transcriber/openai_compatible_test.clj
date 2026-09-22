@@ -277,6 +277,21 @@
             (is (= ["ivrit-turbo/he"] (mapv :text segs)) "the routed model and language are sent")
             (is (= "ivrit-turbo" (get (first @seen) "model")))))))))
 
+(deftest a-route-may-send-a-window-to-another-server
+  (with-tmp-wav
+    (fn [path]
+      (with-asr-server echo-reply
+        (fn [own-url own-seen]
+          (with-asr-server echo-reply
+            (fn [other-url other-seen]
+              (let [impl  (oai/->OpenAiTranscriber own-url "large-v3" "k" {})
+                    route (fn [decode _language]
+                            (decode "ar" {:model "cohere-ar" :api-url other-url}))
+                    segs  (:segments (:ok (p.asr/transcribe impl path "ar" {:asr/route-window route})))]
+                (is (= ["cohere-ar/ar"] (mapv :text segs)))
+                (is (= 1 (count @other-seen)) "the routed server decodes the window")
+                (is (empty? @own-seen) "the adapter's own server is not asked")))))))))
+
 (deftest without-a-route-the-adapter-model-is-sent
   (with-tmp-wav
     (fn [path]

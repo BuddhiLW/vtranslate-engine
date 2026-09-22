@@ -150,12 +150,17 @@
 
 (defn- transcribe-bytes
   "One POST for one WAV byte-array (either the whole clip or one span slice),
-   naming server model `model`, else the adapter's own.
+   naming server model `model`, else the adapter's own, to endpoint `api-url`,
+   else the adapter's own. Another endpoint is sent no key: the adapter's key
+   belongs to its own host.
    => (r/ok resp-map) | (r/err :error/asr-failed ...)."
-  [{:keys [api-url api-key] :as transcriber} model language opts bytes]
-  (post-multipart api-url api-key
-                  (multipart (base-fields (or model (:model transcriber)) language opts)
-                             {:name "file" :filename "audio.wav" :bytes bytes})))
+  ([transcriber model language opts bytes]
+   (transcribe-bytes transcriber model nil language opts bytes))
+  ([{:keys [api-key] :as transcriber} model api-url language opts bytes]
+   (post-multipart (or api-url (:api-url transcriber))
+                   (when-not api-url api-key)
+                   (multipart (base-fields (or model (:model transcriber)) language opts)
+                              {:name "file" :filename "audio.wav" :bytes bytes}))))
 
 (defn- detected-language
   "The ISO 639 code a verbose_json reply says it heard, when the request named no
@@ -178,15 +183,16 @@
 (defn- window-decoder
   "The `decode` the :asr/route-window hook is handed for one POSTed window of
    `bytes` lasting `duration-s`. [lang] decodes with the adapter's model; [lang
-   {:keys [model]}] names server model `model` instead when given. Other decode
-   opts cannot be served over HTTP and are ignored, and the fn carries no
-   :asr/window-ms metadata, which is how a route learns that.
+   {:keys [model api-url]}] names server model `model` and/or sends the window
+   to endpoint `api-url` instead when given. Other decode opts cannot be served
+   over HTTP and are ignored, and the fn carries no :asr/window-ms metadata,
+   which is how a route learns that.
    => (fn ([lang]) ([lang decode-opts])) returning Result<raw seconds>"
   [transcriber opts bytes duration-s]
   (fn decode
     ([lang] (decode lang nil))
-    ([lang {:keys [model]}]
-     (r/let-ok [resp (transcribe-bytes transcriber model lang opts bytes)]
+    ([lang {:keys [model api-url]}]
+     (r/let-ok [resp (transcribe-bytes transcriber model api-url lang opts bytes)]
        (r/ok (reply-raw resp duration-s lang))))))
 
 (defn- read-all-bytes [path]
