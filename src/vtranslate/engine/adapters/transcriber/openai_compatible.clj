@@ -4,9 +4,9 @@
    key source, and a shared `opts` map that carries per-provider knobs; :groq,
    :openai-whisper and :whisper-server (a local whisper.cpp / faster-whisper-server
    / speaches) register themselves (OCP — adding another compatible host is one
-   more defmethod). Mirrors the LLM translator: the JDK's java.net.http does
-   transport, cheshire parses; a configured `pass:` path wins over the env var
-   for the key (a stale env key can't shadow the real one).
+   more defmethod). aleph does the multipart transport, cheshire parses; a
+   configured `pass:` path wins over the env var for the key (a stale env key
+   can't shadow the real one).
 
    Capability gate at RESOLVE time (not call time): a key-requiring provider with
    NO key resolves to (r/err :error/transcriber-unavailable ...) so the router's
@@ -31,19 +31,18 @@
      verbatim, so operator-specific speaches knobs (`hotwords`,
      `without_timestamps=false`, …) reach the server without another code
      change here."
-  (:require [clojure.string :as str]
+  (:require [aleph.http :as http]
+            [clojure.string :as str]
             [cheshire.core :as json]
             [hive-dsl.result :as r]
             [vtranslate.engine.port.transcriber :as p.asr]
             [vtranslate.engine.adapters.transcriber.support :as sup]
             [vtranslate.engine.providers.transcriber-registry :as reg]
-            [vtranslate.engine.adapters.support.secrets :as secrets])
-  (:import [java.io ByteArrayOutputStream File]
-           [java.net URI]
-           [java.net.http HttpClient HttpRequest HttpRequest$BodyPublishers
-                          HttpResponse$BodyHandlers]
-           [java.nio.file Files]
-           [java.time Duration]))
+            [vtranslate.engine.adapters.support.secrets :as secrets]
+            [vtranslate.engine.residency :as residency]
+            [vtranslate.engine.adapters.model-host.speaches :as speaches])
+  (:import [java.io File]
+           [java.nio.file Files]))
 
 ;; --- secret resolution: pass: ref (authoritative) > env var ----------------
 
@@ -51,46 +50,33 @@
 
 ;; --- multipart/form-data ----------------------------------------------------
 
-(def ^:private http-client
-  (delay (.. (HttpClient/newBuilder) (connectTimeout (Duration/ofSeconds 15)) (build))))
+(def ^:private timeouts
+  {:connection-timeout 15000 :request-timeout 300000})
 
 (defn multipart
-  "Encode `fields` (string->string) + one `file` part {:name :filename :bytes} as
-   multipart/form-data. => {:content-type header-string :body byte-array}."
+  "`fields` (string->string) + one `file` part {:name :filename :bytes} as
+   aleph :multipart parts, the file sent as audio/wav. => [part ...]"
   [fields file]
-  (let [boundary (str "----vtranslate" (Long/toHexString (System/nanoTime)))
-        crlf     "\r\n"
-        out      (ByteArrayOutputStream.)
-        w        (fn [^String s] (.write out (.getBytes s "UTF-8")))]
-    (doseq [[k v] fields]
-      (w (str "--" boundary crlf))
-      (w (str "Content-Disposition: form-data; name=\"" k "\"" crlf crlf))
-      (w (str v crlf)))
-    (w (str "--" boundary crlf))
-    (w (str "Content-Disposition: form-data; name=\"" (:name file)
-            "\"; filename=\"" (:filename file) "\"" crlf))
-    (w (str "Content-Type: audio/wav" crlf crlf))
-    (.write out ^bytes (:bytes file))
-    (w crlf)
-    (w (str "--" boundary "--" crlf))
-    {:content-type (str "multipart/form-data; boundary=" boundary)
-     :body         (.toByteArray out)}))
+  (conj (mapv (fn [[k v]] {:part-name k :content v}) fields)
+        {:part-name (:name file)
+         :file-name (:filename file)
+         :mime-type "audio/wav"
+         :content   (:bytes file)}))
 
 (defn- post-multipart
-  "POST the multipart request, parsing the JSON reply.
+  "POST the multipart `parts`, parsing the JSON reply.
    => (r/ok parsed-map) | (r/err :error/asr-failed {...})."
-  [api-url api-key {:keys [content-type body]}]
+  [api-url api-key parts]
   (r/try-effect* :error/asr-failed
-    (let [b    (.. (HttpRequest/newBuilder (URI/create api-url))
-                   (timeout (Duration/ofSeconds 300))
-                   (header "Content-Type" content-type)
-                   (POST (HttpRequest$BodyPublishers/ofByteArray body)))
-          _    (when api-key (.header b "Authorization" (str "Bearer " api-key)))
-          resp (.send ^HttpClient @http-client (.build b) (HttpResponse$BodyHandlers/ofString))
-          code (.statusCode resp)]
-      (if (<= 200 code 299)
-        (json/parse-string (.body resp) true)
-        (throw (ex-info (str "asr HTTP " code) {:status code :body (.body resp)}))))))
+    (let [{:keys [status body]} @(http/post api-url
+                                            (cond-> (assoc timeouts
+                                                           :multipart parts
+                                                           :throw-exceptions false)
+                                              api-key (assoc :headers {"Authorization" (str "Bearer " api-key)})))
+          text (some-> body slurp)]
+      (if (<= 200 status 299)
+        (json/parse-string text true)
+        (throw (ex-info (str "asr HTTP " status) {:status status :body text}))))))
 
 ;; --- request shaping --------------------------------------------------------
 
@@ -180,19 +166,36 @@
                        [{:start 0 :end duration-s :text (:text resp)}]))]
     (cond->> segs heard (mapv #(assoc % :language heard)))))
 
+(defn- resident!
+  "Make server model `model` (else the adapter's own) resident through the
+   adapter's residency owner, telling the notice channel what it unloaded. A
+   window for another endpoint, or an adapter without an owner, needs nothing.
+   => Result"
+  [transcriber model api-url]
+  (if-let [owner (when-not api-url (get-in transcriber [:opts :residency-owner]))]
+    (r/let-ok [{:keys [evicted] :as done} (residency/ensure! owner (or model (:model transcriber)))]
+      (when (seq evicted)
+        (p.asr/notice! (str "asr-residency: unloaded " (str/join ", " evicted)
+                            " for " (:model done))))
+      (r/ok done))
+    (r/ok nil)))
+
 (defn- window-decoder
   "The `decode` the :asr/route-window hook is handed for one POSTed window of
    `bytes` lasting `duration-s`. [lang] decodes with the adapter's model; [lang
    {:keys [model api-url]}] names server model `model` and/or sends the window
    to endpoint `api-url` instead when given. Other decode opts cannot be served
    over HTTP and are ignored, and the fn carries no :asr/window-ms metadata,
-   which is how a route learns that.
+   which is how a route learns that. A window bound for the adapter's own
+   server first has its model made resident by the adapter's residency owner,
+   when it has one.
    => (fn ([lang]) ([lang decode-opts])) returning Result<raw seconds>"
   [transcriber opts bytes duration-s]
   (fn decode
     ([lang] (decode lang nil))
     ([lang {:keys [model api-url]}]
-     (r/let-ok [resp (transcribe-bytes transcriber model api-url lang opts bytes)]
+     (r/let-ok [_    (resident! transcriber model api-url)
+                resp (transcribe-bytes transcriber model api-url lang opts bytes)]
        (r/ok (reply-raw resp duration-s lang))))))
 
 (defn- read-all-bytes [path]
@@ -299,16 +302,23 @@
   "Build an OpenAiTranscriber for `provider-key`, resolving its key. Per-provider
    overrides (:api-url :model :secret-env :secret-pass :temperature :prompt
    :extra-form :span-pad-ms) may live
-   under config [:transcriber-opts]. => OpenAiTranscriber."
+   under config [:transcriber-opts]. A :residency policy there (see
+   vtranslate.engine.residency) gives the adapter the owner of its speaches
+   server's model budget, one per server and policy. => OpenAiTranscriber."
   [provider-key config]
-  (let [d    (get provider-defaults provider-key)
-        opts (get config :transcriber-opts)
-        key  (resolve-key (or (:secret-env opts) (:secret-env d))
-                          (:secret-pass opts))]
-    (->OpenAiTranscriber (or (:api-url opts) (:api-url d))
+  (let [d       (get provider-defaults provider-key)
+        opts    (get config :transcriber-opts)
+        key     (resolve-key (or (:secret-env opts) (:secret-env d))
+                             (:secret-pass opts))
+        api-url (or (:api-url opts) (:api-url d))]
+    (->OpenAiTranscriber api-url
                          (or (:model opts) (:model d))
                          key
-                         (select-keys opts adapter-opt-keys))))
+                         (cond-> (select-keys opts adapter-opt-keys)
+                           (:residency opts)
+                           (assoc :residency-owner
+                                  (residency/shared-owner api-url (:residency opts)
+                                                          #(speaches/host api-url)))))))
 
 (defn- resolve-provider
   "Capability-gated resolve: keyless local server is always ok; a key-requiring

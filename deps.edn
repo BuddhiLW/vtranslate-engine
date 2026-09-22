@@ -26,6 +26,10 @@
         ;; ADTs (defadt/adt-case) + Result monad (ok/err/bind/let-ok/try-effect).
         io.github.hive-agi/hive-dsl    {:mvn/version "0.5.27"}
 
+        ;; HTTP client and test servers for new adapters. Same version the app
+        ;; pins, so the worker classpath resolves one aleph.
+        aleph/aleph                    {:mvn/version "0.9.11"}
+
         ;; re-frame-style event/effect pipeline: pure handlers return effects
         ;; AS DATA; IO happens only in reg-fx interpreters (the CPPB boundary).
         io.github.hive-agi/hive-events {:mvn/version "0.5.14"}
