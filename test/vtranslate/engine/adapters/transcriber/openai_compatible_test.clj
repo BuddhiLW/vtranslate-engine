@@ -226,3 +226,95 @@
         (let [result (p.asr/transcribe
                       (oai/->OpenAiTranscriber "http://mock" "m" "k" {}) path "en" {})]
           (is (= 3 (count (:segments (:ok result))))))))))
+
+;; --- the :asr/route-window hook, against a real HTTP stub ---------------------
+
+(defn- with-asr-server
+  "Run `f` with the URL of a local HTTP server that answers every POST with the
+   JSON `reply-fn` returns for the request's multipart form fields, and an atom
+   of every form-field map it received."
+  [reply-fn f]
+  (let [seen   (atom [])
+        server (com.sun.net.httpserver.HttpServer/create
+                (java.net.InetSocketAddress. "127.0.0.1" 0) 0)]
+    (.createContext server "/"
+                    (reify com.sun.net.httpserver.HttpHandler
+                      (handle [_ exchange]
+                        (let [body   (slurp (.getRequestBody exchange) :encoding "ISO-8859-1")
+                              fields (into {}
+                                           (map (fn [[_ k v]] [k v]))
+                                           (re-seq #"name=\"([^\"]+)\"\r\n\r\n([^\r]*)\r\n" body))
+                              out    (.getBytes ^String (cheshire.core/generate-string (reply-fn fields)) "UTF-8")]
+                          (swap! seen conj fields)
+                          (.sendResponseHeaders exchange 200 (alength out))
+                          (with-open [o (.getResponseBody exchange)] (.write o out))))))
+    (.start server)
+    (try
+      (f (str "http://127.0.0.1:" (.getPort (.getAddress server)) "/v1/audio/transcriptions") seen)
+      (finally (.stop server 0)))))
+
+(defn- echo-reply
+  "A verbose_json reply whose one segment names the model and language it was
+   asked for, detected as `heard`."
+  ([fields] (echo-reply "he" fields))
+  ([heard fields]
+   {:language heard
+    :segments [{:start 0.0 :end 1.0
+                :text (str (get fields "model") "/" (get fields "language" "auto"))}]}))
+
+(deftest the-route-window-hook-is-honoured
+  (is (contains? (p.asr/honoured (oai/->OpenAiTranscriber "http://x" "m" nil {}))
+                 :asr/route-window)))
+
+(deftest a-route-may-name-another-server-model-per-window
+  (with-tmp-wav
+    (fn [path]
+      (with-asr-server echo-reply
+        (fn [url seen]
+          (let [impl  (oai/->OpenAiTranscriber url "large-v3" nil {})
+                route (fn [decode _language] (decode "he" {:model "ivrit-turbo"}))
+                segs  (:segments (:ok (p.asr/transcribe impl path "he" {:asr/route-window route})))]
+            (is (= ["ivrit-turbo/he"] (mapv :text segs)) "the routed model and language are sent")
+            (is (= "ivrit-turbo" (get (first @seen) "model")))))))))
+
+(deftest without-a-route-the-adapter-model-is-sent
+  (with-tmp-wav
+    (fn [path]
+      (with-asr-server echo-reply
+        (fn [url _seen]
+          (let [impl (oai/->OpenAiTranscriber url "large-v3" nil {})]
+            (is (= ["large-v3/en"]
+                   (mapv :text (:segments (:ok (p.asr/transcribe impl path "en" {}))))))))))))
+
+(deftest an-http-decode-offers-no-window-metadata
+  (with-tmp-wav
+    (fn [path]
+      (with-asr-server echo-reply
+        (fn [url _seen]
+          (let [window-meta (atom ::unset)
+                route       (fn [decode language]
+                              (reset! window-meta (:asr/window-ms (meta decode)))
+                              (decode language))]
+            (p.asr/transcribe (oai/->OpenAiTranscriber url "m" nil {}) path "en"
+                              {:asr/route-window route})
+            (is (nil? @window-meta)
+                "no :asr/window-ms, so a route that widens or treats a window leaves it alone")))))))
+
+(deftest the-detected-language-rides-on-segments-only-when-none-was-named
+  (with-tmp-wav
+    (fn [path]
+      (with-asr-server (partial echo-reply "he")
+        (fn [url _seen]
+          (let [impl (oai/->OpenAiTranscriber url "m" nil {})]
+            (is (= ["he"] (mapv :language (:segments (:ok (p.asr/transcribe impl path "" {})))))
+                "a detecting request keeps what the server heard")
+            (is (= [nil] (mapv :language (:segments (:ok (p.asr/transcribe impl path "en" {})))))
+                "a named language is the caller's, not overwritten per segment"))))))
+  (with-tmp-wav
+    (fn [path]
+      (with-asr-server (partial echo-reply "hebrew")
+        (fn [url _seen]
+          (is (= [nil] (mapv :language (:segments (:ok (p.asr/transcribe
+                                                        (oai/->OpenAiTranscriber url "m" nil {})
+                                                        path "" {})))))
+              "a language NAME is not a code, so it is not attached"))))))

@@ -29,7 +29,9 @@
    the production adapter did not behave like."
   {"whisper_jni"       {:hooks #{:asr/route-window :asr/clean}
                         :build #(whisper/->WhisperLocalTranscriber "m" false 0 nil)}
-   "openai_compatible" {:hooks #{:asr/clean}
+   ;; Each POSTed window (the clip, or one span) is one decode a route is
+   ;; handed; it offers the :model decode opt and no :asr/window-ms.
+   "openai_compatible" {:hooks #{:asr/route-window :asr/clean}
                         :build #(openai/->OpenAiTranscriber "u" "m" nil {})}
    "stub"              {:hooks #{:asr/clean}
                         :build #(stub/make-transcriber)}

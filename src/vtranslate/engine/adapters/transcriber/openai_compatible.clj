@@ -149,42 +149,79 @@
 ;; --- span-aware transcription ----------------------------------------------
 
 (defn- transcribe-bytes
-  "One POST for one WAV byte-array (either the whole clip or one span slice).
+  "One POST for one WAV byte-array (either the whole clip or one span slice),
+   naming server model `model`, else the adapter's own.
    => (r/ok resp-map) | (r/err :error/asr-failed ...)."
-  [{:keys [api-url api-key model]} language opts bytes]
+  [{:keys [api-url api-key] :as transcriber} model language opts bytes]
   (post-multipart api-url api-key
-                  (multipart (base-fields model language opts)
+                  (multipart (base-fields (or model (:model transcriber)) language opts)
                              {:name "file" :filename "audio.wav" :bytes bytes})))
+
+(defn- detected-language
+  "The ISO 639 code a verbose_json reply says it heard, when the request named no
+   language and the reply carries a code rather than a language name. => s | nil"
+  [resp language]
+  (when (str/blank? language)
+    (let [heard (some-> (:language resp) str str/trim str/lower-case)]
+      (when (and heard (re-matches #"[a-z]{2,3}" heard)) heard))))
+
+(defn- reply-raw
+  "A verbose_json reply as raw segments in seconds: its own segments, else one
+   segment spanning `duration-s` carrying the reply text. Each carries the
+   language the server detected when the request named none."
+  [resp duration-s language]
+  (let [heard (detected-language resp language)
+        segs  (vec (or (seq (:segments resp))
+                       [{:start 0 :end duration-s :text (:text resp)}]))]
+    (cond->> segs heard (mapv #(assoc % :language heard)))))
+
+(defn- window-decoder
+  "The `decode` the :asr/route-window hook is handed for one POSTed window of
+   `bytes` lasting `duration-s`. [lang] decodes with the adapter's model; [lang
+   {:keys [model]}] names server model `model` instead when given. Other decode
+   opts cannot be served over HTTP and are ignored, and the fn carries no
+   :asr/window-ms metadata, which is how a route learns that.
+   => (fn ([lang]) ([lang decode-opts])) returning Result<raw seconds>"
+  [transcriber opts bytes duration-s]
+  (fn decode
+    ([lang] (decode lang nil))
+    ([lang {:keys [model]}]
+     (r/let-ok [resp (transcribe-bytes transcriber model lang opts bytes)]
+       (r/ok (reply-raw resp duration-s lang))))))
 
 (defn- read-all-bytes [path]
   (r/try-effect* :error/asr-failed
     (Files/readAllBytes (.toPath (File. ^String path)))))
 
 (defn- transcribe-whole
-  "Legacy path: POST the whole file and shape the reply into contract segments.
-   Used when no VAD spans are available."
+  "Legacy path: POST the whole file as one window, through the port's hooks, and
+   shape the reply into contract segments. Used when no VAD spans are available."
   [transcriber path language opts]
   (r/let-ok [bytes (read-all-bytes path)
-             resp  (transcribe-bytes transcriber language opts bytes)]
-    (r/ok {:segments (segments-from resp path opts)})))
+             raw   (p.asr/decoded opts
+                                  (window-decoder transcriber opts bytes
+                                                  (/ (or (sup/wav-duration-ms path) 0) 1000.0))
+                                  language)]
+    (r/ok {:segments (sup/normalize-segments raw {:unit :s})})))
 
 (defn- transcribe-one-span
-  "Slice `path` to `span`, POST the slice, and return raw verbose_json segments
-   shifted into absolute clip time and confined to the audio the slice actually
-   carried. The hallucination filter runs here — one bad span cannot poison the
-   merged output; so does the window clamp, because a whisper server pads a
-   short slice out to its decode length and can time a hypothesis past the end
-   of the audio it was sent."
+  "Slice `path` to `span`, POST the slice through the port's hooks, and return
+   raw verbose_json segments shifted into absolute clip time and confined to the
+   audio the slice actually carried. The hallucination filter runs here — one
+   bad span cannot poison the merged output; so does the window clamp, because a
+   whisper server pads a short slice out to its decode length and can time a
+   hypothesis past the end of the audio it was sent."
   [transcriber path language opts span pad-ms]
   (r/let-ok [{:keys [bytes offset-ms samples sample-rate]} (sup/wav-bytes-slice path span pad-ms)]
     (if (zero? samples)
       (r/ok [])
-      (r/let-ok [resp (transcribe-bytes transcriber language opts bytes)]
-        (let [segs       (p.asr/cleaned opts (:segments resp))
-              window-end (+ (long offset-ms)
-                            (long (Math/round (* 1000.0 (/ (double samples) sample-rate)))))]
-          (r/ok (sup/clamp-to-window offset-ms window-end
-                                     (sup/offset-segments offset-ms segs))))))))
+      (let [duration-s (/ (double samples) sample-rate)]
+        (r/let-ok [segs (p.asr/decoded opts
+                                       (window-decoder transcriber opts bytes duration-s)
+                                       language)]
+          (let [window-end (+ (long offset-ms) (long (Math/round (* 1000.0 duration-s))))]
+            (r/ok (sup/clamp-to-window offset-ms window-end
+                                       (sup/offset-segments offset-ms segs)))))))))
 
 (defn- transcribe-with-spans
   "Fold the spans, calling `transcribe-one-span` per island and merging the
@@ -212,7 +249,7 @@
 
 (defrecord OpenAiTranscriber [api-url model api-key opts]
   p.asr/IDeclaresHooks
-  (hooks-honoured [_] #{:asr/clean})
+  (hooks-honoured [_] #{:asr/route-window :asr/clean})
 
   p.asr/ITranscriber
   (transcribe [this audio-source language call-opts]
@@ -222,7 +259,8 @@
             ;; the same layering the local backend uses.
             merged  (merge opts (select-keys call-opts
                                              [:temperature :prompt :extra-form
-                                              :slice-spans? :asr/clean]))
+                                              :slice-spans? :asr/clean
+                                              :asr/route-window]))
             spans   (seq (:spans call-opts))]
         (if (and (:slice-spans? merged) spans)
           (transcribe-with-spans this path language merged spans pad-ms)
