@@ -52,10 +52,77 @@
                              :encoder :h264-nvenc :threads 3})]
     (is (= ["-c:v" "h264_nvenc" "-preset" "p4" "-b:v" "3973958" "-pix_fmt" "yuv420p" "-threads" "3"]
            (subvec argv 10 20))
-        "NVENC's own default preset, never x264's")
-    (is (= ["-c:v" "libx264" "-preset" sut/default-preset]
-           (subvec (sut/burn-args {:source "s" :out "o" :ass-path "a" :plan plan-1080 :encoder :nope}) 10 14))
-        "an unknown encoder reads as libx264")))
+        "NVENC's own default preset, never x264's"))
+  (testing "an unknown encoder is refused, not quietly encoded on libx264"
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"unknown encoder"
+                          (sut/burn-args {:source "s" :out "o" :ass-path "a"
+                                          :plan plan-1080 :encoder :nope})))))
+
+(defn- flag
+  "The value ffmpeg would read for `f`, or nil when the flag is absent."
+  [argv f]
+  (let [i (.indexOf ^java.util.List argv f)]
+    (when-not (neg? i) (nth argv (inc i)))))
+
+(deftest a-vaapi-burn-omits-what-h264-vaapi-rejects-and-adds-what-it-needs
+  (let [argv (sut/burn-args {:source "/v/in.mp4" :out "/v/o.part" :ass-path "/v/o.ass"
+                             :plan plan-1080 :encoder :h264-vaapi :threads 3})]
+    (is (= "h264_vaapi" (flag argv "-c:v")))
+    (is (nil? (flag argv "-preset"))
+        "h264_vaapi rejects -preset as an unrecognised option and dies at argv parse")
+    (is (nil? (flag argv "-pix_fmt"))
+        "the encoder consumes VAAPI surfaces, so yuv420p must not be forced")
+    (testing "the device opens BEFORE the input"
+      (is (= "/dev/dri/renderD128" (flag argv "-vaapi_device")))
+      (is (< (.indexOf ^java.util.List argv "-vaapi_device")
+             (.indexOf ^java.util.List argv "-i"))))
+    (testing "the graph ends by uploading the frame to the device"
+      (is (= "subtitles=filename=/v/o.ass,format=nv12,hwupload" (flag argv "-vf"))))
+    (is (= "3973958" (flag argv "-b:v")) "everything else is unchanged")
+    (is (= "3" (flag argv "-threads")))))
+
+(deftest the-filter-suffix-reaches-the-watermark-graph-too
+  (let [mark {:png "/v/mark.png" :position ["W-w-24" "H-h-24"]}
+        vaapi (sut/burn-args {:source "s" :out "o" :ass-path "/v/o.ass" :plan plan-1080
+                              :encoder :h264-vaapi :watermark mark})
+        x264  (sut/burn-args {:source "s" :out "o" :ass-path "/v/o.ass" :plan plan-1080
+                              :watermark mark})]
+    (is (= (str "[0:v]subtitles=filename=/v/o.ass[subbed];"
+                "[subbed][1:v]overlay=W-w-24:H-h-24,format=nv12,hwupload[vid]")
+           (flag vaapi "-filter_complex"))
+        "the upload lands after the overlay: overlay cannot read a hardware surface")
+    (is (= (str "[0:v]subtitles=filename=/v/o.ass[subbed];"
+                "[subbed][1:v]overlay=W-w-24:H-h-24[vid]")
+           (flag x264 "-filter_complex"))
+        "an encoder with no suffix emits the graph it always did")
+    (is (= "[vid]" (flag vaapi "-map")))))
+
+(deftest encoder-rows-are-config-and-built-ins-are-only-defaults
+  (testing "a deployment describes hardware this release has never heard of"
+    (let [opts {:encoders {:h264-qsv {:codec "h264_qsv" :preset-key :qsv-preset
+                                      :default-preset "medium" :pix-fmt "nv12"
+                                      :hardware? true}}}
+          argv (sut/burn-args {:source "s" :out "o" :ass-path "a" :plan plan-1080
+                               :encoder :h264-qsv :encoders (sut/encoders-from opts)
+                               :preset (sut/encoder-preset :h264-qsv opts)})]
+      (is (= "h264_qsv" (flag argv "-c:v")))
+      (is (= "medium" (flag argv "-preset")))
+      (is (= "nv12" (flag argv "-pix_fmt")))))
+  (testing "built-ins survive a config that adds a row"
+    (let [table (sut/encoders-from {:encoders {:h264-qsv {:codec "h264_qsv"}}})]
+      (is (= "libx264" (:codec (sut/encoder-spec table :libx264))))
+      (is (= "h264_vaapi" (:codec (sut/encoder-spec table :h264-vaapi))))))
+  (testing "a config row is merged OVER the built-in, field by field"
+    (let [table (sut/encoders-from {:encoders {:h264-vaapi {:device-args ["-vaapi_device" "/dev/dri/renderD129"]}}})
+          row   (sut/encoder-spec table :h264-vaapi)]
+      (is (= ["-vaapi_device" "/dev/dri/renderD129"] (:device-args row)) "overridden")
+      (is (= "h264_vaapi" (:codec row)) "and the rest of the row kept")
+      (is (= "format=nv12,hwupload" (:filter-suffix row)))))
+  (testing "config can retire a field it does not want"
+    (let [table (sut/encoders-from {:encoders {:libx264 {:default-preset nil}}})]
+      (is (nil? (sut/encoder-preset :libx264 {:encoders {:libx264 {:default-preset nil}}}))
+          "no preset means burn-args emits no -preset")
+      (is (= "libx264" (:codec (sut/encoder-spec table :libx264)))))))
 
 (deftest each-encoder-reads-its-own-preset-key
   (let [opts {:preset "ultrafast" :nvenc-preset "p1"}]
@@ -63,7 +130,9 @@
     (is (= "p1" (sut/encoder-preset :h264-nvenc opts))))
   (is (= "p4" (sut/encoder-preset :h264-nvenc {:preset "veryfast"}))
       "a deployment's x264 preset does not leak into NVENC, which refuses it")
-  (is (= sut/default-preset (sut/encoder-preset :libx264 {}))))
+  (is (= sut/default-preset (sut/encoder-preset :libx264 {})))
+  (is (nil? (sut/encoder-preset :h264-vaapi {:preset "veryfast" :nvenc-preset "p1"}))
+      "h264_vaapi has no preset vocabulary at all, so no other encoder's leaks in"))
 
 (deftest hardware-capability-is-the-listing-plus-a-real-open
   (let [filters  " ... subtitles         V->V       Render text subtitles"
@@ -73,7 +142,19 @@
   (is (= ["-c:v" "h264_nvenc" "-f" "null" "-"]
          (take-last 5 (sut/encoder-probe-args {:bin "/usr/bin/ffmpeg" :encoder :h264-nvenc}))))
   (is (true? (:hardware? (sut/encoder-spec :h264-nvenc))))
-  (is (not (:hardware? (sut/encoder-spec :libx264)))))
+  (is (true? (:hardware? (sut/encoder-spec :h264-vaapi))))
+  (is (not (:hardware? (sut/encoder-spec :libx264))))
+  (testing "a VAAPI probe opens the device and uploads, or it fails for a
+            reason that says nothing about the hardware"
+    (let [argv (sut/encoder-probe-args {:encoder :h264-vaapi})]
+      (is (= ["-c:v" "h264_vaapi" "-f" "null" "-"] (take-last 5 argv)))
+      (is (some #{"-vaapi_device"} argv))
+      (is (= "format=nv12,hwupload" (nth argv (inc (.indexOf ^java.util.List argv "-vf")))))))
+  (testing "a VAAPI device that cannot be opened is a hardware failure, the
+            same class as a taken NVENC session, so the CPU rerun applies"
+    (is (true? (sut/hardware-unavailable? "[AVHWDeviceContext @ 0x1] Failed to initialise VAAPI connection: -1 (unknown libva error).")))
+    (is (true? (sut/hardware-unavailable? "Device creation failed: -5.")))
+    (is (true? (sut/hardware-unavailable? "[h264_vaapi @ 0x1] No usable encoding profile found.")))))
 
 (deftest only-an-encoder-that-cannot-open-is-a-hardware-failure
   (testing "stderr observed 2026-09-15 on a host with no GPU (distro ffmpeg 6.1.1)"

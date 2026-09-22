@@ -1,19 +1,23 @@
 (ns vtranslate.engine.calc.burn
   "Pure choice of the burn-in backend from :composer-opts. The adapter passes
-   in what it observed (whether an ffmpeg binary answered); this decides.")
+   in what it observed (whether an ffmpeg binary answered) AND which backend
+   keys are actually registered; this decides.
 
-(def backends
-  "`:ffmpeg-cli` runs the system ffmpeg with libass and libx264 in one
-   process. `:ffmpeg-nvenc` is the same process encoding with h264_nvenc on
-   an NVIDIA GPU, and re-runs a burn on libx264 when the GPU cannot open an
-   encoder. `:javacv` draws each captioned frame in-process with Java2D and
-   encodes with the bundled openh264, several times slower at 1080p but
-   needing no binary. `:auto` takes the CLI when a binary answers.
+   The registered set is a PARAMETER and never a literal here. calc must not
+   require vtranslate.engine.providers.*: the registry is L3 and this is L1,
+   so a closed set copied into calc would mean a backend the registry HAS
+   registered is unknown to the code that chooses one. The composer adapter
+   passes (burner-registry/known) in at the boundary.")
 
-   `:auto` never picks NVENC. A GPU is a scheduled, shared resource (the ASR
-   holds one), so a deployment claims it by naming `:ffmpeg-nvenc` beside the
-   device request, not by a worker discovering one."
-  #{:ffmpeg-cli :ffmpeg-nvenc :javacv :auto})
+(def auto-backends
+  "The two backends :auto may pick between. Both are always registered on
+   their own classpath, and neither is a scheduled resource.
+
+   :auto never picks a hardware backend. A GPU is a scheduled, shared
+   resource (the ASR holds one), so a deployment claims it by naming
+   :ffmpeg-nvenc or :ffmpeg-vaapi beside the device request, not by a worker
+   discovering one."
+  #{:ffmpeg-cli :javacv})
 
 (def default-binary "ffmpeg")
 
@@ -25,21 +29,37 @@
     (if (or (nil? b) (.isEmpty b)) default-binary b)))
 
 (defn requested
-  "The backend the opts ask for. Anything unknown, including nothing, reads
-   as :auto, so a typo degrades to the safe choice rather than failing the
-   job at compose time."
-  [opts]
-  (let [k (:burn-backend opts)]
-    (if (contains? backends k) k :auto)))
+  "The backend `opts` ask for, checked against `known` (the registered
+   backend keys, as a set or any seqable of them).
+
+   Absent, nil or :auto reads as :auto. Anything else must be a REGISTERED
+   key, and an explicit key that is not throws: a deployment that named a
+   backend and got libx264 instead has no way to tell, and that silence is
+   the bug this signature exists to remove. It fails at wiring, before a
+   single job is accepted, not per burn."
+  [opts known]
+  (let [k (:burn-backend opts)
+        registered (set known)]
+    (cond
+      (or (nil? k) (= :auto k)) :auto
+      (contains? registered k)  k
+      :else
+      (throw (ex-info (str "unknown burn backend " (pr-str k)
+                           "; registered: " (pr-str (vec (sort-by str registered))))
+                      {:error :error/unknown-burn-backend
+                       :burn-backend k
+                       :known (vec (sort-by str registered))})))))
 
 (defn choose
-  "=> :ffmpeg-cli | :ffmpeg-nvenc | :javacv. `available?` is whether the
-   binary answered; it only matters under :auto. An explicit backend is
-   honoured even when the binary did not answer, so a deployment that named
-   it fails loud at the burn rather than silently taking the slow path."
-  [opts available?]
-  (case (requested opts)
-    :ffmpeg-cli   :ffmpeg-cli
-    :ffmpeg-nvenc :ffmpeg-nvenc
-    :javacv       :javacv
-    :auto         (if available? :ffmpeg-cli :javacv)))
+  "The backend to wire. `known` is the registered key set; `available?` is
+   whether the ffmpeg binary answered, and it only matters under :auto.
+
+   An explicit backend is honoured whatever the binary said, so a deployment
+   that named one fails loud at the burn rather than silently taking the slow
+   path. No per-backend branch lives here: a key the registry knows is a key
+   this returns."
+  [opts known available?]
+  (let [k (requested opts known)]
+    (if (= :auto k)
+      (if available? :ffmpeg-cli :javacv)
+      k)))

@@ -4,13 +4,15 @@
    (defmethod resolve-composer :hard).
 
    Boundary: the burner is chosen once, at wiring, by calc.burn from
-   :composer-opts and one observation (whether the system ffmpeg is
-   capable), then resolved through the burner registry. Requiring the
+   :composer-opts, the burner registry's own key set, and one observation
+   (whether the system ffmpeg is capable), then resolved through that
+   registry. Requiring the
    burner adapters here registers them, which is what makes the hardsub
    composer load ONLY on the :ffmpeg classpath (the JavaCV burner imports
    bytedeco)."
   (:require [hive-dsl.result :as r]
             [vtranslate.engine.adapters.burner.ffmpeg-cli :as cli-burner]
+            [vtranslate.engine.adapters.burner.ffmpeg-hw]
             [vtranslate.engine.adapters.burner.ffmpeg-nvenc]
             [vtranslate.engine.adapters.burner.javacv]
             [vtranslate.engine.adapters.composer.support :as support]
@@ -37,8 +39,8 @@
 (defn- ffmpeg-capable?
   "The one observation the choice needs, made only when :auto asks for it:
    an explicit backend is honoured without probing."
-  [opts]
-  (and (= :auto (burn/requested opts))
+  [opts known]
+  (and (= :auto (burn/requested opts known))
        (cli/capable? (cli-burner/executables opts))))
 
 (defn make-composer
@@ -48,10 +50,24 @@
    says which won. => (r/ok composer) | (r/err ...) when no burner is
    registered for the chosen backend."
   [config]
-  (let [opts    (get config :composer-opts {})
-        backend (burn/choose opts (ffmpeg-capable? opts))]
-    (r/let-ok [burner (burners/resolve-burner backend opts)]
-      (r/ok (->HardsubComposer opts backend burner)))))
+  ;; Not try-effect*: that wraps its body in an ok, and the body already
+  ;; answers a Result. The throw being caught is calc.burn's loud refusal of
+  ;; an unregistered backend key, which must reach the caller as an err.
+  (try
+    (let [opts    (get config :composer-opts {})
+          ;; The registered set crosses the boundary HERE. calc.burn must not
+          ;; require the registry, so the adapter that has both hands it
+          ;; over, and a backend an adapter registered can never be unknown
+          ;; to the code that chooses one.
+          known   (burners/known)
+          backend (burn/choose opts known (ffmpeg-capable? opts known))]
+      (r/let-ok [burner (burners/resolve-burner backend opts)]
+        (r/ok (->HardsubComposer opts backend burner))))
+    (catch clojure.lang.ExceptionInfo e
+      ;; r/err merges its data over {:error category}: the category is
+      ;; lifted out of the ex-data and the data must not keep a copy.
+      (r/err (get (ex-data e) :error :error/compose-wiring-failed)
+             (assoc (dissoc (ex-data e) :error) :message (ex-message e))))))
 
 (defmethod reg/resolve-composer :hard [_ config]
   (make-composer config))

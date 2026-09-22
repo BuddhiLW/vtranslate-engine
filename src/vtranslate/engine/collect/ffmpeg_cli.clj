@@ -48,14 +48,17 @@
    A hardware encoder must also OPEN: one frame is encoded for real, because
    the listing names h264_nvenc on hosts that have no GPU at all."
   ([cli] (capable? cli args/default-encoder))
-  ([{:keys [runner bin]} encoder]
-   (and (process/starts? runner [bin "-version"])
-        (args/capable?
-         (into {} (for [listing (keys (args/capabilities-for encoder))]
-                    [listing (process/output-of runner (args/listing-args {:bin bin :listing listing}))]))
-         encoder)
-        (or (not (:hardware? (args/encoder-spec encoder)))
-            (process/starts? runner (args/encoder-probe-args {:bin bin :encoder encoder}))))))
+  ([cli encoder] (capable? cli encoder nil))
+  ([{:keys [runner bin]} encoder opts]
+   (let [table (args/encoders-from opts)]
+     (and (process/starts? runner [bin "-version"])
+          (args/capable?
+           (into {} (for [listing (keys (args/capabilities-for table encoder))]
+                      [listing (process/output-of runner (args/listing-args {:bin bin :listing listing}))]))
+           table encoder)
+          (or (not (:hardware? (args/encoder-spec table encoder)))
+              (process/starts? runner (args/encoder-probe-args
+                                       {:bin bin :encoder encoder :encoders table})))))))
 
 (defn- probe-line
   "First stdout line of one ffprobe run, nil for an absent stream."
@@ -138,6 +141,7 @@
        (run-burn! cli (args/burn-args {:bin bin :source source :out out
                                        :ass-path (.getPath script) :plan plan
                                        :encoder encoder
+                                       :encoders (args/encoders-from opts)
                                        :preset (args/encoder-preset encoder opts)
                                        :threads threads :audio? audio?
                                        :watermark mark}))
