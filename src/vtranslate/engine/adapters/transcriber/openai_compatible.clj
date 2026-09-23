@@ -210,14 +210,16 @@
    audio the slice actually carried. The hallucination filter runs here — one
    bad span cannot poison the merged output; so does the window clamp, because a
    whisper server pads a short slice out to its decode length and can time a
-   hypothesis past the end of the audio it was sent."
+   hypothesis past the end of the audio it was sent. The route is handed the
+   span as :asr/span metadata on its decode."
   [transcriber path language opts span pad-ms]
   (r/let-ok [{:keys [bytes offset-ms samples sample-rate]} (sup/wav-bytes-slice path span pad-ms)]
     (if (zero? samples)
       (r/ok [])
       (let [duration-s (/ (double samples) sample-rate)]
         (r/let-ok [segs (p.asr/decoded opts
-                                       (window-decoder transcriber opts bytes duration-s)
+                                       (vary-meta (window-decoder transcriber opts bytes duration-s)
+                                                  assoc :asr/span span)
                                        language)]
           (let [window-end (+ (long offset-ms) (long (Math/round (* 1000.0 duration-s))))]
             (r/ok (sup/clamp-to-window offset-ms window-end

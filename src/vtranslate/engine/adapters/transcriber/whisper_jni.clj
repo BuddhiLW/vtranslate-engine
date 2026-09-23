@@ -135,7 +135,7 @@
 (defn- transcribe-with-spans
   "Decode `samples` window by window — one per span, else the whole clip — each
    through `route` ((fn [decode language] => Result<raw>), where `decode` is the
-   window's `window-decoder`), so a transcriber decorator may re-decode, widen,
+   window's `window-decoder`, carrying its span as :asr/span metadata), so a transcriber decorator may re-decode, widen,
    treat or tag a window. => Result<[raw-segment ...]> in absolute ms."
   [transcribe-samples model-path use-gpu? samples sample-rate language spans span-pad-ms run-opts route]
   (let [decoder (fn [start end]
@@ -153,7 +153,7 @@
                  (r/ok acc)
                  (r/let-ok [raw (decode-with-heartbeat
                                  (format "span %d/%d" (inc i) total)
-                                 #(route (decoder start end) language))]
+                                 #(route (vary-meta (decoder start end) assoc :asr/span span) language))]
                    (report! (format "span %d/%d  audio %.1fs  elapsed %.1fs"
                                     (inc i) total
                                     (/ (:start-ms span) 1000.0)

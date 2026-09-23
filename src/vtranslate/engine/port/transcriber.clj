@@ -41,6 +41,10 @@
 ;;                      {:widen-ms n :transform f}): the window grown by n ms on
 ;;                      each side and/or its samples through f (float[] =>
 ;;                      float[]), times still relative to the window's start.
+;;                      An adapter that decodes by span also puts the span on
+;;                      `decode` as :asr/span metadata, with every key the
+;;                      segmenter gave it (a :regime, say), so a route can
+;;                      treat windows by what they are.
 ;;   :asr/clean         (fn [raw-segments opts] => raw-segments): applied to one
 ;;                      reply's raw segments while server metrics are attached.
 ;; A transcriber decorator adds its hook with `with-route` / `with-clean`, which

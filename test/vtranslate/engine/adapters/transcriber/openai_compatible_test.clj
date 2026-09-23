@@ -300,6 +300,25 @@
             (is (nil? @window-meta)
                 "no :asr/window-ms, so a route that widens or treats a window leaves it alone")))))))
 
+(deftest a-sliced-window-hands-the-route-its-span
+  (let [tmp  (java.io.File/createTempFile "vt-asr-span-" ".wav")
+        path (.getPath tmp)]
+    (try
+      (sup/write-wav-mono! path (float-array 16000 0.01) 16000)
+      (with-asr-server echo-reply
+        (fn [url _seen]
+          (let [spans [{:start-ms 0 :end-ms 400 :regime :speech}
+                       {:start-ms 400 :end-ms 800 :regime :music-bed}]
+                heard (atom [])
+                route (fn [decode language]
+                        (swap! heard conj (:asr/span (meta decode)))
+                        (decode language))]
+            (p.asr/transcribe (oai/->OpenAiTranscriber url "m" nil {:slice-spans? true :span-pad-ms 0})
+                              path "en" {:spans spans :asr/route-window route})
+            (is (= spans @heard)
+                "each window's route sees the span it decodes, with the keys the segmenter put on it"))))
+      (finally (.delete tmp)))))
+
 (deftest the-detected-language-rides-on-segments-only-when-none-was-named
   (with-tmp-wav
     (fn [path]
