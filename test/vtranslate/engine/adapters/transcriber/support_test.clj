@@ -183,6 +183,44 @@
                      [] 0
                      [{:start-ms 0 :end-ms 4260 :text "This blade has a dark past."}]))))))
 
+(deftest a-pad-segment-that-continues-loses-only-the-words-both-carry
+  (testing "the tail of the previous segment, re-heard at the head of the next"
+    (is (= "have been and also we even have some remnants of muscles similar to what"
+           (sup/trim-pad-overlap
+            "to not have whiskers but we do still have these whisker holes where our whiskers would"
+            "our whiskers would have been and also we even have some remnants of muscles similar to what")))
+    (is (= "and we agree that this is working well"
+           (sup/trim-pad-overlap "Once we get the parameters,"
+                                 "we get the parameters and we agree that this is working well"))))
+  (testing "a short lead-in the previous window heard differently goes with the overlap"
+    (is (= "a new technology."
+           (sup/trim-pad-overlap "So this is the most exciting work. This is new object"
+                                 "It's a new object, a new technology."))))
+  (testing "no shared edge, or a single shared word, leaves the text alone"
+    (is (= "I'm searching for someone."
+           (sup/trim-pad-overlap "It brings you to the land of the gatekeepers." "I'm searching for someone.")))
+    (is (= "someone very dear"
+           (sup/trim-pad-overlap "I'm searching for someone" "someone very dear"))))
+  (testing "nothing left after the overlap is nil"
+    (is (nil? (sup/trim-pad-overlap "where our whiskers would" "our whiskers would"))))
+  (testing "merge-padded-window applies it to a pad segment that carries new speech"
+    (is (= ["to not have whiskers but we do still have these whisker holes where our whiskers would"
+            "have been and also we even have some remnants"
+            "similar to what we see in animals with whiskers."]
+           (mapv :text
+                 (sup/merge-padded-window
+                  [{:start-ms 4500 :end-ms 9500
+                    :text "to not have whiskers but we do still have these whisker holes where our whiskers would"}]
+                  10000
+                  [{:start-ms 9500 :end-ms 14500 :text "our whiskers would have been and also we even have some remnants"}
+                   {:start-ms 14500 :end-ms 19000 :text "similar to what we see in animals with whiskers."}]))))
+    (testing "and never to one that starts after the span boundary"
+      (is (= "our whiskers would say"
+             (:text (last (sup/merge-padded-window
+                           [{:start-ms 4500 :end-ms 9500 :text "where our whiskers would"}]
+                           10000
+                           [{:start-ms 10200 :end-ms 12000 :text "our whiskers would say"}]))))))))
+
 (deftest unit-conversion
   (testing ":s multiplies to ms; :ms passes through; rounding is half-up"
     (is (= 1400 (:end-ms (first (sup/normalize-segments [{:start 0 :end 1.4 :text "x"}] {:unit :s})))))

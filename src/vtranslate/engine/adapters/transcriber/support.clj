@@ -114,28 +114,68 @@
          (pos? (count candidate))
          (>= (/ (double run) (count candidate)) min-pad-duplicate-ratio))))
 
+(def ^:private max-pad-lead-in 2)
+
+(defn- word-tokens
+  "`text`'s whitespace tokens, each paired with the content word it carries
+   (nil for bare punctuation)."
+  [text]
+  (mapv (fn [t] [t (first (content-words t))])
+        (remove str/blank? (str/split (str text) #"\s+"))))
+
+(defn trim-pad-overlap
+  "`text` without the words it opens on that `previous-text` already closes on:
+   the longest run of at least two consecutive words ending `previous-text` that
+   `text` repeats, after a lead-in of at most two words. `text` unchanged when
+   there is no such run, nil when nothing is left. Case- and
+   punctuation-insensitive; the surviving words keep their own spelling."
+  [previous-text text]
+  (let [prev   (content-words previous-text)
+        tokens (word-tokens text)
+        worded (vec (keep-indexed (fn [i [_ w]] (when w [i w])) tokens))
+        words  (mapv second worded)
+        cut    (first (for [lead (range (inc max-pad-lead-in))
+                            k    (range (min (count prev) (- (count words) lead))
+                                        (dec min-pad-duplicate-run) -1)
+                            :when (= (subvec prev (- (count prev) k))
+                                     (subvec words lead (+ lead k)))]
+                        (first (nth worded (+ lead k -1)))))]
+    (if-not cut
+      text
+      (let [rest (-> (str/join " " (map first (subvec tokens (inc cut))))
+                     (str/replace #"\A[\s,;:.\-–—]+" ""))]
+        (when-not (str/blank? rest) rest)))))
+
 (defn merge-padded-window
   "Append one padded decode window's `segments` to `acc`, resolving the
    re-transcription a leading pad produces: while a window segment begins before
    `span-start-ms` AND repeats speech the tail of `acc` already carries, only the
    LONGER of the two hypotheses survives — the shorter one is the same utterance
-   truncated at a window boundary. Segment times are absolute ms. A segment that
-   starts inside the pad but carries NEW speech is kept, and so is everything
-   from the first non-duplicate onwards.
+   truncated at a window boundary. A segment that starts inside the pad but
+   carries NEW speech is kept without the words it re-hears from the tail of
+   `acc` (see `trim-pad-overlap`), and everything after it is kept as is.
+   Segment times are absolute ms.
    => [segment ...]"
   [acc span-start-ms segments]
   (loop [acc (vec acc), [head & tail :as remaining] (seq segments)]
     (if (nil? head)
       acc
       (let [previous (peek acc)
-            start    (or (:start-ms head) (:start head))]
-        (if (and previous start span-start-ms
-                 (< start span-start-ms)
-                 (pad-duplicate? (:text previous) (:text head)))
+            start    (or (:start-ms head) (:start head))
+            in-pad?  (and previous start span-start-ms (< start span-start-ms))]
+        (cond
+          (and in-pad? (pad-duplicate? (:text previous) (:text head)))
           (if (> (count (content-words (:text head)))
                  (count (content-words (:text previous))))
             (recur (conj (pop acc) head) tail)
             (recur acc tail))
+
+          in-pad?
+          (if-let [text (trim-pad-overlap (:text previous) (:text head))]
+            (recur (into acc (cons (assoc head :text text) tail)) nil)
+            (recur acc tail))
+
+          :else
           (recur (into acc remaining) nil))))))
 
 (defn normalize-segments
