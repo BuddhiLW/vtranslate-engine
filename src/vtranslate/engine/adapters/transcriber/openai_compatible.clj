@@ -40,7 +40,8 @@
             [vtranslate.engine.providers.transcriber-registry :as reg]
             [vtranslate.engine.adapters.support.secrets :as secrets]
             [vtranslate.engine.residency :as residency]
-            [vtranslate.engine.adapters.model-host.speaches :as speaches])
+            [vtranslate.engine.adapters.model-host.speaches :as speaches]
+            [vtranslate.engine.calc.word-cues :as word-cues])
   (:import [java.io File]
            [java.nio.file Files]))
 
@@ -134,18 +135,27 @@
 
 ;; --- span-aware transcription ----------------------------------------------
 
+(def ^:private granularity-fields
+  "Word and segment timestamps both: a server asked for words alone may drop
+   its segments, and the segments carry the metrics the hallucination filters
+   read. The field repeats, so these are pairs, not a map."
+  [["timestamp_granularities[]" "segment"]
+   ["timestamp_granularities[]" "word"]])
+
 (defn- transcribe-bytes
   "One POST for one WAV byte-array (either the whole clip or one span slice),
    naming server model `model`, else the adapter's own, to endpoint `api-url`,
    else the adapter's own. Another endpoint is sent no key: the adapter's key
-   belongs to its own host.
+   belongs to its own host. Word timestamps are asked for unless `(:cues opts)`
+   is false.
    => (r/ok resp-map) | (r/err :error/asr-failed ...)."
   ([transcriber model language opts bytes]
    (transcribe-bytes transcriber model nil language opts bytes))
   ([{:keys [api-key] :as transcriber} model api-url language opts bytes]
    (post-multipart (or api-url (:api-url transcriber))
                    (when-not api-url api-key)
-                   (multipart (base-fields (or model (:model transcriber)) language opts)
+                   (multipart (cond-> (vec (base-fields (or model (:model transcriber)) language opts))
+                                (not (false? (:cues opts))) (into granularity-fields))
                               {:name "file" :filename "audio.wav" :bytes bytes}))))
 
 (defn- detected-language
@@ -158,12 +168,16 @@
 
 (defn- reply-raw
   "A verbose_json reply as raw segments in seconds: its own segments, else one
-   segment spanning `duration-s` carrying the reply text. Each carries the
-   language the server detected when the request named none."
-  [resp duration-s language]
+   segment spanning `duration-s` carrying the reply text, recut into
+   subtitle-sized segments by the reply's word timestamps unless `(:cues opts)`
+   is false (calc.word-cues; a map there overrides its policy). Each carries
+   the language the server detected when the request named none."
+  [resp duration-s language opts]
   (let [heard (detected-language resp language)
         segs  (vec (or (seq (:segments resp))
-                       [{:start 0 :end duration-s :text (:text resp)}]))]
+                       [{:start 0 :end duration-s :text (:text resp)}]))
+        cues  (:cues opts)
+        segs  (if (false? cues) segs (word-cues/recut segs (:words resp) (when (map? cues) cues)))]
     (cond->> segs heard (mapv #(assoc % :language heard)))))
 
 (defn- resident!
@@ -188,7 +202,8 @@
    over HTTP and are ignored, and the fn carries no :asr/window-ms metadata,
    which is how a route learns that. A window bound for the adapter's own
    server first has its model made resident by the adapter's residency owner,
-   when it has one.
+   when it has one. The reply comes back recut to subtitle size (reply-raw),
+   so the window's length never becomes a cue's.
    => (fn ([lang]) ([lang decode-opts])) returning Result<raw seconds>"
   [transcriber opts bytes duration-s]
   (fn decode
@@ -196,7 +211,7 @@
     ([lang {:keys [model api-url]}]
      (r/let-ok [_    (resident! transcriber model api-url)
                 resp (transcribe-bytes transcriber model api-url lang opts bytes)]
-       (r/ok (reply-raw resp duration-s lang))))))
+       (r/ok (reply-raw resp duration-s lang opts))))))
 
 (defn- read-all-bytes [path]
   (r/try-effect* :error/asr-failed
@@ -296,9 +311,10 @@
 (def ^:private adapter-opt-keys
   "Keys pulled from [:transcriber-opts] into the record's `opts` map. Anything
    NOT here (`:api-url`, `:model`, `:secret-env`, `:secret-pass`) is a build
-   knob and stays out of the per-call form."
+   knob and stays out of the per-call form. `:cues` is false to keep the
+   server's own segment timing, or a calc.word-cues policy map."
   [:temperature :prompt :extra-form :span-pad-ms
-   :slice-spans?])
+   :slice-spans? :cues])
 
 (defn make-transcriber
   "Build an OpenAiTranscriber for `provider-key`, resolving its key. Per-provider

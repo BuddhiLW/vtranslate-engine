@@ -118,11 +118,37 @@
         (fn [url seen]
           (p.asr/transcribe (oai/->OpenAiTranscriber url "whisper-1" nil {}) path "en" {})
           (let [fields (first @seen)]
-            (is (= {"model" "whisper-1" "response_format" "verbose_json" "language" "en"}
+            (is (= {"model" "whisper-1" "response_format" "verbose_json" "language" "en"
+                    ;; the field repeats (segment, word); the map keeps the last
+                    "timestamp_granularities[]" "word"}
                    (dissoc fields "file")))
             (is (= {:file-name "audio.wav" :mime-type "audio/wav"}
                    (dissoc (get fields "file") :bytes)))
             (is (= "RIFFdummy" (String. ^bytes (:bytes (get fields "file")) "UTF-8")))))))))
+
+(deftest a-window-long-reply-is-recut-by-its-words
+  (with-real-wav 25
+    (fn [path]
+      (with-asr-server (constantly {:segments [{:start 0.0 :end 24.0 :text "one two. three four"}]
+                                    :words    [{:start 0.0 :end 1.0 :word " one"}
+                                               {:start 1.0 :end 2.0 :word " two."}
+                                               {:start 12.0 :end 13.0 :word " three"}
+                                               {:start 13.0 :end 14.0 :word " four"}]})
+        (fn [url _seen]
+          (let [cues-for #(:segments (:ok (p.asr/transcribe (oai/->OpenAiTranscriber url "m" "k" %)
+                                                            path "ar" {})))]
+            (is (= [[0 2000] [12000 14000]] (mapv (juxt :start-ms :end-ms) (cues-for {})))
+                "the decode window's 24 s never reaches a cue")
+            (is (= [[0 24000]] (mapv (juxt :start-ms :end-ms) (cues-for {:cues false})))
+                ":cues false keeps the server's own timing")))))))
+
+(deftest cues-false-asks-for-no-word-timestamps
+  (with-tmp-wav
+    (fn [path]
+      (with-asr-server (constantly {:text "ok"})
+        (fn [url seen]
+          (p.asr/transcribe (oai/->OpenAiTranscriber url "m" nil {:cues false}) path "en" {})
+          (is (not (contains? (first @seen) "timestamp_granularities[]"))))))))
 
 ;; --- wire-level test for multipart body quoting ---------------------------
 
