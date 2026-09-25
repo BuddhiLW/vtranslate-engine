@@ -107,3 +107,38 @@
       (is (= 2 (concurrency {:translator-opts {:target-concurrency 2}} (repeat 7 "x")))))
     (testing "never zero"
       (is (= 1 (concurrency {} []))))))
+
+(defn- run-with-translator
+  "Run the three-target job with `translator` in place of the mock one."
+  [translator config]
+  (api/run-job (assoc (ports #{}) :translator translator :config config)
+               {:job-id "j" :source "/v.mp4" :source-language "en"
+                :target-languages targets :format :format/srt}))
+
+(deftest each-target-deadline-starts-when-that-target-starts
+  ;; One slot, three targets each taking 60% of the bound: a deadline counted
+  ;; from submit would cut the second target.
+  (let [slow (reify p.tr/ITranslator
+               (translate-batch [_ txts _ target _]
+                 (Thread/sleep 180)
+                 (r/ok (mapv #(str % "-" target) txts))))
+        res  (run-with-translator slow {:translator-opts {:target-concurrency 1
+                                                          :target-timeout-ms 300}})]
+    (is (r/ok? res))
+    (is (= targets (mapv :target-language (get-in res [:ok :outputs]))))))
+
+(deftest a-hung-target-times-out-alone-and-says-so
+  (let [hangs-on-fr (reify p.tr/ITranslator
+                      (translate-batch [_ txts _ target _]
+                        (when (= "fr" target) (Thread/sleep 10000))
+                        (r/ok (mapv #(str % "-" target) txts))))
+        res         (run-with-translator hangs-on-fr {:translator-opts {:target-concurrency 1
+                                                                        :target-timeout-ms 300
+                                                                        :deliver-partial? true}})]
+    (is (r/ok? res))
+    (is (= ["pt-BR" "de"] (mapv :target-language (get-in res [:ok :outputs])))
+        "the target queued behind the hung one still had its whole bound")
+    (is (= [{:target-language "fr"
+             :error :error/translation-failed
+             :reason "target translation timed out after 300 ms"}]
+           (get-in res [:ok :failed-targets])))))
