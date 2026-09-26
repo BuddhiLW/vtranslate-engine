@@ -82,16 +82,21 @@
         "and it reaches stderr, because nothing else reads the return value in
          the deployed worker")))
 
-(deftest an-addon-id-absent-from-the-catalog-is-an-invalid-spec
+(deftest an-addon-id-absent-from-the-catalog-is-refused-by-name
   ;; Distinct from a ns that cannot be required: an unknown catalog id never
-  ;; yields a ns to require at all, so it funnels to :addon/invalid-spec. Worth
-  ;; pinning because a typo in engine-config.yaml lands HERE, and the two
-  ;; reasons send a reader to different places (the config vs the classpath).
-  (let [result (binding [*err* (java.io.StringWriter.)]
+  ;; yields a ns to require at all, so it is refused as :addon/unknown-id, with
+  ;; the id and the {:ns ...} form in the message. Worth pinning because a typo
+  ;; in engine-config.yaml lands HERE, and the two reasons send a reader to
+  ;; different places (the config vs the classpath).
+  (let [out    (java.io.StringWriter.)
+        result (binding [*err* out]
                  (sut/register-adapters!
                   {:addons [{:addon :vtranslate/--no-such-addon--}]}))]
-    (is (some (fn [[_ reason]] (= :addon/invalid-spec reason))
-              (:addon-failures result)))))
+    (is (some (fn [[_ reason]] (= :addon/unknown-id reason))
+              (:addon-failures result)))
+    (is (re-find #"did not load: :addon/unknown-id: unknown addon id :vtranslate/--no-such-addon--"
+                 (str out))
+        "the stderr line names the id it refused")))
 
 (deftest the-default-addon-set-is-reported-too
   ;; register-adapters! with NO :addons key does not load zero addons: routing

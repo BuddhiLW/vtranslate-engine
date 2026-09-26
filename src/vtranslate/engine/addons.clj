@@ -30,14 +30,31 @@
                     (when (keyword? (:addon spec)) (:addon spec)))
     :else nil))
 
+(defn- unknown-id?
+  "True for a catalog-shaped id (a namespaced keyword) the catalog does not
+   hold. Guessing a namespace from it (`:acme/private-addon` ->
+   `acme.private-addon`) yields a plausible symbol that is not the addon's
+   namespace, and the require then fails for a reason that names neither."
+  [id entry]
+  (boolean (and (keyword? id) (namespace id) (nil? entry))))
+
+(defn unknown-id-message
+  "Why an addon id was refused, and what to write instead."
+  [id]
+  (str "unknown addon id " id "; the catalog knows "
+       (vec (sort (keys addon-catalog)))
+       ". Name an addon outside it by namespace: {:ns <addon-ns>}"))
+
 (defn normalize-spec [spec]
   (let [entry (catalog-entry spec)
         id (catalog-id spec)]
     (cond
       (keyword? spec)
-      (assoc (or entry {:ns (ns-symbol spec)})
-             :id id
-             :config {})
+      (if (unknown-id? id entry)
+        {:ns nil :id id :config {} :unknown-id id}
+        (assoc (or entry {:ns (ns-symbol spec)})
+               :id id
+               :config {}))
 
       (or (symbol? spec) (string? spec))
       {:ns (ns-symbol spec) :config {}}
@@ -49,7 +66,8 @@
         (cond-> (assoc (merge entry spec)
                        :ns (ns-symbol addon-ns)
                        :config (or (:config spec) (:addon/config spec) {}))
-          id (assoc :id id)))
+          id (assoc :id id)
+          (and (nil? addon-ns) (unknown-id? id entry)) (assoc :unknown-id id)))
 
       :else
       {:ns nil :config {} :invalid spec})))
@@ -94,10 +112,15 @@
               :classpath/aliases (:classpath/aliases normalized)}]
     (try
       (if-not addon-ns
-        (merge base
-               {:loaded? false
-                :error :addon/invalid-spec
-                :spec normalized})
+        (if-let [id (:unknown-id normalized)]
+          (merge base
+                 {:loaded? false
+                  :error :addon/unknown-id
+                  :message (unknown-id-message id)})
+          (merge base
+                 {:loaded? false
+                  :error :addon/invalid-spec
+                  :spec normalized}))
         (do
           (require addon-ns)
           (if-let [init (init-var addon-ns)]
