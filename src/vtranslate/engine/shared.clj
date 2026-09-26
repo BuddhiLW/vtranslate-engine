@@ -47,15 +47,15 @@
     "bn" "ur"})
 
 (def function-words
-  "Latin-script registry tags -> high-frequency function words of that language.
-   Only words that are rare in the OTHER listed languages carry evidence, so a
-   token in NONE of these sets is a content word rather than a language marker.
+  "Latin-script registry tags -> function words of that language.
 
-   A TARGET-ONLY language's set shares no word with a source language's set
-   unless English lists that word too, so it can never outvote a source
-   language on that language's own words. The English words it does share are
-   ordinary words of that language (Swedish \"i\", Czech \"to\", Finnish \"on\"),
-   so a translation into it that keeps them has not leaked English."
+   A SOURCE language's set holds its high-frequency function words. Only words
+   that are rare in the OTHER listed languages carry evidence, so a token in
+   NONE of these sets is a content word rather than a language marker.
+
+   A TARGET-ONLY language's set holds only English function words that are
+   also ordinary words of that language (Swedish \"i\", Czech \"to\", Finnish
+   \"on\"): every word in it is in the \"en\" set, and no other word is."
   {"en" #{"the" "and" "is" "are" "was" "were" "of" "to" "in" "that" "it" "with"
           "for" "this" "they" "we" "you" "i" "my" "our" "not" "be" "have" "has"
           "what" "which" "who" "will" "would" "there" "their" "may" "can" "as" "an"
@@ -87,39 +87,16 @@
           "kami" "kita" "mereka" "dengan" "untuk" "akan" "sudah" "juga" "ada"
           "bisa" "karena"}
    ;; Target-only languages from here on.
-   "ca" #{"i" "on" "amb" "però" "molt" "aquest" "aquesta" "això" "també" "perquè"
-          "doncs" "els" "dels" "pels" "jo" "nosaltres" "vosaltres" "ells" "elles"
-          "és" "són" "era" "hi" "ho" "seva" "quan" "ara" "aquí"}
-   "cs" #{"a" "to" "on" "se" "v" "s" "ze" "jsem" "jsou" "jsme" "byl" "bylo"
-          "když" "nebo" "také" "už" "není" "ten" "ta" "pro" "jako" "však" "jen"
-          "být"}
-   "sk" #{"a" "to" "on" "sa" "v" "vo" "s" "so" "zo" "som" "sú" "sme" "bol" "bolo"
-          "keď" "alebo" "tiež" "už" "ten" "pre" "ako" "len" "však" "byť"}
-   "hr" #{"i" "to" "a" "se" "sam" "smo" "ali" "kao" "što" "ili" "za" "iz"
-          "bio" "bila" "biti" "samo" "već" "kad" "jer" "ovo" "taj" "ovaj"}
-   "da" #{"i" "at" "for" "her" "og" "det" "til" "på" "som" "med" "har" "ikke"
-          "jeg" "vi" "han" "hun" "af" "men" "kan" "også" "skal" "meget" "når"
-          "hvad" "jo"}
-   "nb" #{"i" "at" "for" "her" "og" "det" "til" "på" "som" "med" "har" "ikke"
-          "jeg" "vi" "han" "hun" "av" "men" "kan" "også" "skal" "veldig" "når"
-          "hva" "meg" "seg"}
-   "sv" #{"i" "och" "att" "det" "är" "som" "på" "för" "med" "har" "inte" "jag"
-          "vi" "han" "hon" "av" "men" "kan" "också" "ska" "mycket" "när" "vad"
-          "till" "så" "här"}
-   "fi" #{"on" "he" "ei" "se" "että" "oli" "olen" "ovat" "ole" "mutta" "kun"
-          "niin" "myös" "minä" "sinä" "hän" "me" "te" "tämä" "joka" "kuin" "jos"
-          "vain" "nyt" "sitten" "mitä"}
-   "hu" #{"is" "a" "az" "és" "hogy" "nem" "egy" "meg" "csak" "már" "ez" "azt"
-          "mint" "vagy" "még" "volt" "kell" "én" "ő" "mert" "akkor" "itt"
-          "nagyon" "lesz" "sem"}
-   "ro" #{"și" "şi" "în" "nu" "este" "sunt" "cu" "pe" "din" "care" "mai" "dar"
-          "sau" "ca" "ea" "acest" "această" "pentru" "fost" "foarte" "asta"
-          "doar" "aici" "când" "unde" "fi"}
-   "ms" #{"boleh" "kerana" "mahu" "sahaja" "bahawa" "awak" "nak" "betul"
-          "hendak" "ialah" "iaitu"}
-   "vi" #{"và" "là" "của" "có" "không" "tôi" "này" "được" "cho" "với" "những"
-          "các" "một" "người" "đã" "sẽ" "đó" "thì" "mà" "cũng" "như" "bạn"
-          "chúng" "khi" "ở" "vì" "nhưng" "rất"}})
+   "ca" #{"i" "on"}
+   "cs" #{"i" "to" "on" "by"}
+   "sk" #{"to" "on" "by"}
+   "hr" #{"i" "to" "on"}
+   "da" #{"i" "at" "for" "her" "have"}
+   "nb" #{"i" "at" "for" "her"}
+   "sv" #{"i" "in"}
+   "fi" #{"on" "he"}
+   "hu" #{"is" "be"}
+   "ro" #{"are" "an"}})
 
 (def supported-languages
   "Every tag the engine accepts anywhere. The union, kept so a caller that does
