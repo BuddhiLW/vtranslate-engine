@@ -51,10 +51,19 @@
         :when (> widest max-line-px)]
     [[w h] style lines widest max-line-px]))
 
+(def ^:private fonts-required?
+  "CI must have fonts: a runner that lost them would otherwise pass this
+   file on the approximation alone. Elsewhere a JVM with no fonts (a headless
+   dev box) skips the AWT arm and says so, instead of failing for its
+   environment."
+  (boolean (not-empty (System/getenv "CI"))))
+
 (deftest every-line-fits-the-frame-by-the-burners-own-metrics
   (testing "java.awt metrics, the ones the Java2D burner draws with"
-    (is (some? (font-metrics/awt-measure {})) "this JVM has fonts to measure")
-    (is (empty? (worst-overflow font-metrics/measure))))
+    (if (or fonts-required? (some? (font-metrics/awt-measure {})))
+      (do (is (some? (font-metrics/awt-measure {})) "this JVM has fonts to measure")
+          (is (empty? (worst-overflow font-metrics/measure))))
+      (println "[caption-layout] AWT arm skipped: this JVM has no fonts to measure (set CI to require them)")))
   (testing "the pure approximation"
     (is (empty? (worst-overflow sut/approximate-measure)))))
 
