@@ -42,12 +42,20 @@
    language, and a transcription-only job records it as its target."
   #{"und" "en" "en-us" "pt" "pt-BR" "es" "es-419" "fr" "de" "ru"
     "zh" "zh-hans" "zh-cn" "zh-tw" "ja" "ar" "he" "fa"
-    "uk" "it" "ko" "tr" "pl" "nl" "hi" "id"})
+    "uk" "it" "ko" "tr" "pl" "nl" "hi" "id"
+    "ca" "cs" "da" "el" "fi" "hu" "ms" "nb" "ro" "sv" "vi" "bg" "sk" "hr"
+    "bn" "ur"})
 
 (def function-words
-  "Latin-script registry tags -> high-frequency function words of that language.
-   Only words that are rare in the OTHER listed languages carry evidence, so a
-   token in NONE of these sets is a content word rather than a language marker."
+  "Latin-script registry tags -> function words of that language.
+
+   A SOURCE language's set holds its high-frequency function words. Only words
+   that are rare in the OTHER listed languages carry evidence, so a token in
+   NONE of these sets is a content word rather than a language marker.
+
+   A TARGET-ONLY language's set holds only English function words that are
+   also ordinary words of that language (Swedish \"i\", Czech \"to\", Finnish
+   \"on\"): every word in it is in the \"en\" set, and no other word is."
   {"en" #{"the" "and" "is" "are" "was" "were" "of" "to" "in" "that" "it" "with"
           "for" "this" "they" "we" "you" "i" "my" "our" "not" "be" "have" "has"
           "what" "which" "who" "will" "would" "there" "their" "may" "can" "as" "an"
@@ -77,7 +85,18 @@
           "değil" "var" "yok" "gibi" "çok" "daha" "ama" "mi" "mı"}
    "id" #{"dan" "yang" "di" "ke" "dari" "ini" "itu" "tidak" "adalah" "saya"
           "kami" "kita" "mereka" "dengan" "untuk" "akan" "sudah" "juga" "ada"
-          "bisa" "karena"}})
+          "bisa" "karena"}
+   ;; Target-only languages from here on.
+   "ca" #{"i" "on"}
+   "cs" #{"i" "to" "on" "by"}
+   "sk" #{"to" "on" "by"}
+   "hr" #{"i" "to" "on"}
+   "da" #{"i" "at" "for" "her" "have"}
+   "nb" #{"i" "at" "for" "her"}
+   "sv" #{"i" "in"}
+   "fi" #{"on" "he"}
+   "hu" #{"is" "be"}
+   "ro" #{"are" "an"}})
 
 (def supported-languages
   "Every tag the engine accepts anywhere. The union, kept so a caller that does

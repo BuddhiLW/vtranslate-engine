@@ -60,10 +60,14 @@
   :window  40                                ; target cues translated per request
   :context 4                                 ; neighbour cues sent as untranslated context
   ;; :concurrency 4                          ; parallel windows (lower if the API throttles)
-  ;; :timeout-ms 120000                      ; per-window timeout
+  ;; :timeout-ms 120000                      ; bound on ONE attempt at a window or chunk,
+  ;;                                         ; counted from when that attempt starts
   ;; :chunk-size 50                          ; batch large jobs into bounded chunks of N
-  ;;                                         ; (a chunk err fails the batch LOUD unless retried)
-  ;; :fallback-translator :identity          ; provider key retried per failed chunk
+  ;; :chunk-attempts 2                       ; attempts per chunk; a timed-out, interrupted
+  ;;                                         ; or failed attempt is tried again, then the
+  ;;                                         ; fallback, and only then does the batch fail LOUD
+  ;; :fallback-translator :identity          ; provider key tried once a chunk's attempts are spent
+  ;; :target-timeout-ms 1800000              ; bound on one target language, from when it starts
   ;; :secret-pass "Venice/api-key"           ; `pass` path wins over env key
   ;; :api-url "https://api.venice.ai/api/v1/chat/completions"
   }

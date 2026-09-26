@@ -31,7 +31,9 @@
 (def language-tags
   ["und" "en" "en-us" "pt" "pt-BR" "es" "es-419" "fr" "de" "ru"
    "zh" "zh-hans" "zh-cn" "zh-tw" "ja" "ar" "he" "fa"
-   "uk" "it" "ko" "tr" "pl" "nl" "hi" "id"])
+   "uk" "it" "ko" "tr" "pl" "nl" "hi" "id"
+   "ca" "cs" "da" "el" "fi" "hu" "ms" "nb" "ro" "sv" "vi" "bg" "sk" "hr"
+   "bn" "ur"])
 
 (def Language
   "A supported BCP-47 tag."

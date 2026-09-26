@@ -1,6 +1,5 @@
 (ns vtranslate.engine.api
   (:require [hive-dsl.result :as r]
-            [hive-weave.parallel :as wp]
             [vtranslate.engine.domain.job :as job]
             [vtranslate.engine.domain.ingestion :as ing]
             [vtranslate.engine.calc.transcription :as c.tx]
@@ -28,6 +27,7 @@
             [vtranslate.engine.calc.progress :as c.progress]
             [vtranslate.engine.domain.transcription :as tx]
             [vtranslate.engine.providers.decorators :as decorators]
+            [vtranslate.engine.parallel :as par]
             [vtranslate.engine.calc.reflow.optimal]))
 
 ;; ---------------------------------------------------------------------------
@@ -302,30 +302,62 @@
   (or (get-in config [:translator-opts :target-concurrency])
       (max 1 (min max-target-concurrency (count targets)))))
 
+(def ^:private default-target-timeout-ms
+  "Bound on one target language's translation, counted from when it starts."
+  1800000)
+
+(defn- target-timeout-ms
+  "How long one target may translate, counted from when it starts: the
+   configured [:translator-opts :target-timeout-ms] when a positive integer,
+   else `default-target-timeout-ms`. => positive long"
+  [config]
+  (let [configured (get-in config [:translator-opts :target-timeout-ms])]
+    (if (pos-int? configured) configured default-target-timeout-ms)))
+
+(defn- target-result
+  "One target's Result as the pool settled it (vtranslate.engine.parallel):
+   its own Result when it finished, else a :error/translation-failed whose
+   :reason says whether it timed out, threw or was interrupted."
+  [{:keys [status value timeout-ms exception]}]
+  (case status
+    :ok          value
+    :timed-out   (r/err :error/translation-failed
+                        {:reason (str "target translation timed out after "
+                                      timeout-ms " ms")})
+    :failed      (r/err :error/translation-failed
+                        {:reason  (str "target translation threw "
+                                       (.getName (class exception)))
+                         :class   (.getName (class exception))
+                         :message (.getMessage ^Throwable exception)})
+    (r/err :error/translation-failed
+           {:reason "target translation was interrupted"})))
+
 (defn- translate-targets
   "Translate the one shared transcript into every target. Independent per
-   language, so they run under a bounded pool; a timeout or throw surfaces as
-   that target's failure rather than a nil. Order follows `targets`, not
-   completion. `on-target-done` is called once per target as it finishes, in
-   completion order, so progress can be reported while the others are still
-   running. A failed target fails the job, unless
-   `[:translator-opts :deliver-partial?]` is set and another target finished:
-   then the finished ones are delivered and the rest travel as `:failed-targets`.
+   language, so they run under a bounded pool in which each target's
+   `[:translator-opts :target-timeout-ms]` (default 30 min) is counted from
+   when THAT target starts; a target still waiting for a free slot spends none
+   of it. A timeout or throw surfaces as that target's failure, with a :reason
+   saying which, rather than a nil. Order follows `targets`, not completion.
+   `on-target-done` is called once per target as it finishes, in completion
+   order, so progress can be reported while the others are still running. A
+   failed target fails the job, unless `[:translator-opts :deliver-partial?]` is
+   set and another target finished: then the finished ones are delivered and
+   the rest travel as `:failed-targets`.
    => Result<{:outputs [{:target-language :translated}] :failed-targets [...]}>."
   [tr spec transcript targets config on-provider-attempt on-target-done]
   (let [multi?  (< 1 (count targets))
-        results (wp/bounded-pmap
-                 {:concurrency (target-concurrency config targets)
-                  :timeout-ms  (or (get-in config [:translator-opts :target-timeout-ms])
-                                   1800000)
-                  :fallback    ::timeout}
-                 (fn [lang]
-                   (let [translated (translate-one-target tr spec transcript lang multi?
-                                                          on-provider-attempt)]
-                     (on-target-done)
-                     translated))
-                 targets)
-        {:keys [delivered failed]} (c.tr/target-outcomes targets results ::timeout)]
+        results (mapv target-result
+                      (par/run-each
+                       {:concurrency (target-concurrency config targets)
+                        :timeout-ms  (target-timeout-ms config)}
+                       (fn [lang]
+                         (let [translated (translate-one-target tr spec transcript lang multi?
+                                                                on-provider-attempt)]
+                           (on-target-done)
+                           translated))
+                       targets))
+        {:keys [delivered failed]} (c.tr/target-outcomes targets results ::unfinished)]
     (cond
       (empty? failed)
       (r/ok {:outputs delivered :failed-targets []})
