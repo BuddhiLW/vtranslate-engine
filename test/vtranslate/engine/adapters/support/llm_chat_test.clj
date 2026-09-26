@@ -1,7 +1,8 @@
 (ns vtranslate.engine.adapters.support.llm-chat-test
   (:require [clojure.test :refer [deftest is]]
             [hive-dsl.result :as r]
-            [vtranslate.engine.adapters.support.llm-chat :as sut])
+            [vtranslate.engine.adapters.support.llm-chat :as sut]
+            [cheshire.core])
   (:import (java.net.http HttpTimeoutException)))
 
 (defn- success-body
@@ -118,6 +119,51 @@
     (is (= 576900000
            (cost-micros usage {:input-usd-per-token "0.33"
                                :output-usd-per-token "0.48"})))))
+
+(deftest an-unpriced-call-is-costed-from-the-catalogue
+  (let [attempt (atom nil)]
+    (with-redefs-fn {#'sut/send-chat-request
+                     (constantly
+                      {:status 200
+                       :body (success-body
+                              "ok"
+                              "{\"prompt_tokens\":1000000,\"completion_tokens\":1000000}")})
+                     #'sut/throttle! (fn [_] nil)}
+      #(do
+         (sut/post-chat :error/review-failed
+                        "https://example.invalid/chat" "key" "{}"
+                        {:throttle-ms 0
+                         :provider :venice
+                         :model "kimi-k3"
+                         :on-attempt (fn [value] (reset! attempt value))})
+         (is (= 22500000 (get-in @attempt [:usage :cost-micros]))
+             "3.75 + 18.75 USD for a million tokens each way")))))
+
+(deftest an-unknown-model-still-records-no-cost
+  (let [attempt (atom nil)]
+    (with-redefs-fn {#'sut/send-chat-request
+                     (constantly
+                      {:status 200
+                       :body (success-body "ok" "{\"prompt_tokens\":10,\"completion_tokens\":5}")})
+                     #'sut/throttle! (fn [_] nil)}
+      #(do
+         (sut/post-chat :error/review-failed
+                        "https://example.invalid/chat" "key" "{}"
+                        {:throttle-ms 0 :provider :venice :model "no-such-model"
+                         :on-attempt (fn [value] (reset! attempt value))})
+         (is (nil? (get-in @attempt [:usage :cost-micros])))))))
+
+(deftest body-params-are-merged-into-the-request-body
+  (let [body (cheshire.core/parse-string
+              (sut/chat-body-messages "m" [{:role "user" :content "x"}]
+                                      {:body-params {:venice_parameters {:disable_thinking true}}})
+              true)]
+    (is (= {:disable_thinking true} (:venice_parameters body)))
+    (is (= "m" (:model body)))
+    (is (= 0.2 (:temperature body))))
+  (is (not (contains? (cheshire.core/parse-string
+                       (sut/chat-body-messages "m" [] {}) true)
+                      :venice_parameters))))
 
 (deftest the-retry-budget-outlasts-a-brief-provider-overload
   ;; Venice answers 429 "the model is currently overloaded" often enough that

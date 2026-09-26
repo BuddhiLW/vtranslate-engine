@@ -129,6 +129,15 @@
            (dissoc @seen :opts)))
     (is (= 1 (get-in @seen [:opts :k])) "the hook sees the call's opts")))
 
+(deftest translator-opts-body-params-reach-the-request-body
+  (let [params {:venice_parameters {:disable_thinking true}}
+        t      (llm/make-translator :venice {:translator-opts {:body-params params}})
+        body   (json/parse-string
+                (#'llm/chat-body "m" "en" "pt" ["hi"] {} (:body-params t)) true)]
+    (is (= params (:body-params t)))
+    (is (= {:disable_thinking true} (:venice_parameters body))))
+  (is (nil? (:body-params (llm/make-translator :venice {})))))
+
 ;; =============================================================================
 ;; make-translator — provider defaults vs [:translator-opts] overrides.
 ;; =============================================================================

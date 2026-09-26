@@ -73,6 +73,31 @@
                 :story      "gemma-4-uncensored"
                 :audio      "gemini-3-5-flash-lite"}})
 
+(def prices
+  "provider -> model id -> {:input usd :output usd}, both per MILLION tokens,
+   read off the providers' own /models endpoints on 2026-09-26. The fallback a
+   call is costed at when its caller passed no :pricing."
+  {:venice     {"gemini-3-5-flash-lite" {:input 0.375  :output 3.125}
+                "gemini-3-8-flash"      {:input 0.9375 :output 4.6875}
+                "z-ai-glm-5-3"          {:input 1.75   :output 5.5}
+                "z-ai-glm-5-3-flash"    {:input 0.15   :output 0.5}
+                "kimi-k3"               {:input 3.75   :output 18.75}
+                "gemma-4-uncensored"    {:input 0.1625 :output 0.5}
+                "deepseek-v4-1-flash"   {:input 0.375  :output 1.5}
+                "deepseek-v4-pro"       {:input 1.65   :output 3.301}}
+   :openrouter {"google/gemini-3.5-flash-lite" {:input 0.3   :output 2.5}
+                "google/gemini-3.8-flash"      {:input 0.75  :output 3.75}
+                "z-ai/glm-5.3"                 {:input 0.379 :output 1.192}
+                "z-ai/glm-5.3-flash"           {:input 0.04  :output 0.5}
+                "deepseek/deepseek-v4-pro"     {:input 0.348 :output 0.696}}})
+
+(defn pricing-for
+  "The per-million pricing of `model` at `provider` (keyword or string), or nil
+   when the table does not know it. Pure. => {:input n :output n} | nil"
+  [provider model]
+  (when (and provider model)
+    (get-in prices [(keyword provider) model])))
+
 (defn model-for
   "The model `provider` serves for `role`, or nil when it serves none. Pure."
   [provider role]

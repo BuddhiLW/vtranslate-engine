@@ -7,7 +7,8 @@
   (:require [cheshire.core :as json]
             [clojure.string :as str]
             [hive-dsl.result :as r]
-            [vtranslate.engine.adapters.support.secrets :as secrets])
+            [vtranslate.engine.adapters.support.secrets :as secrets]
+            [vtranslate.engine.adapters.support.model-catalogue :as catalogue])
   (:import (java.io IOException)
            (java.net URI)
            (java.net.http HttpClient HttpRequest HttpRequest$BodyPublishers
@@ -56,12 +57,14 @@
   "OpenAI chat request body from an explicit `messages` vector.
    Message ORDER is the caller's, which matters for providers that cache on a
    byte-exact prefix: static content first, the part that varies last.
-   opts: :temperature (default 0.2)."
-  [model messages {:keys [temperature] :or {temperature 0.2}}]
+   opts: :temperature (default 0.2); :body-params, a map merged into the body
+   (e.g. {:venice_parameters {:disable_thinking true}})."
+  [model messages {:keys [temperature body-params] :or {temperature 0.2}}]
   (json/generate-string
-   {:model       model
-    :temperature temperature
-    :messages    (vec messages)}))
+   (merge body-params
+          {:model       model
+           :temperature temperature
+           :messages    (vec messages)})))
 
 (defn chat-body
   "OpenAI chat request body from a `system` + `user` message string.
@@ -277,6 +280,7 @@
   (let [{:keys [max-retries base-delay-ms throttle-ms on-attempt provider model
                 pricing max-retry-after-ms max-timeout-retries request-timeout-ms]}
         (merge default-post-opts opts)
+        pricing (or pricing (catalogue/pricing-for provider model))
         req (chat-request api-url api-key body
                           (or request-timeout-ms (* 1000 (request-timeout-s))))]
     (loop [attempt 0 timeouts 0]
