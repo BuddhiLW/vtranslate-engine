@@ -1,0 +1,4 @@
+{:custom {:size 72, :margin 36, :corner 20},
+ :hd {:size 67, :margin 30, :corner 19},
+ :small {:size 22, :margin 12, :corner 6},
+ :uhd {:size 134, :margin 60, :corner 38}}

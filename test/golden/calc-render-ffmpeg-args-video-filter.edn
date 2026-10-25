@@ -1,0 +1,3 @@
+{:plain "subtitles=filename=a.ass",
+ :scaled "subtitles=filename=a.ass,scale=1280:720",
+ :suffix "subtitles=filename=a.ass,format=nv12,hwupload"}

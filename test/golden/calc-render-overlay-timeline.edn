@@ -1,0 +1,4 @@
+{:empty [],
+ :unsorted
+ [{:start-ms 0, :end-ms 100, :lines ["first"]}
+  {:start-ms 100, :end-ms 200, :lines ["later"]}]}

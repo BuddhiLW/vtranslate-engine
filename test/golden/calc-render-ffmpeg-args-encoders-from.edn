@@ -1,0 +1,52 @@
+{:custom
+ {:libx264
+  {:codec "libx264",
+   :preset-key :preset,
+   :default-preset "veryfast",
+   :pix-fmt "yuv420p"},
+  :h264-nvenc
+  {:codec "h264_nvenc",
+   :preset-key :nvenc-preset,
+   :default-preset "p4",
+   :pix-fmt "yuv420p",
+   :hardware? true},
+  :h264-vaapi
+  {:codec "h264_vaapi",
+   :hardware? true,
+   :device-args ["-vaapi_device" "/dev/dri/renderD128"],
+   :filter-suffix "format=nv12,hwupload"},
+  :custom {:codec "custom"}},
+ :defaults
+ {:libx264
+  {:codec "libx264",
+   :preset-key :preset,
+   :default-preset "veryfast",
+   :pix-fmt "yuv420p"},
+  :h264-nvenc
+  {:codec "h264_nvenc",
+   :preset-key :nvenc-preset,
+   :default-preset "p4",
+   :pix-fmt "yuv420p",
+   :hardware? true},
+  :h264-vaapi
+  {:codec "h264_vaapi",
+   :hardware? true,
+   :device-args ["-vaapi_device" "/dev/dri/renderD128"],
+   :filter-suffix "format=nv12,hwupload"}},
+ :override
+ {:libx264
+  {:codec "libx264",
+   :preset-key :preset,
+   :default-preset "slow",
+   :pix-fmt "yuv420p"},
+  :h264-nvenc
+  {:codec "h264_nvenc",
+   :preset-key :nvenc-preset,
+   :default-preset "p4",
+   :pix-fmt "yuv420p",
+   :hardware? true},
+  :h264-vaapi
+  {:codec "h264_vaapi",
+   :hardware? true,
+   :device-args ["-vaapi_device" "/dev/dri/renderD128"],
+   :filter-suffix "format=nv12,hwupload"}}}

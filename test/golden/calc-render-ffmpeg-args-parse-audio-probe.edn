@@ -1,0 +1,4 @@
+{:absent nil,
+ :stereo {:audio-bitrate 128000, :channels 2},
+ :unknown-rate {:audio-bitrate nil, :channels 1},
+ :zero nil}

@@ -1,0 +1,39 @@
+{:empty {:error :error/render-failed, :reason "no cues to render"},
+ :invalid-format
+ {:error :error/unsupported-format, :format :format/nope},
+ :omitted
+ {:ok
+  {:id "s",
+   :source-id "translated",
+   :language "es",
+   :format #:adt{:variant :format/vtt, :type :SubtitleFormat},
+   :cues
+   [{:index 1,
+     :range {:start {:ms 1000}, :end {:ms 2000}},
+     :lines ["y"]}],
+   :status #:adt{:variant :track/rendered, :type :TrackStatus}}},
+ :reflow
+ {:ok
+  {:id "s",
+   :source-id "translated",
+   :language "es",
+   :format #:adt{:variant :format/srt, :type :SubtitleFormat},
+   :cues
+   [{:index 1,
+     :range {:start {:ms 0}, :end {:ms 1000}},
+     :lines ["one two three four"]}],
+   :status #:adt{:variant :track/rendered, :type :TrackStatus}}},
+ :valid
+ {:ok
+  {:id "s",
+   :source-id "translated",
+   :language "es",
+   :format #:adt{:variant :format/srt, :type :SubtitleFormat},
+   :cues
+   [{:index 1,
+     :range {:start {:ms 0}, :end {:ms 1000}},
+     :lines ["Hola"]}
+    {:index 2,
+     :range {:start {:ms 1000}, :end {:ms 2000}},
+     :lines ["mundo"]}],
+   :status #:adt{:variant :track/rendered, :type :TrackStatus}}}}

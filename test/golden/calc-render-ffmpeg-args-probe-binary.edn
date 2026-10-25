@@ -1,0 +1,4 @@
+{:bare "ffprobe",
+ :nil "ffprobe",
+ :pinned "/opt/bin/ffprobe.exe",
+ :unknown "ffprobe"}
