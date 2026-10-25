@@ -1,0 +1,6 @@
+{:another
+ {:in :vtranslate.engine.providers-contract-trifecta-test/another,
+  :out [:any :unknown]},
+ :unknown
+ {:in :vtranslate.engine.providers-contract-trifecta-test/unknown,
+  :out [:any :unknown]}}

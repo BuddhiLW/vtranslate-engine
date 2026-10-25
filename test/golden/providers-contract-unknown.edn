@@ -1,0 +1,14 @@
+{:a
+ {:in :a,
+  :out
+  {:error :error/unknown-fixture,
+   :provider-key :a,
+   :known [],
+   :hint "hint"}},
+ :b
+ {:in :b,
+  :out
+  {:error :error/unknown-fixture,
+   :provider-key :b,
+   :known [],
+   :hint "hint"}}}

@@ -1,0 +1,24 @@
+{:empty
+ {:in {},
+  :out
+  [{:resolved
+    {:ok
+     {:key
+      :vtranslate.engine.providers-contract-trifecta-test/registered,
+      :config {}}},
+    :unknown {:error :error/unknown-fetcher},
+    :known? true,
+    :default? false,
+    :diagnostic? true}]},
+ :options
+ {:in {:threads 2},
+  :out
+  [{:resolved
+    {:ok
+     {:key
+      :vtranslate.engine.providers-contract-trifecta-test/registered,
+      :config {:threads 2}}},
+    :unknown {:error :error/unknown-fetcher},
+    :known? true,
+    :default? false,
+    :diagnostic? true}]}}
