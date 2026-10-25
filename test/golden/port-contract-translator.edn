@@ -1,0 +1,2 @@
+{:empty {:in [] :out {:ok []}}
+ :duplicates {:in ["a" "a"] :out {:ok ["en:a:fr:fixture" "en:a:fr:fixture"]}}}

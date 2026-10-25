@@ -4,13 +4,28 @@
             [hive-test.trifecta :refer [deftrifecta]]
             [malli.core :as m]
             [vtranslate.engine.schema.port-contract :as c]
-            [vtranslate.engine.port.transcriber :as t]))
+            [vtranslate.engine.port.transcriber :as t]
+            [vtranslate.engine.port.translator :as tr]
+            [vtranslate.engine.schema.port-values :as p]))
 
 (defn route-observation [xs]
   (let [route (fn [tag] (fn [decode lang] (update (decode lang) :ok conj tag)))
         opts (-> {} (t/with-route (route 1)) (t/with-route (route 2)))
         impl (t/transcriber (fn [audio lang opts] (t/decoded opts (fn [_] {:ok audio}) lang)))]
     {:in xs :out (t/transcribe* impl xs "en" opts)}))
+
+(defn translator-observation [texts]
+  (let [impl (tr/translator (fn [xs source target opts]
+                             {:ok (mapv #(str source ":" % ":" target ":" (:tag opts)) xs)}))]
+    {:in texts :out (tr/translate impl texts "en" "fr" {:tag "fixture"})}))
+
+(deftrifecta translator-delegation translator-observation
+  {:golden-path "test/golden/port-contract-translator.edn"
+   :cases {:empty [] :duplicates ["a" "a"]}
+   :gen (gen/vector gen/string-alphanumeric)
+   :pred (fn [{:keys [in out]}]
+           (and (m/validate p/TranslateResult out)
+                (= (mapv #(str "en:" % ":fr:fixture") in) (:ok out))))})
 (deftrifecta route-composition route-observation
   {:golden-path "test/golden/port-contract-route.edn"
    :cases {:empty [] :existing [9]}
