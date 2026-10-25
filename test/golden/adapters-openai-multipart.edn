@@ -1,0 +1,16 @@
+{:empty
+ {:in [{} "a.wav" "bytes"],
+  :out
+  [{:part-name "file",
+    :file-name "a.wav",
+    :mime-type "audio/wav",
+    :content "bytes"}]},
+ :fields
+ {:in [{"model" "whisper", "language" "he"} "b.wav" "pcm"],
+  :out
+  [{:part-name "model", :content "whisper"}
+   {:part-name "language", :content "he"}
+   {:part-name "file",
+    :file-name "b.wav",
+    :mime-type "audio/wav",
+    :content "pcm"}]}}
