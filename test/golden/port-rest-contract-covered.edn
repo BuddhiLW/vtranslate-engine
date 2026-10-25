@@ -1,0 +1,4 @@
+{:error
+ {:in {:error :error/segmentation-failed},
+  :out {:error :error/segmentation-failed}},
+ :success {:in {:ok []}, :out {:ok []}}}

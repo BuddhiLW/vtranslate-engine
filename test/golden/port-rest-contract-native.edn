@@ -1,0 +1,3 @@
+{:success {:in false, :out {:ok 7}},
+ :throw
+ {:in true, :out {:error :error/stub, :reason "native call failed"}}}

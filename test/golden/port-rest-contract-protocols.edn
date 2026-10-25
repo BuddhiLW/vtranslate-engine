@@ -1,0 +1,47 @@
+{:empty
+ {:in "",
+  :out
+  {:burn "",
+   :host-unload {:ok :absent},
+   :cache-fetch {:ok ""},
+   :source {:ok ""},
+   :host-loaded {:ok #{""}},
+   :render {:ok ""},
+   :native {:ok ""},
+   :cache-store {:ok ""},
+   :segment {:ok {:spans [{:start-ms 0, :end-ms 0}]}},
+   :cache-evict {:ok 0},
+   :composer {:ok {:output-uri ""}},
+   :parse
+   {:ok {:cues [{:index 1, :start-ms 0, :end-ms 0, :lines [""]}]}},
+   :probe {:ok {:duration-ms 0}},
+   :describe {:strategy :stub},
+   :extract {:ok ""},
+   :cache-forget {:ok ""},
+   :host-load {:ok ""},
+   :fetch {:ok {:local-path ""}},
+   :covered {:ok [{:start-ms 0, :end-ms 0}]}}},
+ :text
+ {:in "fixture",
+  :out
+  {:burn "fixture",
+   :host-unload {:ok :absent},
+   :cache-fetch {:ok "fixture"},
+   :source {:ok "fixture"},
+   :host-loaded {:ok #{"fixture"}},
+   :render {:ok "fixture"},
+   :native {:ok "fixture"},
+   :cache-store {:ok "fixture"},
+   :segment {:ok {:spans [{:start-ms 0, :end-ms 7}]}},
+   :cache-evict {:ok 7},
+   :composer {:ok {:output-uri "fixture"}},
+   :parse
+   {:ok
+    {:cues [{:index 1, :start-ms 0, :end-ms 7, :lines ["fixture"]}]}},
+   :probe {:ok {:duration-ms 7}},
+   :describe {:strategy :stub},
+   :extract {:ok "fixture"},
+   :cache-forget {:ok "fixture"},
+   :host-load {:ok "fixture"},
+   :fetch {:ok {:local-path "fixture"}},
+   :covered {:ok [{:start-ms 0, :end-ms 7}]}}}}
