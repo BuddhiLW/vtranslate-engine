@@ -63,3 +63,8 @@
   (is (= {:error :error/asr-failed}
          (t/decoded {:asr/clean (fn [& _] (throw (Exception. "must not clean")))}
                     (fn [_] {:error :error/asr-failed}) "en"))))
+
+(deftest notice-contract
+  (let [sink (java.io.StringWriter.)]
+    (binding [*err* sink] (t/notice! "fixture"))
+    (is (= (str "[vtranslate/asr] fixture" (System/lineSeparator)) (str sink)))))
