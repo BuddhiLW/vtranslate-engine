@@ -1,0 +1,6 @@
+{:coerce
+ {:in
+  {:beam-size 3.7, :temperature 0, :no-context? false, :unknown 42},
+  :out {:beam-size 3, :no-context? false, :temperature 0.0}},
+ :empty {:in {}, :out {}},
+ :nil {:in {:beam-size nil}, :out {}}}

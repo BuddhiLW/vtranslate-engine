@@ -1,0 +1,4 @@
+{:file {:in ["a.wav" :file], :out "a.wav"},
+ :map {:in ["a.wav" :map], :out "a.wav"},
+ :other {:in ["a.wav" :other], :out nil},
+ :string {:in ["a.wav" :string], :out "a.wav"}}

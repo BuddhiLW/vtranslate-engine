@@ -1,0 +1,4 @@
+{:empty {:in [20 20 [{:start-ms 0, :end-ms 100}]], :out []},
+ :overshoot
+ {:in [10 20 [{:start-ms 0, :end-ms 100}]],
+  :out [{:start-ms 10, :end-ms 20}]}}

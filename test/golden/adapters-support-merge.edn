@@ -1,0 +1,6 @@
+{:duplicate
+ {:in ["one two" false],
+  :out [{:start-ms 0, :end-ms 100, :text "one two"}]},
+ :longer
+ {:in ["one two" true],
+  :out [{:start-ms 50, :end-ms 200, :text "one two extra"}]}}
