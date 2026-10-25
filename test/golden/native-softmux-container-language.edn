@@ -1,0 +1,8 @@
+{:blank "und",
+ :en "eng",
+ :nil "und",
+ :pt-br "por",
+ :three-letter "deu",
+ :und "und",
+ :unknown "und",
+ :zh-cn "zho"}

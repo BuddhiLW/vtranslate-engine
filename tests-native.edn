@@ -1,0 +1,25 @@
+#kaocha/v1
+;; Native contract suite — opt-in, isolated from the unit run. test-native/ is
+;; on the classpath ONLY through the :ffmpeg alias, so `-M:test` never sees it.
+;; One kaocha suite per native alias: --focus a suite and kaocha skips loading
+;; every other suite, so a suite whose alias is absent is never required.
+;;
+;;   clojure -J-Xmx1500m -M:test:ffmpeg --config-file tests-native.edn --focus :ffmpeg
+;;   clojure -J-Xmx1500m -M:test:ffmpeg:whisper-jni --config-file tests-native.edn --focus :whisper-jni
+;;   clojure -J-Xmx1500m -M:test:ffmpeg:silero-vad --config-file tests-native.edn --focus :silero-vad
+;;   clojure -J-Xmx1500m -M:test:ffmpeg:onnx --config-file tests-native.edn --focus :onnx
+;;
+;; See docs/mallify-trifecta-adapters-coverage.md for what each one needs.
+{:tests [{:id          :ffmpeg
+          :test-paths  ["test-native"]
+          :ns-patterns ["^vtranslate\\.engine\\.native\\.ffmpeg\\..*-test$"]}
+         {:id          :whisper-jni
+          :test-paths  ["test-native"]
+          :ns-patterns ["^vtranslate\\.engine\\.native\\.whisper-jni\\..*-test$"]}
+         {:id          :silero-vad
+          :test-paths  ["test-native"]
+          :ns-patterns ["^vtranslate\\.engine\\.native\\.silero-vad\\..*-test$"]}
+         {:id          :onnx
+          :test-paths  ["test-native"]
+          :ns-patterns ["^vtranslate\\.engine\\.native\\.onnx\\..*-test$"]}]
+ :reporter kaocha.report/documentation}

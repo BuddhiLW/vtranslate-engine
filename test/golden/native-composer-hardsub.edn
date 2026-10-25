@@ -1,0 +1,51 @@
+{:auto-fallback
+ {:in
+  {:opts {:ffmpeg-bin "/nonexistent/vt-native/ffmpeg"},
+   :cues
+   [{:start-ms 0, :end-ms 200, :lines ["a"]}
+    {:start-ms 600, :end-ms 1000, :lines ["b" "c"]}],
+   :output? false},
+  :out
+  {:make {:ok {:backend :javacv}},
+   :result {:ok {:output-uri "<tmp>/source.subbed.mp4"}},
+   :partials [],
+   :frames
+   [{:t-ms 0, :cue-active? true, :changed? true}
+    {:t-ms 100, :cue-active? true, :changed? true}
+    {:t-ms 200, :cue-active? false, :changed? false}
+    {:t-ms 300, :cue-active? false, :changed? false}
+    {:t-ms 400, :cue-active? false, :changed? false}
+    {:t-ms 500, :cue-active? false, :changed? false}
+    {:t-ms 600, :cue-active? true, :changed? true}
+    {:t-ms 700, :cue-active? true, :changed? true}
+    {:t-ms 800, :cue-active? true, :changed? true}
+    {:t-ms 900, :cue-active? true, :changed? true}]}},
+ :explicit-javacv
+ {:in
+  {:opts {:burn-backend :javacv, :font-size 24},
+   :cues [{:start-ms 100, :end-ms 400, :lines ["hello"]}],
+   :output? true},
+  :out
+  {:make {:ok {:backend :javacv}},
+   :result {:ok {:output-uri "<tmp>/chosen.mp4"}},
+   :partials [],
+   :frames
+   [{:t-ms 0, :cue-active? false, :changed? false}
+    {:t-ms 100, :cue-active? true, :changed? true}
+    {:t-ms 200, :cue-active? true, :changed? true}
+    {:t-ms 300, :cue-active? true, :changed? true}
+    {:t-ms 400, :cue-active? false, :changed? false}
+    {:t-ms 500, :cue-active? false, :changed? false}
+    {:t-ms 600, :cue-active? false, :changed? false}
+    {:t-ms 700, :cue-active? false, :changed? false}
+    {:t-ms 800, :cue-active? false, :changed? false}
+    {:t-ms 900, :cue-active? false, :changed? false}]}},
+ :unknown-backend
+ {:in
+  {:opts {:burn-backend :no-such-backend},
+   :cues [{:start-ms 0, :end-ms 100, :lines ["x"]}],
+   :output? true},
+  :out
+  {:make
+   {:error :error/unknown-burn-backend,
+    :burn-backend :no-such-backend}}}}
