@@ -1,0 +1,15 @@
+{:speech
+ {:in [0 1000 "hello"],
+  :out
+  {:rendered {:ok "1\n00:00:00,000 --> 00:00:01,000\nhello\n"},
+   :parsed
+   {:ok
+    {:cues
+     [{:index 1, :start-ms 0, :end-ms 1000, :lines ["hello"]}]}}}},
+ :unicode
+ {:in [100 100 "世界"],
+  :out
+  {:rendered {:ok "1\n00:00:00,100 --> 00:00:00,200\n世界\n"},
+   :parsed
+   {:ok
+    {:cues [{:index 1, :start-ms 100, :end-ms 200, :lines ["世界"]}]}}}}}
