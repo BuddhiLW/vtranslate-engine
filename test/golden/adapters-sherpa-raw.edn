@@ -1,0 +1,3 @@
+{:duration
+ {:in [1000 "שלום"], :out [{:start 0.0, :end 1.0, :text "שלום"}]},
+ :zero {:in [0 "hello"], :out [{:start 0.0, :end 0.0, :text "hello"}]}}
