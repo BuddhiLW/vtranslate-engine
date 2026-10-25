@@ -1,0 +1,19 @@
+{:dense
+ {:in
+  [{:index 9, :start-ms 0, :end-ms 1000, :lines ["one two"]}
+   {:index 8, :start-ms 1100, :end-ms 2000, :lines ["café end."]}],
+  :rules {:max-cps 2, :max-chars-line 5, :max-lines 1},
+  :out
+  [{:index 9, :start-ms 0, :end-ms 500, :lines ["one"]}
+   {:index 9, :start-ms 500, :end-ms 1000, :lines ["two"]}
+   {:index 8, :start-ms 1100, :end-ms 1550, :lines ["café"]}
+   {:index 8, :start-ms 1550, :end-ms 2000, :lines ["end."]}]},
+ :empty {:in [], :rules {:max-cps 2}, :out []},
+ :short
+ {:in [{:index 9, :start-ms 0, :end-ms 1, :lines ["one two"]}],
+  :rules {:max-cps 1},
+  :out [{:index 9, :start-ms 0, :end-ms 1, :lines ["one two"]}]},
+ :zero
+ {:in [{:index 9, :start-ms 0, :end-ms 0, :lines ["one two"]}],
+  :rules {:max-cps 1},
+  :out [{:index 9, :start-ms 0, :end-ms 0, :lines ["one two"]}]}}

@@ -1,0 +1,27 @@
+{:empty
+ {:in {:frame {:width 360, :height 640}, :lines []},
+  :rules {},
+  :out {:font-size-px 26, :lines [], :widest-px 0, :max-line-px 316},
+  :measured [],
+  :double-measured []},
+ :shrink
+ {:in {:frame {:width 10, :height 1080}, :lines ["extraordinary"]},
+  :rules {},
+  :out
+  {:font-size-px 1,
+   :lines ["extraordinary"],
+   :widest-px 8,
+   :max-line-px 8},
+  :measured [7.74],
+  :double-measured [15.48]},
+ :unicode
+ {:in
+  {:frame {:width 360, :height 640}, :lines ["café 字幕" nil "one two"]},
+  :rules {},
+  :out
+  {:font-size-px 26,
+   :lines ["café 字幕" "one two"],
+   :widest-px 125,
+   :max-line-px 316},
+  :measured [124.04599999999999 117.36399999999999],
+  :double-measured [248.09199999999998 234.72799999999998]}}

@@ -1,0 +1,35 @@
+{:drop-music
+ {:in
+  [{:index 9, :start-ms 0, :end-ms 1000, :lines ["one two"]}
+   {:index 8, :start-ms 1100, :end-ms 2000, :lines ["café end."]}
+   {:index 0, :start-ms 2100, :end-ms 2200, :lines ["[music]"]}],
+  :rules {:drop-music? true},
+  :out
+  [{:index 1, :start-ms 0, :end-ms 1000, :lines ["one two"]}
+   {:index 2, :start-ms 1100, :end-ms 2000, :lines ["café end."]}]},
+ :greedy
+ {:in
+  [{:index 9, :start-ms 0, :end-ms 1000, :lines ["one two"]}
+   {:index 8, :start-ms 1100, :end-ms 2000, :lines ["café end."]}],
+  :rules {:max-chars-line 5},
+  :out
+  [{:index 1, :start-ms 0, :end-ms 1000, :lines ["one" "two"]}
+   {:index 2, :start-ms 1100, :end-ms 2000, :lines ["café" "end."]}]},
+ :hard-token
+ {:in
+  [{:index 4, :start-ms 0, :end-ms 1000, :lines ["extraordinary"]}],
+  :rules {:max-chars-line 3, :max-cps 2},
+  :out
+  [{:index 1, :start-ms 0, :end-ms 231, :lines ["ext"]}
+   {:index 2, :start-ms 231, :end-ms 462, :lines ["rao"]}
+   {:index 3, :start-ms 462, :end-ms 692, :lines ["rdi"]}
+   {:index 4, :start-ms 692, :end-ms 923, :lines ["nar"]}
+   {:index 5, :start-ms 923, :end-ms 1000, :lines ["y"]}]},
+ :optimal
+ {:in
+  [{:index 9, :start-ms 0, :end-ms 1000, :lines ["one two"]}
+   {:index 8, :start-ms 1100, :end-ms 2000, :lines ["café end."]}],
+  :rules {:strategy :optimal},
+  :out
+  [{:index 1, :start-ms 0, :end-ms 1020, :lines ["one two"]}
+   {:index 2, :start-ms 1100, :end-ms 2000, :lines ["café end."]}]}}
