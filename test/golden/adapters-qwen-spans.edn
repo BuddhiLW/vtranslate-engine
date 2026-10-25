@@ -1,0 +1,11 @@
+{:two
+ {:in [50 80],
+  :out
+  {:segments
+   [{:start-ms 0, :end-ms 50, :text "fixture", :confidence 1.0}
+    {:start-ms 100, :end-ms 180, :text "fixture", :confidence 1.0}]}},
+ :whole
+ {:in [],
+  :out
+  {:segments
+   [{:start-ms 0, :end-ms 100, :text "fixture", :confidence 1.0}]}}}

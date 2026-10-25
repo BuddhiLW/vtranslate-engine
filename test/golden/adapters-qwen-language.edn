@@ -1,0 +1,4 @@
+{:blank {:in [" " nil], :out nil},
+ :nil {:in [nil nil], :out nil},
+ :region {:in ["EN-US" "English"], :out "English"},
+ :unknown {:in ["he" nil], :out nil}}
