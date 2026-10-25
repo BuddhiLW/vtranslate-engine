@@ -1,0 +1,13 @@
+{:blank
+ {:out {:ok {:segments []}},
+  :in [{:start-ms 0, :end-ms 10, :text "   "}]},
+ :empty {:out {:ok {:segments []}}, :in []},
+ :two
+ {:out
+  {:ok
+   {:segments
+    [{:start-ms 0, :end-ms 1000, :text "hi", :confidence 1.0}
+     {:start-ms 1000, :end-ms 2500, :text "there", :confidence 1.0}]}},
+  :in
+  [{:start-ms 0, :end-ms 1000, :text " hi"}
+   {:start-ms 1000, :end-ms 2500, :text "there "}]}}
