@@ -314,17 +314,21 @@
            second
            parse-double))
 
-(defn timestamp-segments [tokenizer token-ids duration-s]
+(defn timestamp-segments
+  "Project a decoded token stream onto [{:start s :end s :text ...}]: each run of
+   words between two timestamp tokens is one segment. Words before the FIRST
+   timestamp start at 0.0 (they used to be dropped, losing text whenever a
+   decode did not open with a timestamp), and a trailing open run ends at
+   `duration-s`."
+  [tokenizer token-ids duration-s]
   (let [special-ids (set (vals (:special tokenizer)))]
     (loop [[token-id & more] token-ids, start nil, text-ids [], segments []]
       (if token-id
         (if-let [timestamp (timestamp-seconds (get-in tokenizer [:id->token token-id]))]
-          (if (nil? start)
-            (recur more timestamp [] segments)
-            (let [text (detokenize tokenizer text-ids)
-                  segments (cond-> segments
-                             (seq text) (conj {:start start :end timestamp :text text}))]
-              (recur more timestamp [] segments)))
+          (let [text (detokenize tokenizer text-ids)
+                segments (cond-> segments
+                           (seq text) (conj {:start (or start 0.0) :end timestamp :text text}))]
+            (recur more timestamp [] segments))
           (recur more start
                  (cond-> text-ids (not (special-ids token-id)) (conj token-id))
                  segments))
