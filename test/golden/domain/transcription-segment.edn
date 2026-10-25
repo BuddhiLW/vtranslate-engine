@@ -1,0 +1,32 @@
+{:annotation
+ {:ok
+  {:index 1,
+   :range {:start {:ms 0}, :end {:ms 10}},
+   :text "hello",
+   :confidence {:score 0.5},
+   :language "en",
+   :segment/verbatim? true}},
+ :bad-end {:error :error/invalid-timecode, :ms -1},
+ :bad-start {:error :error/invalid-timecode, :ms -1},
+ :confidence {:error :error/invalid-confidence, :score 2},
+ :index
+ {:error :error/asr-failed,
+  :reason "segment index must be a positive integer",
+  :index 0},
+ :inverted {:error :error/inverted-time-range, :start 20, :end 10},
+ :language {:error :error/unsupported-language, :language "xx"},
+ :optional-language
+ {:ok
+  {:index 1,
+   :range {:start {:ms 0}, :end {:ms 10}},
+   :text "hello",
+   :confidence {:score 0.5},
+   :language nil}},
+ :text {:error :error/asr-failed, :reason "segment text is blank"},
+ :valid
+ {:ok
+  {:index 1,
+   :range {:start {:ms 0}, :end {:ms 10}},
+   :text "hello",
+   :confidence {:score 0.5},
+   :language "en"}}}

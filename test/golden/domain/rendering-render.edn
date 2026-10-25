@@ -1,0 +1,14 @@
+{:empty {:error :error/render-failed, :reason "no cues to render"},
+ :failed {:error :error/illegal-transition, :from :track/failed},
+ :rendered {:error :error/illegal-transition, :from :track/rendered},
+ :valid
+ {:ok
+  {:id "s",
+   :source-id "u",
+   :language "pt",
+   :format #:adt{:variant :format/srt, :type :SubtitleFormat},
+   :cues
+   [{:index 1,
+     :range {:start {:ms 0}, :end {:ms 10}},
+     :lines ["hello"]}],
+   :status #:adt{:variant :track/rendered, :type :TrackStatus}}}}

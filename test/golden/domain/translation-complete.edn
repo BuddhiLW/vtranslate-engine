@@ -1,0 +1,20 @@
+{:complete
+ {:error :error/illegal-transition, :from :translation/complete},
+ :empty
+ {:error :error/translation-failed,
+  :segment-id "u",
+  :reason "no units translated"},
+ :failed {:error :error/illegal-transition, :from :translation/failed},
+ :valid
+ {:ok
+  {:id "u",
+   :transcript-id "t",
+   :source-language "en",
+   :target-language "pt",
+   :units
+   [{:range {:start {:ms 0}, :end {:ms 10}},
+     :source-language "en",
+     :source-text "hello",
+     :target-text "ola"}],
+   :status
+   #:adt{:variant :translation/complete, :type :TranslationStatus}}}}

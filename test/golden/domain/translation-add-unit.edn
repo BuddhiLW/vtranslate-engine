@@ -1,0 +1,12 @@
+{:valid
+ {:id "u",
+  :transcript-id "t",
+  :source-language "en",
+  :target-language "pt",
+  :units
+  [{:range {:start {:ms 0}, :end {:ms 10}},
+    :source-language "en",
+    :source-text "hello",
+    :target-text "ola"}],
+  :status
+  #:adt{:variant :translation/pending, :type :TranslationStatus}}}

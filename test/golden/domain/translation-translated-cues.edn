@@ -1,0 +1,15 @@
+{:same
+ {:error :error/translation-failed,
+  :segment-id "",
+  :reason "source and target language are identical"},
+ :source {:error :error/unsupported-language, :language "xx"},
+ :target {:error :error/unsupported-language, :language "xx"},
+ :valid
+ {:ok
+  {:id nil,
+   :transcript-id nil,
+   :source-language "en",
+   :target-language "pt",
+   :units [],
+   :status
+   #:adt{:variant :translation/pending, :type :TranslationStatus}}}}

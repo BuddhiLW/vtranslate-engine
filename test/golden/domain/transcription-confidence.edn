@@ -1,0 +1,9 @@
+{:high {:error :error/invalid-confidence, :score 1.1},
+ :infinity {:error :error/invalid-confidence, :score ##Inf},
+ :low {:error :error/invalid-confidence, :score -0.1},
+ :nan {:error :error/invalid-confidence, :score :ieee/nan},
+ :nil {:error :error/invalid-confidence, :score nil},
+ :one {:ok {:score 1.0}},
+ :string {:error :error/invalid-confidence, :score "1"},
+ :valid {:ok {:score 0.5}},
+ :zero {:ok {:score 0.0}}}

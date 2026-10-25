@@ -1,0 +1,11 @@
+{:completed {:error :error/illegal-transition, :from :job/completed},
+ :failed {:error :error/illegal-transition, :from :job/failed},
+ :valid
+ {:ok
+  {:id "j",
+   :asset-id "a",
+   :target-language "pt",
+   :state #:adt{:variant :job/failed, :type :JobState},
+   :transcript-id nil,
+   :subtitle-id nil,
+   :error :error/asr-failed}}}
