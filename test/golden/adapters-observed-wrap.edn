@@ -1,0 +1,30 @@
+{:duplicates
+ {:in ["a" "a"],
+  :out
+  {:result {:ok ["a" "a"]},
+   :reports
+   [{:source-language "en",
+     :target-language "he",
+     :sources ["a" "a"],
+     :translations ["a" "a"],
+     :indices [0 1]}]}},
+ :empty
+ {:in [],
+  :out
+  {:result {:ok []},
+   :reports
+   [{:source-language "en",
+     :target-language "he",
+     :sources [],
+     :translations [],
+     :indices nil}]}},
+ :unicode
+ {:in ["世界"],
+  :out
+  {:result {:ok ["世界"]},
+   :reports
+   [{:source-language "en",
+     :target-language "he",
+     :sources ["世界"],
+     :translations ["世界"],
+     :indices [0]}]}}}
