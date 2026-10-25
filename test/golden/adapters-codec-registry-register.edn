@@ -1,0 +1,4 @@
+{:new {:in [{} :srt "codec"], :out {:srt "codec"}},
+ :replace
+ {:in [{:srt "old", :vtt "other"} :srt "new"],
+  :out {:srt "new", :vtt "other"}}}
