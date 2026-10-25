@@ -1,0 +1,2 @@
+{:match {:ok [[2 "b"] [0 "a"]]},
+ :mismatch {:error :count-mismatch, :expected 1, :actual 0}}

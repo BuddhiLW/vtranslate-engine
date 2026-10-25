@@ -1,0 +1,7 @@
+{:clamped
+ [{:texts ["a"], :before [], :after []}
+  {:texts ["b"], :before [], :after []}],
+ :empty [],
+ :overlap
+ [{:texts ["a" "b"], :before [], :after ["c"]}
+  {:texts ["c" "d"], :before ["b"], :after []}]}
