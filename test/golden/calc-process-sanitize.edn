@@ -1,0 +1,4 @@
+{:default {"PATH" "/bin", "HOME" "/nonexistent"},
+ :empty {"HOME" "/nonexistent"},
+ :nils {"HOME" "/nonexistent"},
+ :overrides {"HOME" "sandbox"}}
