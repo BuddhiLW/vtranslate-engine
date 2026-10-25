@@ -1,0 +1,31 @@
+{:build-knobs
+ {:in
+  [:openai-whisper
+   {:secret-env "X_KEY",
+    :secret-pass "pass/x",
+    :temperature 0.0,
+    :not-a-knob 1}],
+  :out
+  {:api-url "https://api.openai.com/v1/audio/transcriptions",
+   :model "whisper-1",
+   :api-key "key:X_KEY:pass/x",
+   :opts {:temperature 0.0}}},
+ :groq
+ {:in [:groq {}],
+  :out
+  {:api-url "https://api.groq.com/openai/v1/audio/transcriptions",
+   :model "whisper-large-v3",
+   :api-key "key:GROQ_API_KEY:",
+   :opts {}}},
+ :server
+ {:in
+  [:whisper-server
+   {:api-url "http://speaches:8000/v1/audio/transcriptions",
+    :model "large-v3",
+    :span-pad-ms 50,
+    :slice-spans? true}],
+  :out
+  {:api-url "http://speaches:8000/v1/audio/transcriptions",
+   :model "large-v3",
+   :api-key "key:WHISPER_SERVER_KEY:",
+   :opts {:span-pad-ms 50, :slice-spans? true}}}}

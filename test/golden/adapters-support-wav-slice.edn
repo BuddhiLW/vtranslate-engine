@@ -1,0 +1,29 @@
+{:empty
+ {:in [0 16000 {:start-ms 0, :end-ms 100} 0],
+  :out
+  {:ok
+   {:offset-ms 0, :samples 0, :sample-rate 16000, :byte-count 44}}},
+ :head-pad
+ {:in [16000 16000 {:start-ms 10, :end-ms 20} 100],
+  :out
+  {:ok
+   {:offset-ms 0,
+    :samples 1920,
+    :sample-rate 16000,
+    :byte-count 3884}}},
+ :inside
+ {:in [16000 16000 {:start-ms 100, :end-ms 300} 50],
+  :out
+  {:ok
+   {:offset-ms 50,
+    :samples 4800,
+    :sample-rate 16000,
+    :byte-count 9644}}},
+ :past-tail
+ {:in [8000 8000 {:start-ms 900, :end-ms 5000} 0],
+  :out
+  {:ok
+   {:offset-ms 900,
+    :samples 800,
+    :sample-rate 8000,
+    :byte-count 1644}}}}
