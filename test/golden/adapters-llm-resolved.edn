@@ -1,0 +1,39 @@
+{:no-key
+ {:in [:venice {} nil],
+  :out
+  {:error :error/translator-unavailable,
+   :api-url "https://api.venice.ai/api/v1/chat/completions",
+   :secret-env "VENICE_API_KEY",
+   :secret-pass nil,
+   :hint "no API key — set env VENICE_API_KEY"}},
+ :no-key-pass
+ {:in [:openrouter {:secret-pass "Org/key"} nil],
+  :out
+  {:error :error/translator-unavailable,
+   :api-url "https://openrouter.ai/api/v1/chat/completions",
+   :secret-env "OPENROUTER_API_KEY",
+   :secret-pass "Org/key",
+   :hint
+   "no API key — set env OPENROUTER_API_KEY or `pass insert Org/key`"}},
+ :openrouter-pass
+ {:in [:openrouter {:secret-pass "Org/key"} "k"],
+  :out
+  {:ok
+   {:provider :openrouter,
+    :api-url "https://openrouter.ai/api/v1/chat/completions",
+    :model "z-ai/glm-5.3",
+    :secret-env "OPENROUTER_API_KEY",
+    :secret-pass "Org/key",
+    :pricing nil,
+    :api-key "k|OPENROUTER_API_KEY|Org/key"}}},
+ :venice-key
+ {:in [:venice {} "k"],
+  :out
+  {:ok
+   {:provider :venice,
+    :api-url "https://api.venice.ai/api/v1/chat/completions",
+    :model "z-ai-glm-5-3",
+    :secret-env "VENICE_API_KEY",
+    :secret-pass nil,
+    :pricing nil,
+    :api-key "k|VENICE_API_KEY|"}}}}
