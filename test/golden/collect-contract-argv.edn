@@ -1,0 +1,75 @@
+{:mark
+ {:in
+  {:source "source/space ; quote'.mp4",
+   :png "mark/space ; quote'.png",
+   :out "out/space ; quote'",
+   :marked true,
+   :audio false},
+  :out
+  ["ffmpeg"
+   "-y"
+   "-nostdin"
+   "-hide_banner"
+   "-loglevel"
+   "error"
+   "-i"
+   "source/space ; quote'.mp4"
+   "-i"
+   "mark/space ; quote'.png"
+   "-filter_complex"
+   "[0:v]subtitles=filename=captions.ass[subbed];[subbed][1:v]overlay=10:10[vid]"
+   "-map"
+   "[vid]"
+   "-c:v"
+   "libx264"
+   "-preset"
+   "veryfast"
+   "-b:v"
+   "1000000"
+   "-pix_fmt"
+   "yuv420p"
+   "-threads"
+   "1"
+   "-an"
+   "-movflags"
+   "+faststart"
+   "-f"
+   "mp4"
+   "out/space ; quote'"]},
+ :plain
+ {:in
+  {:source "source/video.mp4",
+   :png "mark/video.png",
+   :out "out/video",
+   :marked false,
+   :audio true},
+  :out
+  ["ffmpeg"
+   "-y"
+   "-nostdin"
+   "-hide_banner"
+   "-loglevel"
+   "error"
+   "-i"
+   "source/video.mp4"
+   "-vf"
+   "subtitles=filename=captions.ass"
+   "-c:v"
+   "libx264"
+   "-preset"
+   "veryfast"
+   "-b:v"
+   "1000000"
+   "-pix_fmt"
+   "yuv420p"
+   "-threads"
+   "1"
+   "-c:a"
+   "aac"
+   "-b:a"
+   "128000"
+   "-movflags"
+   "+faststart"
+   "-f"
+   "mp4"
+   "out/video"]}}

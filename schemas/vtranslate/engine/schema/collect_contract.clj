@@ -1,0 +1,11 @@
+(ns vtranslate.engine.schema.collect-contract)
+(def Milliseconds [:int {:min 0}])
+(def Facts [:map [:container :string] [:duration-ms Milliseconds]
+            [:has-audio? :boolean] [:audio-codec :string]])
+(def ErrorResult [:map [:error :keyword]])
+(def ProcessExec [:map [:exit :int] [:stderr :string]])
+(def ProcessCapture [:map [:exit :int] [:out :string]])
+(def Argv [:vector :string])
+(def Font [:map [:size :int] [:bold :boolean]])
+(def Image [:map [:width :int] [:height :int] [:alpha :int] [:center :int]])
+(def Bridge [:map [:probe :boolean] [:extract :boolean] [:backend :boolean]])

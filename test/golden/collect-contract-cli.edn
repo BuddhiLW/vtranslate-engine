@@ -1,0 +1,4 @@
+{:plain {:in "ffmpeg", :out {:bin "ffmpeg", :same-runner true}},
+ :spaces
+ {:in "some path/ffmpeg",
+  :out {:bin "some path/ffmpeg", :same-runner true}}}

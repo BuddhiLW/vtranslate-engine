@@ -1,0 +1,5 @@
+{:above-half {:in 1501, :out 2},
+ :below-half {:in 1499, :out 1},
+ :half {:in 1500, :out 2},
+ :negative {:in -1, :out 0},
+ :zero {:in 0, :out 0}}

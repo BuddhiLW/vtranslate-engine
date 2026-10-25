@@ -1,0 +1,43 @@
+{:audio
+ {:in
+  {:container "mp4",
+   :duration-ms 123,
+   :has-audio? true,
+   :audio-codec "aac",
+   :sample-rate 16000,
+   :channels 1,
+   :has-video? false},
+  :out
+  {:container "mp4",
+   :duration-ms 123,
+   :has-audio? true,
+   :audio-codec "aac",
+   :has-video? false}},
+ :legacy
+ {:in
+  {:container "mp4",
+   :duration-ms 0,
+   :has-audio? false,
+   :audio-codec "aac",
+   :sample-rate 16000,
+   :channels 1},
+  :out
+  {:container "mp4",
+   :duration-ms 0,
+   :has-audio? false,
+   :audio-codec "aac"}},
+ :video
+ {:in
+  {:container "mp4",
+   :duration-ms 999,
+   :has-audio? true,
+   :audio-codec "aac",
+   :sample-rate 16000,
+   :channels 1,
+   :has-video? true},
+  :out
+  {:container "mp4",
+   :duration-ms 999,
+   :has-audio? true,
+   :audio-codec "aac",
+   :has-video? true}}}

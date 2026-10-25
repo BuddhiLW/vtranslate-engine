@@ -1,0 +1,21 @@
+{:empty
+ {:in "",
+  :out
+  {:probe true,
+   :extract true,
+   :backend true,
+   :facts
+   {:container "", :duration-ms 0, :has-audio? false, :audio-codec ""},
+   :path ""}},
+ :path
+ {:in "out.wav",
+  :out
+  {:probe true,
+   :extract true,
+   :backend true,
+   :facts
+   {:container "out.wav",
+    :duration-ms 0,
+    :has-audio? false,
+    :audio-codec ""},
+   :path "out.wav"}}}

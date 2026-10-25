@@ -1,0 +1,16 @@
+{:failure
+ {:in [1 "bad"],
+  :out
+  {:exec {:exit 1, :stderr "bad"},
+   :capture {:exit 1, :out "bad"},
+   :starts false,
+   :output nil,
+   :constructor true}},
+ :success
+ {:in [0 "ok"],
+  :out
+  {:exec {:exit 0, :stderr "ok"},
+   :capture {:exit 0, :out "ok"},
+   :starts true,
+   :output "ok",
+   :constructor true}}}
