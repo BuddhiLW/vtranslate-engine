@@ -1,0 +1,18 @@
+{:all
+ {:in [4 -1],
+  :out
+  {:trace [0 1 2 3], :result {:ok [10 11 12 13]}, :stub {:ok [4]}}},
+ :first-error
+ {:in [4 0],
+  :out
+  {:trace [0],
+   :result {:error :error/pinned, :at 0},
+   :stub {:ok [4]}}},
+ :middle-error
+ {:in [4 2],
+  :out
+  {:trace [0 1 2],
+   :result {:error :error/pinned, :at 2},
+   :stub {:ok [4]}}},
+ :one
+ {:in [1 -1], :out {:trace [0], :result {:ok [10]}, :stub {:ok [1]}}}}

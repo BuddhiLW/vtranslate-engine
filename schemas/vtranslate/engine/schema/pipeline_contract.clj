@@ -1,0 +1,6 @@
+(ns vtranslate.engine.schema.pipeline-contract)
+(def Result [:or [:map [:ok :any]] [:map [:error :keyword]]])
+(def State [:map [:result Result]])
+(def StageId :keyword)
+(def Trace [:vector :int])
+(def MiddlewareIds [:vector :keyword])
