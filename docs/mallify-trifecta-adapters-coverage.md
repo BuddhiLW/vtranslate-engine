@@ -6,11 +6,14 @@ pipeline and top-level facades are in `docs/mallify-trifecta-providers-coverage.
 
 ## Status
 
-**Complete for the adapters scope.** Every public var is either referenced by a
-unit test or excluded below with a concrete native/process reason. Nothing is
-waived. No runtime source and no `schemas/vtranslate/engine/schema.clj` changed.
-The new schemas are under `schemas/` only (`port_values.clj`,
-`adapters_boundaries.clj`, `adapters_gates.clj`), and `src` stays malli-free.
+**Complete for the adapters scope.** Every public var is referenced by a unit
+test, referenced by the opt-in native suite (`test-native/`, see
+[Native suite](#native-suite)), or excluded below with the exact artifact this
+machine lacks. Nothing is waived. `schemas/vtranslate/engine/schema.clj` is
+unchanged. The new schemas are under `schemas/` only (`port_values.clj`,
+`adapters_boundaries.clj`, `adapters_gates.clj`, `native_media.clj`,
+`native_asr.clj`), and `src` stays malli-free. The native pass found two adapter
+bugs, fixed in their own `fix(adapters):` commits (see the native section).
 
 ## Method
 
@@ -32,9 +35,14 @@ its port protocol rather than through its constructor var.
   points are stubbed, and the port value schema (`schema.port-values` /
   `schema.adapters-gates`) is validated. No network, native library, ffmpeg
   process or interpreter is involved.
-- **E** — excluded. The var cannot load or run on the `:test` classpath without
-  a native/JNI/FFM/ONNX/Python/bytedeco alias. The integration suites that do
-  exercise these vars (`test-int/`, `test-onnx/`) are named in the table.
+- **T/C (native)** — the same T and C kinds, but in `test-native/` under the
+  var's own alias. They run the REAL native library on CPU against local
+  artifacts, with no network and no GPU. Golden paths are
+  `test/golden/native-*.edn`. The default `-M:test` run never loads them.
+- **E** — excluded. The var cannot run on this machine even under its alias,
+  because a native artifact is missing (named in the table). The integration
+  suites that exercise these vars elsewhere (`test-int/`, `test-onnx/`) are
+  named too.
 
 ## Totals
 
@@ -42,17 +50,19 @@ its port protocol rather than through its constructor var.
 |---|---|
 | adapter namespaces | 48 |
 | public vars (all) | 253 |
-| public fn/def vars (excluding record ctors) | 154 |
-| referenced by a unit test | 129 |
-| excluded (E) | 25 (all in 8 native/bytedeco namespaces + 2 ffmpeg composers' `make-composer`) |
+| public fn/def vars (excluding record ctors) | 155 (+1: `softmux/container-language`) |
+| referenced by a unit test (`-M:test`) | 129 |
+| referenced by the native suite only (`test-native/`) | 23 (`burner.javacv` records, `composer.hardsub` 1, `composer.softmux` 2, `silero-vad-native` 1, `whisper-jni-native` 3, `onnx-bytedeco-native` 16) |
+| excluded (E) | 3 (`nemo-python-native/transcribe-file`, `qwen3-asr-native/transcribe-samples`, `sherpa-onnx-native/transcribe-raw`; missing artifacts named in the table) |
 | unexplained gaps | 0 |
 | adapter golden snapshots (`test/golden/adapters-*.edn`) | 87 |
+| native golden snapshots (`test/golden/native-*.edn`) | 9 |
 
 Every record that implements a port (ITranscriber, ISegmenter, ITranslator,
 ISubtitleRenderer/Parser, IVideoComposer, IHardsubBurner, IModelHost,
-ITranscriptCache, ICoveragePolicy, ISourceReader, native-call strategy) has an
-offline port contract, except `JavaCvBurner`, `HardsubComposer` and
-`SoftMuxComposer`. Those three cannot be loaded without bytedeco (see E).
+ITranscriptCache, ICoveragePolicy, ISourceReader, native-call strategy) has a
+port contract. `JavaCvBurner`, `HardsubComposer` and `SoftMuxComposer` have
+theirs in the native `:ffmpeg` suite, and the other records in `-M:test`.
 
 ## Per-namespace table
 
@@ -61,7 +71,7 @@ offline port contract, except `JavaCvBurner`, `HardsubComposer` and
 | `burner.ffmpeg-cli` | 2 (+3 record) | 2/2 | burner_cli_trifecta_test.clj | ffmpeg_cli_test.clj | - |
 | `burner.ffmpeg-hw` | 3 (+3 record) | 3/3 | burner_hw_trifecta_test.clj | - | - |
 | `burner.ffmpeg-nvenc` | 1 (+0 record) | 1/1 | burner_nvenc_trifecta_test.clj | ffmpeg_nvenc_test.clj | - |
-| `burner.javacv` | 0 (+3 record) | 0/0 | - | (records only) — record only; ns `(:import org.bytedeco.javacv ...)` via collect.ffmpeg, so it cannot load without the :ffmpeg alias. Exercised by test-int composer/burner int tests. |
+| `burner.javacv` | 0 (+3 record) | 0/0 | ffmpeg/burner_javacv_test.clj (native, :ffmpeg) | ffmpeg/burner_javacv_test.clj (native) | - |
 | `codec.block` | 2 (+0 record) | 2/2 | codec_block_trifecta_test.clj | block_test.clj, srt_test.clj, vtt_test.clj | - |
 | `codec.dispatch` | 1 (+3 record) | 1/1 | codec_dispatch_trifecta_test.clj, adapters_trifecta_test.clj | dispatch_test.clj, api_compose_ingress_test.clj, api_subtitle_test.clj | - |
 | `codec.registry` | 3 (+0 record) | 3/3 | codec_registry_trifecta_test.clj, adapters_trifecta_test.clj | registry_test.clj | - |
@@ -69,8 +79,8 @@ offline port contract, except `JavaCvBurner`, `HardsubComposer` and
 | `codec.timecode` | 2 (+0 record) | 2/2 | codec_block_trifecta_test.clj, timecode_trifecta_test.clj, adapters_trifecta_test.clj | block_test.clj, timecode_test.clj | - |
 | `codec.vtt` | 1 (+3 record) | 1/1 | codec_vtt_trifecta_test.clj, adapters_trifecta_test.clj | vtt_test.clj | - |
 | `composer.both` | 1 (+3 record) | 1/1 | composer_both_trifecta_test.clj | both_test.clj | - |
-| `composer.hardsub` | 1 (+3 record) | 0/1 | - | - | `make-composer` — `make-composer`: ns requires burner.javacv -> collect.ffmpeg (bytedeco import), unloadable on the :test classpath; the burner it wraps is contracted via burner_*_trifecta_test. Covered by test-int composer_int_test (:ffmpeg). |
-| `composer.softmux` | 1 (+3 record) | 0/1 | - | - | `make-composer` — `make-composer`: ns requires collect.ffmpeg (bytedeco import, raw avformat mux). Covered by test-int composer_int_test (:ffmpeg). |
+| `composer.hardsub` | 1 (+3 record) | 1/1 (native) | ffmpeg/composer_hardsub_test.clj (native, :ffmpeg) | ffmpeg/composer_hardsub_test.clj (native) | - |
+| `composer.softmux` | 2 (+3 record) | 2/2 (native) | ffmpeg/composer_softmux_test.clj (native, :ffmpeg) | ffmpeg/composer_softmux_test.clj (native) | - |
 | `composer.support` | 1 (+0 record) | 1/1 | - | support_test.clj | - |
 | `coverage.policies` | 3 (+6 record) | 3/3 | coverage_trifecta_test.clj, gap_filled_trifecta_test.clj, segmenter_gates_trifecta_test.clj | gap_filled_test.clj | - |
 | `model-host.speaches` | 2 (+3 record) | 2/2 | - | speaches_test.clj, adapters_port_values_test.clj | - |
@@ -78,27 +88,27 @@ offline port contract, except `JavaCvBurner`, `HardsubComposer` and
 | `native-call.sized-stack` | 2 (+3 record) | 2/2 | - | native_call_test.clj | - |
 | `segmenter.gap-filled` | 3 (+3 record) | 3/3 | gap_filled_trifecta_test.clj, segmenter_gates_trifecta_test.clj | gap_filled_test.clj | - |
 | `segmenter.silero-vad` | 12 (+3 record) | 12/12 | segmenter_gates_trifecta_test.clj, silero_trifecta_test.clj | silero_vad_test.clj | - |
-| `segmenter.silero-vad-native` | 1 (+0 record) | 0/1 | - | - | `speech-probs` — `speech-probs`: imports ai.onnxruntime and builds an ONNX session on a sized native stack. Covered by test-int silero_vad_stack_int_test (:silero-vad). |
+| `segmenter.silero-vad-native` | 1 (+0 record) | 1/1 (native) | silero_vad/silero_vad_native_test.clj (native, :ffmpeg:silero-vad) | silero_vad/silero_vad_native_test.clj (native) | - |
 | `segmenter.stub` | 2 (+3 record) | 2/2 | grid_trifecta_test.clj, adapters_trifecta_test.clj | gap_filled_test.clj, stub_test.clj, pipeline_test.clj | - |
 | `source.file` | 1 (+3 record) | 1/1 | - | file_test.clj, api_compose_ingress_test.clj, api_subtitle_test.clj | - |
 | `support.llm-chat` | 7 (+0 record) | 7/7 | llm_chat_trifecta_test.clj, llm_translator_trifecta_test.clj, translator_config_trifecta_test.clj | llm_chat_deadline_test.clj, llm_chat_test.clj, llm_test.clj | - |
 | `support.model-catalogue` | 7 (+0 record) | 7/7 | model_catalogue_trifecta_test.clj, translator_config_trifecta_test.clj | llm_test.clj | - |
 | `support.secrets` | 3 (+0 record) | 3/3 | translator_config_trifecta_test.clj | secrets_test.clj | - |
 | `transcriber.nemo-python` | 7 (+3 record) | 7/7 | nemo_trifecta_test.clj, transcriber_gates_trifecta_test.clj | nemo_python_test.clj, adapters_port_values_test.clj, transcriber_hooks_test.clj | - |
-| `transcriber.nemo-python-native` | 1 (+0 record) | 0/1 | - | - | `transcribe-file` — `transcribe-file`: embeds CPython through libpython-clj and loads a NeMo checkpoint. Covered by test-int nemo_canary_int_test (:nemo). |
+| `transcriber.nemo-python-native` | 1 (+0 record) | 0/1 | - | - | `transcribe-file` — embeds CPython through libpython-clj and loads a NeMo checkpoint. **Missing here:** no Python <= 3.12 with `nemo_toolkit[asr]` (none of the 7 conda envs has `nemo`; `~/anaconda3/envs/vtranslate-asr` does not exist), and no NeMo checkpoint (Canary/Parakeet `.nemo`, otherwise downloaded from NGC/HF). The libpython-clj jar is cached. Covered by test-int nemo_canary_int_test (:nemo) on a box that has both. |
 | `transcriber.onnx-bytedeco` | 2 (+3 record) | 2/2 | onnx_trifecta_test.clj, transcriber_gates_trifecta_test.clj | transcriber_hooks_test.clj | - |
-| `transcriber.onnx-bytedeco-native` | 16 (+0 record) | 0/16 | - | - | `session`, `io-names`, `float-tensor`, `long-tensor`, `tensor->floats`, `tensor-shape`, `tensor-data`, `run-graph`, `run1`, `whisper-mel-spec`, `log-mel-spectrogram`, `load-tokenizer`, `detokenize`, `timestamp-segments`, `decode-loop`, `transcribe-wav` — all 16 vars import org.bytedeco.onnxruntime (tensors, sessions, mel spectrogram over JTransforms, tokenizer files). Covered by test-onnx onnx_bytedeco_native_test (:onnx). |
+| `transcriber.onnx-bytedeco-native` | 16 (+0 record) | 16/16 (native) | onnx/onnx_bytedeco_native_test.clj (native, :ffmpeg:onnx) | onnx/onnx_bytedeco_native_test.clj (native), test-onnx onnx_bytedeco_native_test | - |
 | `transcriber.openai-compatible` | 4 (+3 record) | 4/4 | openai_trifecta_test.clj, transcriber_gates_trifecta_test.clj | openai_compatible_test.clj, adapters_port_values_test.clj, transcriber_hooks_test.clj | - |
 | `transcriber.qwen3-asr` | 5 (+3 record) | 5/5 | qwen_trifecta_test.clj, transcriber_gates_trifecta_test.clj | qwen3_asr_test.clj, adapters_port_values_test.clj, transcriber_hooks_test.clj | - |
-| `transcriber.qwen3-asr-native` | 1 (+0 record) | 0/1 | - | - | `transcribe-samples` — `transcribe-samples`: requires pretrained.asr (raster compiler, HF weight download). Only the outer gate is contracted. |
+| `transcriber.qwen3-asr-native` | 1 (+0 record) | 0/1 | - | - | `transcribe-samples` — requires pretrained.asr. **Missing here:** (a) the Qwen3-ASR weights (`~/.cache/raster/models` does not exist; `Qwen/Qwen3-ASR-0.6B-hf` is an HF download), and (b) a working raster on this JDK: with the jars cached, the first model load fails compiling `raster/types/promote.clj:16` (`ClassNotFoundException raster.types.promote.TLong` from `defval`) under OpenJDK 27, in a fresh JVM as well. Measured: the nil-samples refusal is an `:error/asr-failed` Result. An unknown model key escapes as `AssertionError`, because `r/try-effect*` does not catch Errors. Only the outer gate is contracted. |
 | `transcriber.sherpa-onnx` | 4 (+3 record) | 4/4 | sherpa_trifecta_test.clj, transcriber_gates_trifecta_test.clj | sherpa_onnx_test.clj, adapters_port_values_test.clj, transcriber_hooks_test.clj | - |
-| `transcriber.sherpa-onnx-native` | 1 (+0 record) | 0/1 | - | - | `transcribe-raw` — `transcribe-raw`: imports com.k2fsa.sherpa.onnx JNI types. The outer record is contracted with this fn stubbed. |
+| `transcriber.sherpa-onnx-native` | 1 (+0 record) | 0/1 | - | - | `transcribe-raw` — imports com.k2fsa.sherpa.onnx JNI types. **Missing here:** the `com.k2fsa.sherpa.onnx/sherpa-onnx 1.10.30` jar is not in `~/.m2` (`-Spath -M:sherpa` fails resolving its pom offline, 401 from the vtranslate-gitea mirror), and there is no sherpa Whisper export (encoder/decoder/tokens). The outer record is contracted with this fn stubbed. |
 | `transcriber.stub` | 2 (+3 record) | 2/2 | stub_asr_trifecta_test.clj, adapters_trifecta_test.clj | stub_test.clj, transcriber_hooks_test.clj | - |
 | `transcriber.support` | 15 (+0 record) | 15/15 | asr_support_trifecta_test.clj, nemo_trifecta_test.clj, openai_trifecta_test.clj, qwen_trifecta_test.clj, sherpa_trifecta_test.clj, silero_trifecta_test.clj, transcriber_gates_trifecta_test.clj, whisper_ffm_trifecta_test.clj, whisper_jni_trifecta_test.clj, adapters_trifecta_test.clj | nemo_python_test.clj, openai_compatible_test.clj, support_test.clj, adapters_port_values_test.clj | - |
 | `transcriber.whisper-budget` | 8 (+0 record) | 8/8 | whisper_budget_trifecta_test.clj | whisper_budget_test.clj | - |
 | `transcriber.whisper-ffm` | 0 (+3 record) | 0/0 | whisper_ffm_trifecta_test.clj | transcriber_hooks_test.clj | - |
 | `transcriber.whisper-jni` | 4 (+3 record) | 4/4 | transcriber_gates_trifecta_test.clj, whisper_jni_trifecta_test.clj | whisper_jni_test.clj, asr_threads_test.clj, transcriber_hooks_test.clj | - |
-| `transcriber.whisper-jni-native` | 3 (+0 record) | 0/3 | - | - | `lang-code`, `default-threads`, `transcribe-samples` — `lang-code`/`default-threads`/`transcribe-samples`: ns imports io.github.givimad.whisperjni, so even its pure helpers cannot load without :whisper-jni. |
+| `transcriber.whisper-jni-native` | 3 (+0 record) | 3/3 (native) | whisper_jni/whisper_jni_native_test.clj (native, :ffmpeg:whisper-jni) | whisper_jni/whisper_jni_native_test.clj (native) | - |
 | `transcript-cache.expiring` | 7 (+3 record) | 7/7 | expiring_trifecta_test.clj, translator_config_trifecta_test.clj | transcript_cache_test.clj | - |
 | `transcript-cache.fressian-file` | 2 (+3 record) | 2/2 | translator_config_trifecta_test.clj | transcript_cache_test.clj | - |
 | `translator.augment` | 1 (+3 record) | 1/1 | augment_trifecta_test.clj | augment_test.clj | - |
@@ -117,7 +127,95 @@ offline port contract, except `JavaCvBurner`, `HardsubComposer` and
 | `whisper_ffm_trifecta_test.clj` | T + C | `WhisperFfmTranscriber` port with `bound-lib`/`run-whisper` stubbed (normalized segments stay inside the raw ones), refusal paths, `:whisper-ffm` resolve gate |
 | `schema/adapters_gates.clj` | schema | gate results, constructor values, model-file maps, WAV slice, resolved translator |
 
-No adapter bugs were found in this pass, so there is no `fix(adapters):` commit.
+No adapter bugs were found in the completion pass. The native pass found two (see below).
+
+## Native suite
+
+`test-native/` is a separate kaocha config (`tests-native.edn`) with one suite
+per native alias. It sits on the classpath ONLY through the `:ffmpeg` alias
+(`:extra-paths ["test-native"]`, the one deps.edn edit), so `-M:test` neither
+discovers nor loads it. Kaocha's `--focus :<suite>` marks the other suites as
+skipped before loading them, so a suite whose alias is absent is never required.
+Every run is CPU-only and offline. Cap the heap, since the host is shared:
+
+```bash
+D="$(cat local.deps.edn)"
+clojure -J-Xmx1500m -Sdeps "$D" -M:test:ffmpeg             --config-file tests-native.edn --focus :ffmpeg
+clojure -J-Xmx1500m -Sdeps "$D" -M:test:ffmpeg:whisper-jni --config-file tests-native.edn --focus :whisper-jni
+clojure -J-Xmx1500m -Sdeps "$D" -M:test:ffmpeg:silero-vad  --config-file tests-native.edn --focus :silero-vad
+clojure -J-Xmx1500m -Sdeps "$D" -M:test:ffmpeg:onnx        --config-file tests-native.edn --focus :onnx
+```
+
+| Suite | Namespaces under test | Artifacts it reads | Kind |
+|---|---|---|---|
+| `:ffmpeg` | `burner.javacv` (JavaCvBurner), `composer.hardsub` (make-composer, HardsubComposer), `composer.softmux` (make-composer, SoftMuxComposer, container-language) | none. Each case writes its own 1 s 160x120 10 fps test pattern + 16 kHz mono silence (H.264/AAC) into a temp dir with the bundled bytedeco encoder (`native/media_fixture.clj`) | T + C |
+| `:whisper-jni` | `whisper-jni-native` (lang-code, default-threads, transcribe-samples) + the outer WhisperLocalTranscriber port | `VT_WHISPER_MODEL` or `models/ggml-base.bin` or `../models/ggml-base.bin`. Speech: `VT_SPEECH_MEDIA` or `../corpus/campaign-video/jfk-ask-not_24s.mp4` (public domain), decoded by collect.ffmpeg | T + C |
+| `:silero-vad` | `silero-vad-native/speech-probs` + the outer SileroVadSegmenter port | `VT_SILERO_MODEL` or `models/silero_vad.onnx` or `../models/silero_vad.onnx`, and the same speech clip | T + C |
+| `:onnx` | `onnx-bytedeco-native`, all 16 vars, + the outer OnnxBytedecoTranscriber port | `test-native/fixtures/onnx-tiny-whisper/` (committed, ~1 KB): Whisper-SHAPED encoder/decoder graphs with scripted tokens plus a BPE tokenizer, regenerated by its `make_tiny_whisper.py` (needs the Python `onnx` package). Real ORT sessions, mel, greedy loop, BPE, chunking; only the weights are fake | T + C |
+
+A missing artifact makes its suite FAIL and name the path it looked for. It
+never makes the suite skip. Running a native suite claims the artifact is
+present.
+
+Relational properties (`:pred` = malli schema from `schema/native_media.clj` /
+`schema/native_asr.clj` and the relation):
+
+- **JavaCvBurner / HardsubComposer.** The picture changes on exactly the
+  frames a cue covers, per the calc.overlay oracle (per-channel difference
+  above re-encode noise). Frame timestamps, duration (within one frame) and
+  audio are kept. HardsubComposer adds three things: an explicit registered
+  backend is honoured, an unknown one is refused as
+  `:error/unknown-burn-backend`, and `:auto` without a capable binary falls
+  back to `:javacv`. The output path is the requested one (or the
+  `.subbed.mp4` sibling), and no `.part-*` file is left behind. No GPU or
+  system-ffmpeg backend ever encodes.
+- **SoftMuxComposer.** A/V stream-copied: same codecs and packet counts in the
+  same stream slots. Exactly one mov_text stream is appended, tagged with the
+  ISO 639-2 code of the track's BCP-47 language. The cues read back exactly
+  (start, end, lines joined by newline), ignoring the muxer's empty gap
+  samples.
+- **whisper-jni-native.** whisper.cpp is not bit-exact from run to run on this
+  build: even single-threaded at temperature 0, the text and the timestamps
+  drift. So the golden snapshots only run-independent facts: ok, segment
+  starts inside the window, ordered, and at least half the words from the
+  clip's reference text. Raw ends may overrun a short window, and that is by
+  contract: normalize-segments bounds them upstream. Silence and noise never
+  yield the clip's words.
+- **silero-vad-native.** ONNX Runtime is deterministic, so the probability
+  summary is golden. There is one probability per 512-sample (16 kHz) or
+  256-sample (8 kHz) window, rounded up. Silence never crosses 0.5; voiced
+  speech does.
+- **onnx-bytedeco-native.** Each 30 s chunk yields the scripted segments
+  shifted by its offset, so a transcript has 2 x ceil(duration / 30 s)
+  ordered segments. In `timestamp-segments`, the detokenized words equal the
+  joined segment texts: no word is lost or invented.
+
+Bugs the native suite found (each fixed in its own `fix(adapters):` commit):
+
+1. `composer.softmux`: the track's BCP-47 tag (`"pt-BR"`) went straight to the
+   mp4 muxer, which keeps only ISO 639-2 codes and silently dropped it, so
+   every soft-muxed stream lost its language. New `container-language` maps
+   `"pt-BR"` to `"por"` and falls back to `"und"`.
+2. `onnx-bytedeco-native/timestamp-segments`: words decoded before the first
+   timestamp token were dropped. They are now a segment starting at 0.0.
+
+Still excluded on this machine (artifact missing, see the table):
+`nemo-python-native` (no NeMo Python env, no checkpoint), `qwen3-asr-native`
+(no weights, and raster fails to compile on OpenJDK 27), `sherpa-onnx-native`
+(jar not cached, no export). Also observed: `qwen3-asr-native/transcribe-samples`
+lets an unknown model key escape as `AssertionError` instead of an
+`:error/asr-failed` Result. Unfixed, because the namespace cannot be tested
+here.
+
+Cold run of every suite, each in its own JVM (`-J-Xmx1500m`). All exited 0,
+and no golden was (re)written:
+
+| Suite | Result |
+|---|---|
+| `:ffmpeg` | 11 tests, 26 assertions, 0 failures |
+| `:whisper-jni` | 8 tests, 22 assertions, 0 failures |
+| `:silero-vad` | 4 tests, 11 assertions, 0 failures |
+| `:onnx` | 10 tests, 44 assertions, 0 failures |
 
 ## Full suite
 
@@ -127,3 +225,6 @@ Command: `timeout 1600 clojure -Sdeps "$(cat local.deps.edn)" -M:test > /tmp/eng
 Result: **exit 0 — 1144 tests, 3779 assertions, 0 failures, 0 errors** across 151 test
 namespaces, including the four new ones above. No golden snapshot was
 (re)written during the run, so every `:golden-path` compared against a committed file.
+Re-run after the native pass (the softmux and onnx fixes, the deps.edn path):
+**exit 0, the same 1144 tests and 3779 assertions, 0 failures**. `test-native/` is not
+on the `-M:test` classpath, so the default suite is unaffected.
