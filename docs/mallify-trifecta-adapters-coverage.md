@@ -121,4 +121,9 @@ No adapter bugs were found in this pass, so there is no `fix(adapters):` commit.
 
 ## Full suite
 
-Recorded in the following commit.
+Command: `timeout 1600 clojure -Sdeps "$(cat local.deps.edn)" -M:test > /tmp/engine-adapters-final.log 2>&1`
+(kaocha `:unit`, `test/` + `schemas/`).
+
+Result: **exit 0 — 1144 tests, 3779 assertions, 0 failures, 0 errors** across 151 test
+namespaces, including the four new ones above. No golden snapshot was
+(re)written during the run, so every `:golden-path` compared against a committed file.
