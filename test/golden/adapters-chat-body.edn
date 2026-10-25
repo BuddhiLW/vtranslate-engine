@@ -1,0 +1,15 @@
+{:empty
+ {:in ["m" "" ""],
+  :out
+  {:model "m",
+   :temperature 0.2,
+   :messages
+   [{:role "system", :content ""} {:role "user", :content ""}]}},
+ :unicode
+ {:in ["m" "Translate" "世界"],
+  :out
+  {:model "m",
+   :temperature 0.2,
+   :messages
+   [{:role "system", :content "Translate"}
+    {:role "user", :content "世界"}]}}}
