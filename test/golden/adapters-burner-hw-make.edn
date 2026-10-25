@@ -1,0 +1,3 @@
+{:nvenc
+ {:in :h264-nvenc, :out {:encoder :h264-nvenc, :path "out.mp4"}},
+ :vaapi {:in :h264-vaapi, :out {:encoder :h264-vaapi, :path "out.mp4"}}}
