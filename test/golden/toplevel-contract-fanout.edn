@@ -1,0 +1,10 @@
+{:clamped
+ {:in [4 3],
+  :out [{:status :ok, :value [0 5]} {:status :ok, :value [1 4]}]},
+ :duplicates
+ {:in [1 1 2],
+  :out
+  [{:status :ok, :value [0 2]}
+   {:status :ok, :value [1 2]}
+   {:status :ok, :value [2 3]}]},
+ :empty {:in [], :out []}}

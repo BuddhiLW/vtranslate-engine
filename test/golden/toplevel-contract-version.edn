@@ -1,0 +1,2 @@
+{:one {:in 1, :out {:version "dev", :identity 1}},
+ :zero {:in 0, :out {:version "dev", :identity 0}}}

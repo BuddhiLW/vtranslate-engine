@@ -1,0 +1,25 @@
+{:fail
+ {:in {:area :default, :fail :translator},
+  :out
+  {:calls [:media :segmenter :transcriber :translator],
+   :result {:error :error/pinned}}},
+ :success
+ {:in {:area :default, :fail nil},
+  :out
+  {:calls
+   [:media
+    :segmenter
+    :transcriber
+    :translator
+    :renderer
+    :composer
+    :transcript-cache],
+   :result
+   {:ok
+    {:media :media,
+     :segmenter :segmenter,
+     :transcriber :transcriber,
+     :translator :translator,
+     :renderer :renderer,
+     :muxer :composer,
+     :transcript-cache :transcript-cache}}}}}

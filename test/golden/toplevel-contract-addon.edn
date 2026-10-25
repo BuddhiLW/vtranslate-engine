@@ -1,0 +1,17 @@
+{:catalog
+ {:in
+  {:id :vtranslate/context,
+   :ns fixture.addon,
+   :order 50,
+   :config {:fixture true}},
+  :out
+  {:ns fixture.addon,
+   :classpath/aliases [:addon-context],
+   :id :vtranslate/context,
+   :order 50,
+   :config {:fixture true}}},
+ :plain
+ {:in
+  {:id :fixture, :ns fixture.addon, :order 0, :config {:fixture true}},
+  :out
+  {:id :fixture, :ns fixture.addon, :order 0, :config {:fixture true}}}}

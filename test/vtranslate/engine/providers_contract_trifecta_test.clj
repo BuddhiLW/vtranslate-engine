@@ -134,6 +134,17 @@
    :pred (fn [{:keys [out]}]
            (and (m/validate [:tuple :keyword :keyword] out) (= [:any :unknown] out)))})
 
+(defn config-path-observation [suffix]
+  (let [override (str "/contract/" suffix "/config.edn")]
+    {:in override :out ((requiring-resolve 'vtranslate.engine.providers.config/config-path) override)}))
+
+(deftrifecta explicit-config-path config-path-observation
+  {:golden-path "test/golden/providers-contract-config-path.edn"
+   :cases {:plain "fixture" :empty-suffix ""}
+   :gen gen/string-alphanumeric
+   :pred (fn [{:keys [in out]}]
+           (and (m/validate :string out) (= in out)))})
+
 (defn decorators-observation [orders]
   (let [port ::isolated ids (mapv #(keyword (str "d" %)) (range (count orders)))
         expected (mapv first (sort-by (fn [[id order]] [order (str id)]) (map vector ids orders)))]

@@ -1,0 +1,17 @@
+{:known
+ {:in #{"a" "b"},
+  :out
+  {:budget-bytes 104857600,
+   :resident {"a" 99, "b" 88},
+   :lru ["b" "a"],
+   :pinned #{}}},
+ :none
+ {:in #{},
+  :out {:budget-bytes 104857600, :resident {}, :lru [], :pinned #{}}},
+ :strangers
+ {:in #{"d" "a" "c"},
+  :out
+  {:budget-bytes 104857600,
+   :resident {"d" 4194304, "a" 99, "c" 3145728},
+   :lru ["c" "d" "a"],
+   :pinned #{}}}}

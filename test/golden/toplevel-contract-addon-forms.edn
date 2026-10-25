@@ -1,0 +1,14 @@
+{:qualified
+ {:in "fixture.addon",
+  :out
+  [{:ns fixture.addon, :config {}}
+   {:ns fixture.addon, :config {}}
+   {:ns fixture.addon, :id :fixture.addon, :config {}}
+   {:ns nil, :config {}, :invalid nil}]},
+ :simple
+ {:in "fixture",
+  :out
+  [{:ns fixture, :config {}}
+   {:ns fixture, :config {}}
+   {:ns fixture, :id :fixture, :config {}}
+   {:ns nil, :config {}, :invalid nil}]}}

@@ -1,0 +1,14 @@
+{:fail
+ {:in {:area :parse, :fail :subtitle-parser},
+  :out
+  {:calls [:source :subtitle-parser], :result {:error :error/pinned}}},
+ :success
+ {:in {:area :parse, :fail nil},
+  :out
+  {:calls [:source :subtitle-parser :translator :renderer],
+   :result
+   {:ok
+    {:source :source,
+     :parser :subtitle-parser,
+     :translator :translator,
+     :renderer :renderer}}}}}
