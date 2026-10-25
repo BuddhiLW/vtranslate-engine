@@ -1,0 +1,32 @@
+{:silence-16k
+ {:in {:kind :silence, :seconds 1, :rate 16000},
+  :out
+  {:windows 32,
+   :max-prob 0.008910685777664185,
+   :speech-windows 0,
+   :deterministic? true},
+  :samples 16000},
+ :silence-8k
+ {:in {:kind :silence, :seconds 1, :rate 8000},
+  :out
+  {:windows 32,
+   :max-prob 0.022407233715057373,
+   :speech-windows 0,
+   :deterministic? true},
+  :samples 8000},
+ :speech-16k
+ {:in {:kind :speech, :seconds 4, :rate 16000},
+  :out
+  {:windows 125,
+   :max-prob 0.9992207288742065,
+   :speech-windows 65,
+   :deterministic? true},
+  :samples 64000},
+ :speech-8k
+ {:in {:kind :speech, :seconds 4, :rate 8000},
+  :out
+  {:windows 125,
+   :max-prob 0.9992389678955078,
+   :speech-windows 64,
+   :deterministic? true},
+  :samples 32000}}

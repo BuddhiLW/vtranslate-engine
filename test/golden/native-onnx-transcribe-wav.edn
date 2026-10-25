@@ -1,0 +1,36 @@
+{:exactly-thirty
+ {:in 3000,
+  :out
+  {:ok
+   {:segments
+    [{:start-ms 0, :end-ms 500, :text "Hello world", :confidence 1.0}
+     {:start-ms 500, :end-ms 1000, :text "again", :confidence 1.0}]}}},
+ :fifth-second
+ {:in 20,
+  :out
+  {:ok
+   {:segments
+    [{:start-ms 0, :end-ms 500, :text "Hello world", :confidence 1.0}
+     {:start-ms 500, :end-ms 1000, :text "again", :confidence 1.0}]}}},
+ :one-second
+ {:in 100,
+  :out
+  {:ok
+   {:segments
+    [{:start-ms 0, :end-ms 500, :text "Hello world", :confidence 1.0}
+     {:start-ms 500, :end-ms 1000, :text "again", :confidence 1.0}]}}},
+ :thirty-one
+ {:in 3100,
+  :out
+  {:ok
+   {:segments
+    [{:start-ms 0, :end-ms 500, :text "Hello world", :confidence 1.0}
+     {:start-ms 500, :end-ms 1000, :text "again", :confidence 1.0}
+     {:start-ms 30000,
+      :end-ms 30500,
+      :text "Hello world",
+      :confidence 1.0}
+     {:start-ms 30500,
+      :end-ms 31000,
+      :text "again",
+      :confidence 1.0}]}}}}

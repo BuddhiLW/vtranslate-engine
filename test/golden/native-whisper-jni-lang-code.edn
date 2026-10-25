@@ -1,0 +1,7 @@
+{:auto "auto",
+ :bcp47 "en",
+ :blank "auto",
+ :nil "auto",
+ :plain "de",
+ :script "zh",
+ :upper "pt"}

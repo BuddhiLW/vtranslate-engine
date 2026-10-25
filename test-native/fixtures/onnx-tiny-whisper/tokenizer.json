@@ -1,0 +1,8 @@
+{"model": {"vocab": {"ĠHello": 7, "Ġworld": 8, "Ġagain": 9}},
+ "added_tokens": [{"id": 0, "content": "<|startoftranscript|>"},
+                  {"id": 1, "content": "<|en|>"},
+                  {"id": 2, "content": "<|transcribe|>"},
+                  {"id": 3, "content": "<|endoftext|>"},
+                  {"id": 4, "content": "<|0.00|>"},
+                  {"id": 5, "content": "<|0.50|>"},
+                  {"id": 6, "content": "<|1.00|>"}]}

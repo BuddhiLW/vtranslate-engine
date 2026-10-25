@@ -1,0 +1,21 @@
+{:ask-not
+ {:in [10 7],
+  :out
+  {:ok? true,
+   :starts-inside? true,
+   :ordered? true,
+   :mostly-speech? true}},
+ :opening
+ {:in [0 6],
+  :out
+  {:ok? true,
+   :starts-inside? true,
+   :ordered? true,
+   :mostly-speech? true}},
+ :whole
+ {:in [0 24],
+  :out
+  {:ok? true,
+   :starts-inside? true,
+   :ordered? true,
+   :mostly-speech? true}}}
