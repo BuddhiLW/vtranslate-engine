@@ -1,0 +1,3 @@
+{:none {:in #{} :out {:honoured #{} :inert #{:asr/route-window :asr/clean}}}
+ :route {:in #{:asr/route-window} :out {:honoured #{:asr/route-window} :inert #{:asr/clean}}}
+ :all {:in #{:asr/route-window :asr/clean} :out {:honoured #{:asr/route-window :asr/clean} :inert #{}}}}
