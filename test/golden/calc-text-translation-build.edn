@@ -1,0 +1,29 @@
+{:blank
+ {:error :error/translation-failed,
+  :reason "translation unit has blank target-text"},
+ :empty
+ {:error :error/translation-failed,
+  :segment-id "tr",
+  :reason "no units translated"},
+ :mismatch
+ {:error :error/translation-failed,
+  :segment-id "tr",
+  :reason "translation count 0 != segment count 1"},
+ :same-language
+ {:error :error/translation-failed,
+  :segment-id "tr",
+  :reason "source and target language are identical"},
+ :valid
+ {:ok
+  {:id "tr",
+   :transcript-id "t",
+   :source-language "en",
+   :target-language "fr",
+   :units
+   [{:range {:start {:ms 0}, :end {:ms 100}},
+     :source-language "en",
+     :source-text "hello",
+     :target-text "bonjour",
+     :segment/verbatim? true}],
+   :status
+   #:adt{:variant :translation/complete, :type :TranslationStatus}}}}
