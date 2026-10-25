@@ -1,0 +1,2 @@
+{:long {:in 100, :out {:ok {:spans [{:start-ms 1, :end-ms 2}]}}},
+ :zero {:in 0, :out {:ok {:spans [{:start-ms 1, :end-ms 2}]}}}}
