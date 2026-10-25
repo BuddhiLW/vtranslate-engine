@@ -12,7 +12,11 @@
             [vtranslate.engine.calc.progress :as progress]
             [vtranslate.engine.calc.promote :as promote]
             [vtranslate.engine.domain.rendering :as rd]
-            [clojure.walk :as walk]))
+            [clojure.walk :as walk]
+            [vtranslate.engine.schema.calc-render]
+            [vtranslate.engine.schema.calc-reflow]
+            [vtranslate.engine.schema.calc-text]
+            [vtranslate.engine.schema.calc-process]))
 
 (def texts (gen/vector gen/string-alphanumeric 0 20))
 (def mismatch (fn [expected actual] (r/err :count-mismatch {:expected expected :actual actual})))
@@ -171,3 +175,17 @@
   (doseq [n [0 1 10 100]]
     (is (= n (reduce + (map #(- (:end-ms %) (:start-ms %))
                             (c/fill-gaps [] n 7 1))))))))
+
+(deftest every-pure-public-calc-function-has-a-registered-contract
+  ;; Use function-valued vars, not only defn :arglists: reflow/shape is a
+  ;; public MultiFn. file-sha is explicitly excluded because it performs IO.
+  (doseq [area '[ass batching burn cache-key caption-layout captions coverage
+                encoding ffmpeg-args overlay paths progress promote reflow
+                reflow.optimal reflow.linebreak rendering subtitle-in subtitle-out
+                transcription translation watermark word-cues native-stack subprocess-env]
+          :let [n (symbol (str "vtranslate.engine.calc." area))]
+          [name v] (ns-publics n)
+          :when (and (or (fn? @v) (instance? clojure.lang.MultiFn @v))
+                     (not= [area name] '[cache-key file-sha]))]
+    (is (some? (get-in (m/function-schemas) [n name :schema]))
+        (str n "/" name " must register under its qualified namespace, not an alias"))))
