@@ -1,0 +1,2 @@
+{:output {:in "/tmp/out.mp4", :out "/tmp/out.mp4"},
+ :spaced {:in "/tmp/out file.mp4", :out "/tmp/out file.mp4"}}
