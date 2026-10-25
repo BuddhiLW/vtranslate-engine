@@ -11,7 +11,19 @@
             [vtranslate.engine.collect.ffmpeg :as ffmpeg]
             [vtranslate.engine.providers.composer-registry :as reg]
             [vtranslate.engine.calc.paths :as paths])
-  (:import))
+  (:import [java.util Locale MissingResourceException]))
+
+(defn container-language
+  "The ISO 639-2 code the mp4 muxer stores for a track's BCP-47 `tag`
+   (\"pt-BR\" -> \"por\", \"en\" -> \"eng\"). The muxer keeps ONLY three-letter
+   codes and silently drops anything else, and a SubtitleTrack's language is
+   always BCP-47, so passing it through unconverted lost every real tag. A tag
+   with no ISO 639-2 equivalent (or nil/blank) => \"und\"."
+  [tag]
+  (let [code (try
+               (some-> tag str not-empty Locale/forLanguageTag .getISO3Language)
+               (catch MissingResourceException _ nil))]
+    (if (seq code) code "und")))
 
 (defrecord SoftMuxComposer [opts]
   p.comp/IVideoComposer
@@ -19,7 +31,7 @@
     (let [out  (or (:output-uri compose-opts)
                    (paths/sibling-output video-source ".subbed.mp4"))
           cues (overlay/timeline subtitle-track)
-          lang (or (:language subtitle-track) "und")]
+          lang (container-language (:language subtitle-track))]
       (r/try-effect* :error/compose-failed
         (do (support/atomically out #(ffmpeg/soft-mux video-source % cues lang))
             {:output-uri out})))))
