@@ -1,0 +1,2 @@
+{:empty {:in [[] :a], :out [:a]},
+ :repeat {:in [[:a :b :a] :a], :out [:b :a]}}

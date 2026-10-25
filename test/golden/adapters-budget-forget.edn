@@ -1,0 +1,6 @@
+{:absent
+ {:in [{:resident {:a 2}, :lru [:a]} [:b]],
+  :out {:resident {:a 2}, :lru [:a]}},
+ :all
+ {:in [{:resident {:a 2}, :lru [:a]} [:a]],
+  :out {:resident {}, :lru []}}}

@@ -1,0 +1,6 @@
+{:new
+ {:in [{:resident {}, :lru []} :b 2],
+  :out {:resident {:b 2}, :lru [:b]}},
+ :replace
+ {:in [{:resident {:a 2}, :lru [:a]} :a 3],
+  :out {:resident {:a 3}, :lru [:a]}}}
