@@ -1,0 +1,10 @@
+{:balanced
+ {:lines ["hello world" "the café"],
+  :cost 2.297222222222222,
+  :overflow? false},
+ :blank {:lines [], :cost 0.0, :overflow? false},
+ :empty {:lines [], :cost 0.0, :overflow? false},
+ :hard-split
+ {:lines ["ext" "rao" "rdi" "nar" "y"],
+  :cost 408.1326111111111,
+  :overflow? true}}
