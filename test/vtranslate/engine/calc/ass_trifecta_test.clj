@@ -70,3 +70,17 @@
                     (gen/tuple (gen/return {:width 640 :height 360}) style-gen (gen/vector cue-gen 0 5) (gen/return (fn [size text] (* (count text) size))))])
    :pred #(and (m/validate :string %) (str/includes? % "[Events]") (str/includes? % "[V4+ Styles]") (str/ends-with? % "\n"))
    :mutations [["empty-script" (constantly "")]]})
+
+(deftest all-public-text-functions-have-contracts-and-trifectas
+  (let [areas '[ass subtitle-in subtitle-out transcription translation word-cues]
+        contracts (m/function-schemas)]
+    (doseq [area areas
+            :let [calc-ns (symbol (str "vtranslate.engine.calc." area))
+                  test-ns (symbol (str calc-ns "-trifecta-test"))
+                  _ (require test-ns)]
+            [name v] (ns-publics calc-ns)
+            :when (fn? @v)]
+      (is (some? (get-in contracts [calc-ns name])) (str calc-ns "/" name " contract"))
+      (doseq [facet ["-golden" "-property" "-mutations"]]
+        (is (some? (ns-resolve test-ns (symbol (str name facet))))
+            (str calc-ns "/" name facet))))))

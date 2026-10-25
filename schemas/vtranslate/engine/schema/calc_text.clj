@@ -43,6 +43,27 @@
              [:pause-ms {:optional true} pos-int?]
              [:min-ms {:optional true} Pixels]])
 
+(def SegmentData
+  [:map [:start-ms :int] [:end-ms :int] [:text :string]
+   [:confidence number?] [:language {:optional true} [:maybe :string]]])
+
+(def TranscriptRequest
+  [:map [:id {:optional true} :any] [:asset-id {:optional true} :any]
+   [:language [:maybe :string]] [:segments [:sequential SegmentData]]])
+
+(def TrackSpec
+  [:map [:id {:optional true} :any] [:source-id {:optional true} :any]
+   [:language :string] [:format :qualified-keyword]])
+
+(def TranslationSpec [:map [:id {:optional true} :any] [:target-language :string]])
+
+(def Targets
+  [:map [:target-language {:optional true} [:maybe :string]]
+   [:target-languages {:optional true} [:maybe [:sequential [:maybe :string]]]]])
+
+(def TranslationError
+  [:map [:error [:= :error/translation-failed]] [:reason :string]])
+
 (m/=> vtranslate.engine.calc.ass/timestamp [:=> [:cat :int] Clock])
 (m/=> vtranslate.engine.calc.ass/colour [:=> [:cat [:tuple :int :int :int] :int] Colour])
 (m/=> vtranslate.engine.calc.ass/font-name [:=> [:cat [:maybe :string]] :string])
@@ -54,17 +75,17 @@
 (m/=> vtranslate.engine.calc.ass/document [:function
                     [:=> [:cat Frame [:maybe :map] [:sequential Overlay]] :string]
                     [:=> [:cat Frame [:maybe :map] [:sequential Overlay] ifn?] :string]])
-(m/=> vtranslate.engine.calc.subtitle-in/build-subtitle-track [:=> [:cat [:sequential CueData] :map] (s/result-of Track)])
+(m/=> vtranslate.engine.calc.subtitle-in/build-subtitle-track [:=> [:cat [:sequential CueData] TrackSpec] (s/result-of Track)])
 (m/=> vtranslate.engine.calc.subtitle-out/cue-texts [:=> [:cat [:sequential CueData]] Strings])
 (m/=> vtranslate.engine.calc.subtitle-out/apply-translations [:=> [:cat [:sequential CueData] [:sequential :string]] (s/result-of Cues)])
 (m/=> vtranslate.engine.calc.transcription/detected-language [:=> [:cat [:sequential :map]] [:maybe s/Language]])
-(m/=> vtranslate.engine.calc.transcription/build-transcript [:=> [:cat :map] (s/result-of Transcript)])
-(m/=> vtranslate.engine.calc.translation/build-translated-cues [:=> [:cat Transcript Strings :map] (s/result-of Translated)])
-(m/=> vtranslate.engine.calc.translation/normalize-targets [:=> [:cat :map] Strings])
+(m/=> vtranslate.engine.calc.transcription/build-transcript [:=> [:cat TranscriptRequest] (s/result-of Transcript)])
+(m/=> vtranslate.engine.calc.translation/build-translated-cues [:=> [:cat Transcript Strings TranslationSpec] (s/result-of Translated)])
+(m/=> vtranslate.engine.calc.translation/normalize-targets [:=> [:cat Targets] Strings])
 (m/=> vtranslate.engine.calc.translation/segment-source-language [:=> [:cat :map [:maybe :string] :map] :string])
 (m/=> vtranslate.engine.calc.translation/translation-group [:=> [:cat :map [:maybe :string] :string :map] [:or :string :qualified-keyword]])
 (m/=> vtranslate.engine.calc.translation/verbatim-translations [:=> [:cat [:sequential [:tuple :int :map]]] (s/result-of IndexedTexts)])
-(m/=> vtranslate.engine.calc.translation/translation-count-error [:=> [:cat :any Pixels Pixels] (s/result-of :any)])
+(m/=> vtranslate.engine.calc.translation/translation-count-error [:=> [:cat :any Pixels Pixels] TranslationError])
 (m/=> vtranslate.engine.calc.translation/target-outcomes [:=> [:cat Strings [:sequential :any] :any] Outcomes])
 (m/=> vtranslate.engine.calc.word-cues/recut [:function
                 [:=> [:cat [:sequential SegmentSeconds] [:sequential Word]] [:vector SegmentSeconds]]
