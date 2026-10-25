@@ -1,0 +1,4 @@
+{:blank {:in " ", :out nil},
+ :nil {:in nil, :out nil},
+ :primary {:in "he", :out "he"},
+ :region {:in "EN-US", :out "en"}}
