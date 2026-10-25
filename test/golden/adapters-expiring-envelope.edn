@@ -1,0 +1,12 @@
+{:epoch
+ {:in [{:segments [], :source-language "en"} 0],
+  :out
+  #:transcript-cache{:cached-at 0,
+                     :transcript
+                     {:segments [], :source-language "en"}}},
+ :later
+ {:in [{:segments [], :source-language "en"} 100],
+  :out
+  #:transcript-cache{:cached-at 100,
+                     :transcript
+                     {:segments [], :source-language "en"}}}}

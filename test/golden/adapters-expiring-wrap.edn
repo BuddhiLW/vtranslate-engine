@@ -1,0 +1,3 @@
+{:disabled {:in 0, :out {:same? true, :cache? false}},
+ :enabled {:in 10, :out {:same? false, :cache? true}},
+ :negative {:in -1, :out {:same? true, :cache? false}}}

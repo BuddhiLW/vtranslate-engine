@@ -1,0 +1,8 @@
+{:bare {:in {:segments [], :source-language "en"}, :out false},
+ :nil {:in nil, :out false},
+ :wrapped
+ {:in
+  #:transcript-cache{:cached-at 0,
+                     :transcript
+                     {:segments [], :source-language "en"}},
+  :out true}}
