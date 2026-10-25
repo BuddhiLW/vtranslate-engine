@@ -1,0 +1,10 @@
+{:srt
+ {:in [:format/srt 0 1000 "hello"],
+  :out
+  {:ok
+   {:cues [{:index 1, :start-ms 0, :end-ms 1000, :lines ["hello"]}]}}},
+ :vtt
+ {:in [:format/vtt 100 1000 "世界"],
+  :out
+  {:ok
+   {:cues [{:index 1, :start-ms 100, :end-ms 1100, :lines ["世界"]}]}}}}

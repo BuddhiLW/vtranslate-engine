@@ -1,0 +1,3 @@
+{:last-two-digit-hour {:in [359999999 ","], :out 359999999},
+ :minute {:in [60001 "."], :out 60001},
+ :zero {:in [0 ","], :out 0}}

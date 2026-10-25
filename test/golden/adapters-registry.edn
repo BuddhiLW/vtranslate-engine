@@ -1,0 +1,2 @@
+{:new {:in [{} :custom :codec], :out {:ok :codec}},
+ :replace {:in [{:custom :old} :custom :new], :out {:ok :new}}}
