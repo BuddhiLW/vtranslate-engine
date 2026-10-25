@@ -1,0 +1,6 @@
+{:empty {:in [], :out []},
+ :hysteresis {:in [0.9 0.4 0.1 0.1], :out [{:start-ms 0, :end-ms 64}]},
+ :silence {:in [0.0 0.0], :out []},
+ :speech
+ {:in [1.0 1.0 1.0],
+  :out [{:start-ms 0, :end-ms 64} {:start-ms 64, :end-ms 96}]}}

@@ -1,0 +1,10 @@
+{:disabled
+ {:in [0 [{:start-ms 1, :end-ms 99}]],
+  :out [{:start-ms 1, :end-ms 99}]},
+ :empty {:in [10 []], :out []},
+ :split
+ {:in [10 [{:start-ms 5, :end-ms 26}]],
+  :out
+  [{:start-ms 5, :end-ms 15}
+   {:start-ms 15, :end-ms 25}
+   {:start-ms 25, :end-ms 26}]}}
