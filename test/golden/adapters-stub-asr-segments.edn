@@ -1,0 +1,16 @@
+{:minimum
+ {:in [0 10 nil],
+  :out
+  [{:start-ms 0,
+    :end-ms 1,
+    :text "[und segment 1]",
+    :confidence 1.0}]},
+ :tail
+ {:in [21 10 "he"],
+  :out
+  [{:start-ms 0, :end-ms 10, :text "[he segment 1]", :confidence 1.0}
+   {:start-ms 10, :end-ms 20, :text "[he segment 2]", :confidence 1.0}
+   {:start-ms 20,
+    :end-ms 21,
+    :text "[he segment 3]",
+    :confidence 1.0}]}}
