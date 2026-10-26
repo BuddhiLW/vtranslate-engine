@@ -1,0 +1,8 @@
+{:dense
+ [{:index 9, :start-ms 0, :end-ms 500, :lines ["hello"]}
+  {:index 9, :start-ms 500, :end-ms 1000, :lines ["world"]}
+  {:index 4, :start-ms 900, :end-ms 1286, :lines ["the"]}
+  {:index 4, :start-ms 1286, :end-ms 1800, :lines ["café"]}],
+ :empty [],
+ :zero-duration
+ [{:index 9, :start-ms 0, :end-ms 0, :lines ["hello world"]}]}

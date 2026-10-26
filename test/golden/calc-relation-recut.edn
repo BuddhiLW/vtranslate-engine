@@ -1,0 +1,18 @@
+{:no-segments
+ {:in {:segments [], :words [{:start 0, :end 1, :word " hi"}]},
+  :rules {},
+  :out []},
+ :no-words
+ {:in {:segments [{:start 0, :end 30, :text "unchanged"}], :words []},
+  :rules {},
+  :out [{:start 0, :end 30, :text "unchanged"}]},
+ :sentence
+ {:in
+  {:segments [{:start 0, :end 30, :confidence 0.9}],
+   :words
+   [{:start 0, :end 1, :word " Hello."}
+    {:start 1, :end 2, :word " world"}]},
+  :rules {},
+  :out
+  [{:confidence 0.9, :start 0, :end 1, :text "Hello."}
+   {:confidence 0.9, :start 1, :end 2, :text "world"}]}}

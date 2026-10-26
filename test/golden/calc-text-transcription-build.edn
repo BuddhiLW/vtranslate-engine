@@ -1,0 +1,36 @@
+{:blank {:error :error/asr-failed, :reason "segment text is blank"},
+ :confidence {:error :error/invalid-confidence, :score 2},
+ :detected
+ {:ok
+  {:id "t",
+   :asset-id "a",
+   :language "fr",
+   :segments
+   [{:index 1,
+     :range {:start {:ms 0}, :end {:ms 100}},
+     :text "Hello",
+     :confidence {:score 0.8},
+     :language "fr"}],
+   :status
+   #:adt{:variant :transcript/complete, :type :TranscriptStatus}}},
+ :silent
+ {:ok
+  {:id "t",
+   :asset-id "a",
+   :language "en",
+   :segments [],
+   :status
+   #:adt{:variant :transcript/silent, :type :TranscriptStatus}}},
+ :speech
+ {:ok
+  {:id "t",
+   :asset-id "a",
+   :language "en",
+   :segments
+   [{:index 1,
+     :range {:start {:ms 0}, :end {:ms 100}},
+     :text "Hello",
+     :confidence {:score 0.8},
+     :language "en"}],
+   :status
+   #:adt{:variant :transcript/complete, :type :TranscriptStatus}}}}

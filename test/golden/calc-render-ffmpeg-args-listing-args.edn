@@ -1,0 +1,2 @@
+{:encoders ["/bin/ffmpeg" "-hide_banner" "-encoders"],
+ :filters ["ffmpeg" "-hide_banner" "-filters"]}

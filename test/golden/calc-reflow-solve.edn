@@ -1,0 +1,10 @@
+{:empty {:cues [], :cost 0.0},
+ :one
+ {:cost 0.07121315192743764,
+  :cues
+  [{:index 0, :start-ms 0, :end-ms 1000, :lines ["hello world"]}]},
+ :sequential
+ {:cost 0.15739909297052154,
+  :cues
+  [{:index 0, :start-ms 0, :end-ms 1020, :lines ["hello world"]}
+   {:index 0, :start-ms 1100, :end-ms 1900, :lines ["the café"]}]}}

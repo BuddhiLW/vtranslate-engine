@@ -1,0 +1,4 @@
+{:disabled ["one two"],
+ :empty [""],
+ :long-word ["unbreakable"],
+ :wrapped ["one two" "three"]}

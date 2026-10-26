@@ -1,0 +1,2 @@
+{:bare {:soft "a.soft.mp4", :hard "a.hard.mp4"},
+ :nested {:soft "out/a.soft.mp4", :hard "out/a.hard.mp4"}}

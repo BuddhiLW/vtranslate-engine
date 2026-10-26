@@ -1,0 +1,8 @@
+{:extra
+ {:error :error/translation-failed,
+  :segment-id "",
+  :reason "translation count 3 != segment count 1"},
+ :missing
+ {:error :error/translation-failed,
+  :segment-id "batch",
+  :reason "translation count 1 != segment count 2"}}

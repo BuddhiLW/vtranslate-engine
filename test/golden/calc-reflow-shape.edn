@@ -1,0 +1,16 @@
+{:empty [],
+ :greedy
+ [{:index 1,
+   :start-ms 0,
+   :end-ms 1800,
+   :lines ["hello world" "the café"]}],
+ :optimal
+ [{:index 1,
+   :start-ms 0,
+   :end-ms 1800,
+   :lines ["hello world the café"]}],
+ :roll-up
+ [{:index 1,
+   :start-ms 0,
+   :end-ms 1800,
+   :lines ["hello world the café"]}]}

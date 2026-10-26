@@ -1,0 +1,6 @@
+{:empty {:ok []},
+ :mismatch
+ {:error :error/translation-failed,
+  :reason "translation count 0 != cue count 1"},
+ :multiline
+ {:ok [{:index 7, :start-ms 0, :end-ms 10, :lines ["b" "c"]}]}}

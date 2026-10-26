@@ -1,0 +1,14 @@
+{:empty [],
+ :overlap
+ [{:index 9,
+   :start-ms 0,
+   :end-ms 1800,
+   :lines ["hello world" "the café"]}],
+ :reversed
+ [{:index 9,
+   :start-ms 0,
+   :end-ms 1800,
+   :lines ["hello world" "the café"]}],
+ :touching
+ [{:index 9, :start-ms 0, :end-ms 1000, :lines ["hello world"]}
+  {:index 4, :start-ms 1000, :end-ms 1800, :lines ["the café"]}]}

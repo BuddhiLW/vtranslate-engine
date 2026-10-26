@@ -1,0 +1,4 @@
+{:deduplicate ["fr" "en"],
+ :fallback ["en"],
+ :missing [],
+ :single ["fr"]}

@@ -1,0 +1,10 @@
+{:known
+ {:ok
+  [{:index 1,
+    :start-ms 0,
+    :end-ms 1800,
+    :lines ["hello world" "the café"]}]},
+ :unknown
+ {:error :error/render-failed,
+  :reason
+  "unknown reflow strategy :missing; known: [:greedy :optimal]"}}

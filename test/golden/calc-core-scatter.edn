@@ -1,0 +1,4 @@
+{:empty {:ok []},
+ :incomplete {:error :count-mismatch, :expected 2, :actual 1},
+ :nil-value {:ok [nil]},
+ :reverse {:ok ["a" "b"]}}

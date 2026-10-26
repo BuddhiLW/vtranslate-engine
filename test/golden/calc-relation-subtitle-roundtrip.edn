@@ -1,0 +1,47 @@
+{:multiline
+ {:in
+  [{:index 9, :start-ms 0, :end-ms 1000, :lines ["café 字幕" "two"]}],
+  :rules {:format :format/srt},
+  :out
+  {:texts ["café 字幕\ntwo"],
+   :translated
+   {:ok
+    [{:index 9, :start-ms 0, :end-ms 1000, :lines ["café 字幕" "two"]}]},
+   :cues
+   [{:index 1, :lines ["café 字幕" "two"], :start-ms 0, :end-ms 1000}],
+   :parsed
+   [{:index 1, :start-ms 0, :end-ms 1000, :lines ["café 字幕" "two"]}]}},
+ :srt
+ {:in
+  [{:index 9, :start-ms 0, :end-ms 1000, :lines ["one two"]}
+   {:index 8, :start-ms 1100, :end-ms 2000, :lines ["café end."]}],
+  :rules {:format :format/srt},
+  :out
+  {:texts ["one two" "café end."],
+   :translated
+   {:ok
+    [{:index 9, :start-ms 0, :end-ms 1000, :lines ["one two"]}
+     {:index 8, :start-ms 1100, :end-ms 2000, :lines ["café end."]}]},
+   :cues
+   [{:index 1, :lines ["one two"], :start-ms 0, :end-ms 1000}
+    {:index 2, :lines ["café end."], :start-ms 1100, :end-ms 2000}],
+   :parsed
+   [{:index 1, :start-ms 0, :end-ms 1000, :lines ["one two"]}
+    {:index 2, :start-ms 1100, :end-ms 2000, :lines ["café end."]}]}},
+ :vtt
+ {:in
+  [{:index 9, :start-ms 0, :end-ms 1000, :lines ["one two"]}
+   {:index 8, :start-ms 1100, :end-ms 2000, :lines ["café end."]}],
+  :rules {:format :format/vtt},
+  :out
+  {:texts ["one two" "café end."],
+   :translated
+   {:ok
+    [{:index 9, :start-ms 0, :end-ms 1000, :lines ["one two"]}
+     {:index 8, :start-ms 1100, :end-ms 2000, :lines ["café end."]}]},
+   :cues
+   [{:index 1, :lines ["one two"], :start-ms 0, :end-ms 1000}
+    {:index 2, :lines ["café end."], :start-ms 1100, :end-ms 2000}],
+   :parsed
+   [{:index 1, :start-ms 0, :end-ms 1000, :lines ["one two"]}
+    {:index 2, :start-ms 1100, :end-ms 2000, :lines ["café end."]}]}}}
