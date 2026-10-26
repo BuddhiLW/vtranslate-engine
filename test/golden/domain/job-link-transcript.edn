@@ -1,0 +1,8 @@
+{:valid
+ {:id "j",
+  :asset-id "a",
+  :target-language "pt",
+  :state #:adt{:variant :job/pending, :type :JobState},
+  :transcript-id "ref",
+  :subtitle-id nil,
+  :error nil}}

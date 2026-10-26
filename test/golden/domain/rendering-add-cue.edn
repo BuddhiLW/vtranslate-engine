@@ -1,0 +1,10 @@
+{:valid
+ {:id "s",
+  :source-id "u",
+  :language "pt",
+  :format #:adt{:variant :format/srt, :type :SubtitleFormat},
+  :cues
+  [{:index 1,
+    :range {:start {:ms 0}, :end {:ms 10}},
+    :lines ["hello"]}],
+  :status #:adt{:variant :track/draft, :type :TrackStatus}}}

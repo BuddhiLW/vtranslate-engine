@@ -1,0 +1,5 @@
+{:bad-end {:error :error/invalid-timecode, :ms -1},
+ :bad-start {:error :error/invalid-timecode, :ms -1},
+ :inverted {:error :error/inverted-time-range, :start 2, :end 1},
+ :valid {:ok {:start {:ms 1}, :end {:ms 2}}},
+ :zero {:ok {:start {:ms 0}, :end {:ms 0}}}}

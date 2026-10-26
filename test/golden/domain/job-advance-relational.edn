@@ -1,0 +1,28 @@
+{:pending
+ {:before
+  {:id "j",
+   :asset-id "a",
+   :target-language "pt",
+   :state #:adt{:variant :job/pending, :type :JobState},
+   :transcript-id nil,
+   :subtitle-id nil,
+   :error nil},
+  :result
+  {:ok
+   {:id "j",
+    :asset-id "a",
+    :target-language "pt",
+    :state #:adt{:variant :job/ingesting, :type :JobState},
+    :transcript-id nil,
+    :subtitle-id nil,
+    :error nil}}},
+ :terminal
+ {:before
+  {:id "j",
+   :asset-id "a",
+   :target-language "pt",
+   :state #:adt{:variant :job/completed, :type :JobState},
+   :transcript-id nil,
+   :subtitle-id nil,
+   :error nil},
+  :result {:error :error/illegal-transition, :from :job/completed}}}

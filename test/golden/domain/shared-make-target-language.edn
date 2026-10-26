@@ -1,0 +1,9 @@
+{:case-insensitive {:ok "en"},
+ :nil
+ {:error :error/unsupported-language, :language nil, :side :target},
+ :not-string
+ {:error :error/unsupported-language, :language 42, :side :target},
+ :regional {:ok "pt-BR"},
+ :unknown
+ {:error :error/unsupported-language, :language "xx", :side :target},
+ :valid {:ok "en"}}

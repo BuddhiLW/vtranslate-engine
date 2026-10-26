@@ -1,0 +1,11 @@
+{:valid
+ {:id "t",
+  :asset-id "a",
+  :language "en",
+  :segments
+  [{:index 1,
+    :range {:start {:ms 0}, :end {:ms 10}},
+    :text "hello",
+    :confidence {:score 0.5},
+    :language "en"}],
+  :status #:adt{:variant :transcript/partial, :type :TranscriptStatus}}}

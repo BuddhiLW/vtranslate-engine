@@ -1,0 +1,18 @@
+{:complete
+ {:error :error/illegal-transition, :from :transcript/complete},
+ :failed {:error :error/illegal-transition, :from :transcript/failed},
+ :partial
+ {:error :error/illegal-transition, :from :transcript/partial},
+ :segments
+ {:error :error/asr-failed,
+  :reason
+  "a transcript carrying segments is completed, not sealed silent"},
+ :silent {:error :error/illegal-transition, :from :transcript/silent},
+ :valid
+ {:ok
+  {:id "t",
+   :asset-id "a",
+   :language "en",
+   :segments [],
+   :status
+   #:adt{:variant :transcript/silent, :type :TranscriptStatus}}}}

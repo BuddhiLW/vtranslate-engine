@@ -1,0 +1,9 @@
+{:kind {:error :error/unsupported-format, :format :bad},
+ :source {:error :error/invalid-source, :source " "},
+ :valid
+ {:ok
+  {:id "a",
+   :source-ref {:uri "a"},
+   :kind #:adt{:variant :media/video, :type :MediaKind},
+   :status #:adt{:variant :asset/registered, :type :AssetStatus},
+   :probe nil}}}

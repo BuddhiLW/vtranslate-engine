@@ -1,0 +1,19 @@
+{:blank
+ {:error :error/render-failed,
+  :reason "cue has no non-blank text lines"},
+ :empty
+ {:error :error/render-failed,
+  :reason "cue has no non-blank text lines"},
+ :end {:error :error/invalid-timecode, :ms -1},
+ :index
+ {:error :error/render-failed,
+  :reason "cue index must be a positive integer",
+  :index 0},
+ :inverted {:error :error/inverted-time-range, :start 20, :end 10},
+ :non-string
+ {:error :error/render-failed,
+  :reason "cue has no non-blank text lines"},
+ :start {:error :error/invalid-timecode, :ms -1},
+ :valid
+ {:ok
+  {:index 1, :range {:start {:ms 0}, :end {:ms 10}}, :lines ["hello"]}}}

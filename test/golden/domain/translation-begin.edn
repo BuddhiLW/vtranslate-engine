@@ -1,0 +1,8 @@
+{:valid
+ {:id "u",
+  :transcript-id "t",
+  :source-language "en",
+  :target-language "pt",
+  :units [],
+  :status
+  #:adt{:variant :translation/translating, :type :TranslationStatus}}}

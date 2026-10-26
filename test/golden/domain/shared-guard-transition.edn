@@ -1,0 +1,10 @@
+{:allowed
+ {:ok
+  {:id "t",
+   :asset-id "a",
+   :language "en",
+   :segments [],
+   :status
+   #:adt{:variant :transcript/empty, :type :TranscriptStatus}}},
+ :missing {:error :error/illegal-transition, :from nil},
+ :refused {:error :error/illegal-transition, :from :transcript/empty}}
