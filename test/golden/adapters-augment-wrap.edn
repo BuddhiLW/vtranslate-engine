@@ -1,0 +1,6 @@
+{:empty
+ {:in [["a"] {:x 1} {}],
+  :out {:result {:ok ["a"]}, :opts {:x 1}, :same? true}},
+ :override
+ {:in [["a" "a"] {:x 1} {:x 2}],
+  :out {:result {:ok ["a" "a"]}, :opts {:x 2}, :same? false}}}

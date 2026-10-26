@@ -1,0 +1,6 @@
+{:explicit
+ {:in [{:ns fixture, :classpath/aliases [:z :a :z]}], :out [:z :a]},
+ :none {:in [], :out []},
+ :repeated
+ {:in [:vtranslate/context :vtranslate/fetch :vtranslate/context],
+  :out [:addon-context :addon-fetch]}}

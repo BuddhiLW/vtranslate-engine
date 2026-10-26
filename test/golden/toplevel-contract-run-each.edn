@@ -1,0 +1,7 @@
+{:empty {:in [], :out []},
+ :values
+ {:in [1 2 1],
+  :out
+  [{:status :ok, :value 2}
+   {:status :ok, :value 3}
+   {:status :ok, :value 2}]}}

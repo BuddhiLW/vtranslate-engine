@@ -1,0 +1,22 @@
+{:none
+ {:in [0 0],
+  :out
+  {:error :error/model-host,
+   :model "new",
+   :reason :budget,
+   :needed-mib 0,
+   :short-mib 0,
+   :budget-mib 10,
+   :resident ["a"],
+   :busy ["a"]}},
+ :short
+ {:in [12 2],
+  :out
+  {:error :error/model-host,
+   :model "new",
+   :reason :budget,
+   :needed-mib 12,
+   :short-mib 2,
+   :budget-mib 10,
+   :resident ["a"],
+   :busy ["a"]}}}

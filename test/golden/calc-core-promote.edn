@@ -1,0 +1,13 @@
+{:empty {:ok {:cues []}},
+ :error
+ {:error :error/render-failed,
+  :reason "cue has no non-blank text lines"},
+ :ordered
+ {:ok
+  {:cues
+   [{:index 1,
+     :range {:start {:ms 100}, :end {:ms 200}},
+     :lines ["first"]}
+    {:index 2,
+     :range {:start {:ms 200}, :end {:ms 300}},
+     :lines ["second"]}]}}}

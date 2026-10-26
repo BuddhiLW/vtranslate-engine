@@ -1,0 +1,3 @@
+{:endpoint
+ {:in "http://fixture/v1/audio/transcriptions", :out "http://fixture"},
+ :trailing {:in "http://fixture/", :out "http://fixture"}}

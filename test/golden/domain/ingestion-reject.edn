@@ -1,0 +1,12 @@
+{:again
+ {:id "a",
+  :source-ref {:uri "movie.mp4"},
+  :kind #:adt{:variant :media/video, :type :MediaKind},
+  :status #:adt{:variant :asset/rejected, :type :AssetStatus},
+  :probe nil},
+ :valid
+ {:id "a",
+  :source-ref {:uri "movie.mp4"},
+  :kind #:adt{:variant :media/video, :type :MediaKind},
+  :status #:adt{:variant :asset/rejected, :type :AssetStatus},
+  :probe nil}}

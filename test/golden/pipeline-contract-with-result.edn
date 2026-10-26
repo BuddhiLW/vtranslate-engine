@@ -1,0 +1,6 @@
+{:error
+ {:in {:error? true, :xs [1], :result {:error :error/pinned}},
+  :out {:state {:result {:error :error/pinned}}, :calls 0}},
+ :ok
+ {:in {:error? false, :xs [], :result {:ok []}},
+  :out {:state {:result {:ok [:next]}}, :calls 1}}}

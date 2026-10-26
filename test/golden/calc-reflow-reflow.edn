@@ -1,0 +1,14 @@
+{:all-rules
+ [{:index 1, :start-ms 0, :end-ms 280, :lines ["hello"]}
+  {:index 2, :start-ms 280, :end-ms 520, :lines ["world"]}
+  {:index 3, :start-ms 520, :end-ms 920, :lines ["the café"]}],
+ :default
+ [{:index 1,
+   :start-ms 0,
+   :end-ms 1800,
+   :lines ["hello world" "the café"]}],
+ :optimal
+ [{:index 1,
+   :start-ms 0,
+   :end-ms 1800,
+   :lines ["hello world the café"]}]}

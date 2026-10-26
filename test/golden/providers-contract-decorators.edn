@@ -1,0 +1,15 @@
+{:empty
+ {:in {:orders [], :expected []},
+  :out {:contributions [], :decorated {:ok []}, :identities []}},
+ :reverse
+ {:in {:orders [3 2 1], :expected [:d2 :d1 :d0]},
+  :out
+  {:contributions [[:d2 {:order 1}] [:d1 {:order 2}] [:d0 {:order 3}]],
+   :decorated {:ok [:d2 :d1 :d0]},
+   :identities [":d0=d0" ":d1=d1" ":d2=d2"]}},
+ :ties
+ {:in {:orders [1 1 0], :expected [:d2 :d0 :d1]},
+  :out
+  {:contributions [[:d2 {:order 0}] [:d0 {:order 1}] [:d1 {:order 1}]],
+   :decorated {:ok [:d2 :d0 :d1]},
+   :identities [":d0=d0" ":d1=d1" ":d2=d2"]}}}

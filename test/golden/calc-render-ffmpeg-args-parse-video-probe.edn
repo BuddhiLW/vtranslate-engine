@@ -1,0 +1,9 @@
+{:absent nil,
+ :invalid nil,
+ :missing-rate
+ {:width 640, :height 480, :frame-rate nil, :video-bitrate nil},
+ :valid
+ {:width 1920,
+  :height 1080,
+  :frame-rate 29.97002997002997,
+  :video-bitrate 6000000}}

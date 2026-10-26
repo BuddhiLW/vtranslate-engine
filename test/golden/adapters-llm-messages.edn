@@ -1,0 +1,30 @@
+{:duplicate
+ {:in ["hello" "hello"],
+  :out
+  [{:role "system",
+    :content
+    "You are a subtitle translator. The user message is a JSON array of subtitle strings. Translate each element into the target language named in the final instruction. Return ONLY a JSON array of translated strings the SAME length and order as the input. No prose, no markdown, no code fences."}
+   {:role "user", :content "[\"hello\",\"hello\"]"}
+   {:role "user",
+    :content
+    "Translate the JSON array above from en to he. Return ONLY the JSON array of translated strings, same length and order."}]},
+ :empty
+ {:in [],
+  :out
+  [{:role "system",
+    :content
+    "You are a subtitle translator. The user message is a JSON array of subtitle strings. Translate each element into the target language named in the final instruction. Return ONLY a JSON array of translated strings the SAME length and order as the input. No prose, no markdown, no code fences."}
+   {:role "user", :content "[]"}
+   {:role "user",
+    :content
+    "Translate the JSON array above from en to he. Return ONLY the JSON array of translated strings, same length and order."}]},
+ :unicode
+ {:in ["שלום"],
+  :out
+  [{:role "system",
+    :content
+    "You are a subtitle translator. The user message is a JSON array of subtitle strings. Translate each element into the target language named in the final instruction. Return ONLY a JSON array of translated strings the SAME length and order as the input. No prose, no markdown, no code fences."}
+   {:role "user", :content "[\"שלום\"]"}
+   {:role "user",
+    :content
+    "Translate the JSON array above from en to he. Return ONLY the JSON array of translated strings, same length and order."}]}}

@@ -1,0 +1,31 @@
+{:default
+ {:in {},
+  :out
+  {:ok
+   {:model-key :qwen3-asr-0.6b, :model-dir nil, :span-pad-ms 500}}},
+ :large
+ {:in {:model-key :qwen3-asr-1.7b, :span-pad-ms 100},
+  :out
+  {:ok
+   {:model-key :qwen3-asr-1.7b, :model-dir nil, :span-pad-ms 100}}},
+ :missing-dir
+ {:in {:model-dir "/nonexistent/qwen"},
+  :out
+  {:error :error/transcriber-unavailable,
+   :provider :qwen3-asr,
+   :model-dir "/nonexistent/qwen",
+   :hint
+   "config [:transcriber-opts :model-dir] names no existing directory — omit it to auto-download sha-pinned weights from HF"}},
+ :string-key
+ {:in {:model-key "qwen3-asr-0.6b"},
+  :out
+  {:ok
+   {:model-key :qwen3-asr-0.6b, :model-dir nil, :span-pad-ms 500}}},
+ :unknown
+ {:in {:model-key :qwen3-asr-9b},
+  :out
+  {:error :error/transcriber-unavailable,
+   :provider :qwen3-asr,
+   :model-key :qwen3-asr-9b,
+   :hint
+   "unknown Qwen3-ASR model key — known: #{:qwen3-asr-1.7b :qwen3-asr-0.6b}"}}}

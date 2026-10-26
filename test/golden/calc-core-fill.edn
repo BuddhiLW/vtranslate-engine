@@ -1,0 +1,12 @@
+{:positional
+ [{:start-ms 0, :end-ms 40}
+  {:start-ms 40, :end-ms 80}
+  {:start-ms 80, :end-ms 100}],
+ :preserve
+ [{:start-ms 0, :end-ms 20}
+  {:start-ms 20, :end-ms 80}
+  {:start-ms 80, :end-ms 100}],
+ :request
+ [{:start-ms 0, :end-ms 40}
+  {:start-ms 40, :end-ms 80}
+  {:start-ms 80, :end-ms 100}]}

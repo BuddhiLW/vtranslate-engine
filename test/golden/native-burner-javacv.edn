@@ -1,0 +1,96 @@
+{:adjacent
+ {:in
+  [{:start-ms 200, :end-ms 500, :lines ["a"]}
+   {:start-ms 500, :end-ms 700, :lines ["b"]}],
+  :out
+  {:result "<tmp>/burned.mp4",
+   :probe
+   {:container "mov,mp4,m4a,3gp,3g2,mj2",
+    :duration-ms 1024,
+    :has-audio? true,
+    :has-video? true,
+    :audio-codec "aac",
+    :sample-rate 16000,
+    :channels 1},
+   :frames
+   [{:t-ms 0, :cue-active? false, :changed? false}
+    {:t-ms 100, :cue-active? false, :changed? false}
+    {:t-ms 200, :cue-active? true, :changed? true}
+    {:t-ms 300, :cue-active? true, :changed? true}
+    {:t-ms 400, :cue-active? true, :changed? true}
+    {:t-ms 500, :cue-active? true, :changed? true}
+    {:t-ms 600, :cue-active? true, :changed? true}
+    {:t-ms 700, :cue-active? false, :changed? false}
+    {:t-ms 800, :cue-active? false, :changed? false}
+    {:t-ms 900, :cue-active? false, :changed? false}]}},
+ :one-cue
+ {:in [{:start-ms 0, :end-ms 400, :lines ["hello"]}],
+  :out
+  {:result "<tmp>/burned.mp4",
+   :probe
+   {:container "mov,mp4,m4a,3gp,3g2,mj2",
+    :duration-ms 1024,
+    :has-audio? true,
+    :has-video? true,
+    :audio-codec "aac",
+    :sample-rate 16000,
+    :channels 1},
+   :frames
+   [{:t-ms 0, :cue-active? true, :changed? true}
+    {:t-ms 100, :cue-active? true, :changed? true}
+    {:t-ms 200, :cue-active? true, :changed? true}
+    {:t-ms 300, :cue-active? true, :changed? true}
+    {:t-ms 400, :cue-active? false, :changed? false}
+    {:t-ms 500, :cue-active? false, :changed? false}
+    {:t-ms 600, :cue-active? false, :changed? false}
+    {:t-ms 700, :cue-active? false, :changed? false}
+    {:t-ms 800, :cue-active? false, :changed? false}
+    {:t-ms 900, :cue-active? false, :changed? false}]}},
+ :two-cues
+ {:in
+  [{:start-ms 100, :end-ms 300, :lines ["first"]}
+   {:start-ms 500, :end-ms 900, :lines ["second" "two lines"]}],
+  :out
+  {:result "<tmp>/burned.mp4",
+   :probe
+   {:container "mov,mp4,m4a,3gp,3g2,mj2",
+    :duration-ms 1024,
+    :has-audio? true,
+    :has-video? true,
+    :audio-codec "aac",
+    :sample-rate 16000,
+    :channels 1},
+   :frames
+   [{:t-ms 0, :cue-active? false, :changed? false}
+    {:t-ms 100, :cue-active? true, :changed? true}
+    {:t-ms 200, :cue-active? true, :changed? true}
+    {:t-ms 300, :cue-active? false, :changed? false}
+    {:t-ms 400, :cue-active? false, :changed? false}
+    {:t-ms 500, :cue-active? true, :changed? true}
+    {:t-ms 600, :cue-active? true, :changed? true}
+    {:t-ms 700, :cue-active? true, :changed? true}
+    {:t-ms 800, :cue-active? true, :changed? true}
+    {:t-ms 900, :cue-active? false, :changed? false}]}},
+ :unicode
+ {:in [{:start-ms 300, :end-ms 1000, :lines ["Olá" "über ñ"]}],
+  :out
+  {:result "<tmp>/burned.mp4",
+   :probe
+   {:container "mov,mp4,m4a,3gp,3g2,mj2",
+    :duration-ms 1024,
+    :has-audio? true,
+    :has-video? true,
+    :audio-codec "aac",
+    :sample-rate 16000,
+    :channels 1},
+   :frames
+   [{:t-ms 0, :cue-active? false, :changed? false}
+    {:t-ms 100, :cue-active? false, :changed? false}
+    {:t-ms 200, :cue-active? false, :changed? false}
+    {:t-ms 300, :cue-active? true, :changed? true}
+    {:t-ms 400, :cue-active? true, :changed? true}
+    {:t-ms 500, :cue-active? true, :changed? true}
+    {:t-ms 600, :cue-active? true, :changed? true}
+    {:t-ms 700, :cue-active? true, :changed? true}
+    {:t-ms 800, :cue-active? true, :changed? true}
+    {:t-ms 900, :cue-active? true, :changed? true}]}}}

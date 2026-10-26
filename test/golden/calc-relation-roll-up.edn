@@ -1,0 +1,57 @@
+{:carry
+ {:in
+  [{:index 9, :start-ms 0, :end-ms 1000, :lines ["one two"]}
+   {:index 8, :start-ms 1100, :end-ms 2000, :lines ["café end."]}],
+  :rules
+  {:max-group 1, :max-lines 2, :strategy :optimal, :style :roll-up},
+  :base
+  [{:index 1, :start-ms 0, :end-ms 1020, :lines ["one two"]}
+   {:index 2, :start-ms 1100, :end-ms 2000, :lines ["café end."]}],
+  :out
+  [{:index 1, :start-ms 0, :end-ms 1020, :lines ["one two"]}
+   {:index 2,
+    :start-ms 1100,
+    :end-ms 2000,
+    :lines ["one two" "café end."]}],
+  :reflow-out
+  [{:index 1, :start-ms 0, :end-ms 1020, :lines ["one two"]}
+   {:index 2,
+    :start-ms 1100,
+    :end-ms 2000,
+    :lines ["one two" "café end."]}]},
+ :distant
+ {:in
+  [{:index 9, :start-ms 0, :end-ms 1000, :lines ["one two"]}
+   {:index 8, :start-ms 1100, :end-ms 2000, :lines ["café end."]}],
+  :rules
+  {:max-group 1, :close-gap-ms 0, :strategy :optimal, :style :roll-up},
+  :base
+  [{:index 1, :start-ms 0, :end-ms 1000, :lines ["one two"]}
+   {:index 2, :start-ms 1100, :end-ms 2000, :lines ["café end."]}],
+  :out
+  [{:index 1, :start-ms 0, :end-ms 1000, :lines ["one two"]}
+   {:index 2, :start-ms 1100, :end-ms 2000, :lines ["café end."]}],
+  :reflow-out
+  [{:index 1, :start-ms 0, :end-ms 1000, :lines ["one two"]}
+   {:index 2, :start-ms 1100, :end-ms 2000, :lines ["café end."]}]},
+ :empty
+ {:in [],
+  :rules {:strategy :optimal, :style :roll-up},
+  :base [],
+  :out [],
+  :reflow-out []},
+ :no-room
+ {:in
+  [{:index 9, :start-ms 0, :end-ms 1000, :lines ["one two"]}
+   {:index 8, :start-ms 1100, :end-ms 2000, :lines ["café end."]}],
+  :rules
+  {:max-group 1, :max-lines 1, :strategy :optimal, :style :roll-up},
+  :base
+  [{:index 1, :start-ms 0, :end-ms 1020, :lines ["one two"]}
+   {:index 2, :start-ms 1100, :end-ms 2000, :lines ["café end."]}],
+  :out
+  [{:index 1, :start-ms 0, :end-ms 1020, :lines ["one two"]}
+   {:index 2, :start-ms 1100, :end-ms 2000, :lines ["café end."]}],
+  :reflow-out
+  [{:index 1, :start-ms 0, :end-ms 1020, :lines ["one two"]}
+   {:index 2, :start-ms 1100, :end-ms 2000, :lines ["café end."]}]}}

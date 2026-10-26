@@ -1,0 +1,48 @@
+{:canary
+ {:in [:canary {}],
+  :out
+  {:ok
+   {:model "nvidia/canary-1b-flash",
+    :target-language nil,
+    :span-pad-ms 500,
+    :python-executable "/bin/sh",
+    :library-path "/fixture/libpython3.12.so",
+    :device "cpu",
+    :multilingual? true}}},
+ :canary-ast
+ {:in
+  [:canary {:target-language "de", :device "cuda", :span-pad-ms 100}],
+  :out
+  {:ok
+   {:model "nvidia/canary-1b-flash",
+    :target-language "de",
+    :span-pad-ms 100,
+    :python-executable "/bin/sh",
+    :library-path "/fixture/libpython3.12.so",
+    :device "cuda",
+    :multilingual? true}}},
+ :parakeet
+ {:in [:parakeet {}],
+  :out
+  {:ok
+   {:model "nvidia/parakeet-tdt-0.6b-v2",
+    :target-language nil,
+    :span-pad-ms 500,
+    :python-executable "/bin/sh",
+    :library-path "/fixture/libpython3.12.so",
+    :device "cpu",
+    :multilingual? false}}},
+ :parakeet-ast
+ {:in [:parakeet {:target-language "de"}],
+  :out
+  {:error :error/transcriber-unavailable,
+   :provider :parakeet,
+   :model "nvidia/parakeet-tdt-0.6b-v2",
+   :hint
+   "nvidia/parakeet-tdt-0.6b-v2 transcribes only; drop [:transcriber-opts :target-language] or select :canary for AST"}},
+ :unknown
+ {:in [:whisper {}],
+  :out
+  {:error :error/transcriber-unavailable,
+   :provider :whisper,
+   :hint "unknown NeMo provider — known: #{:canary :parakeet}"}}}

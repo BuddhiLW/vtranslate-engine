@@ -1,0 +1,4 @@
+{:large
+ {:in 64, :out {:width 64, :height 64, :alpha 255, :center -4656310}},
+ :small
+ {:in 16, :out {:width 16, :height 16, :alpha 255, :center -11375330}}}

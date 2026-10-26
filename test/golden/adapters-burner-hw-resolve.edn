@@ -1,0 +1,2 @@
+{:nvenc {:in :ffmpeg-nvenc, :out {:ok :h264-nvenc}},
+ :vaapi {:in :ffmpeg-vaapi, :out {:ok :h264-vaapi}}}

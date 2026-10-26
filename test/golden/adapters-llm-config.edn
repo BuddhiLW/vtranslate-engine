@@ -1,0 +1,18 @@
+{:router
+ {:in [:openrouter "other" "vault/key"],
+  :out
+  {:provider :openrouter,
+   :api-url "https://openrouter.ai/api/v1/chat/completions",
+   :model "other",
+   :secret-env "OPENROUTER_API_KEY",
+   :secret-pass "vault/key",
+   :pricing nil}},
+ :venice
+ {:in [:venice "override" nil],
+  :out
+  {:provider :venice,
+   :api-url "https://api.venice.ai/api/v1/chat/completions",
+   :model "override",
+   :secret-env "VENICE_API_KEY",
+   :secret-pass nil,
+   :pricing nil}}}

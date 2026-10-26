@@ -1,0 +1,17 @@
+{:cpu
+ {:codec "libx264",
+  :preset-key :preset,
+  :default-preset "veryfast",
+  :pix-fmt "yuv420p"},
+ :custom {:codec "mine"},
+ :nvenc
+ {:codec "h264_nvenc",
+  :preset-key :nvenc-preset,
+  :default-preset "p4",
+  :pix-fmt "yuv420p",
+  :hardware? true},
+ :vaapi
+ {:codec "h264_vaapi",
+  :hardware? true,
+  :device-args ["-vaapi_device" "/dev/dri/renderD128"],
+  :filter-suffix "format=nv12,hwupload"}}

@@ -1,0 +1,5 @@
+{:clip
+ {:in [-1.0 0.0 1.0],
+  :out {:frames 3, :rate 16000.0, :channels 1, :bytes 50}},
+ :empty
+ {:in [], :out {:frames 0, :rate 16000.0, :channels 1, :bytes 44}}}

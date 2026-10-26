@@ -1,0 +1,20 @@
+{:any
+ {:in [:any :fixed-window],
+  :out
+  {:incompatible false,
+   :check {:ok {:transcriber :stub, :segmenter :stub}}}},
+ :bad
+ {:in [:utterance :fixed-window],
+  :out
+  {:incompatible true,
+   :check
+   {:error :error/incompatible-routing,
+    :transcriber :stub,
+    :segmenter :stub,
+    :hint
+    "the :stub provider decodes whole utterances and returns an EMPTY hypothesis for a window cut mid-utterance, silently losing that window's speech; route an utterance segmenter (VT_SEGMENTER=silero-vad) instead of :stub"}}},
+ :unknown
+ {:in [:utterance :unknown],
+  :out
+  {:incompatible false,
+   :check {:ok {:transcriber :stub, :segmenter :stub}}}}}

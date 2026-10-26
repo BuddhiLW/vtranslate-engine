@@ -1,0 +1,6 @@
+{:disabled [{:start-ms 0, :end-ms 100}],
+ :remainder
+ [{:start-ms 10, :end-ms 50}
+  {:start-ms 50, :end-ms 90}
+  {:start-ms 90, :end-ms 100}],
+ :zero [{:start-ms 0, :end-ms 0}]}

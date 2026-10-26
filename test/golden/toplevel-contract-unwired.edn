@@ -1,0 +1,12 @@
+{:another
+ {:in :vtranslate.engine.toplevel-contract-trifecta-test/another,
+  :out
+  {:error :error/adapters-not-wired,
+   :port :vtranslate.engine.toplevel-contract-trifecta-test/another,
+   :note "real adapters land at M3"}},
+ :missing
+ {:in :vtranslate.engine.toplevel-contract-trifecta-test/missing,
+  :out
+  {:error :error/adapters-not-wired,
+   :port :vtranslate.engine.toplevel-contract-trifecta-test/missing,
+   :note "real adapters land at M3"}}}

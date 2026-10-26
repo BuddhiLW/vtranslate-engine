@@ -1,0 +1,12 @@
+{:text-only
+ {:in [{:text "hello"} 1000],
+  :out [{:start-ms 0, :end-ms 1000, :text "hello", :confidence 1.0}]},
+ :tokens
+ {:in
+  [{:text "hello world",
+    :tokens ["▁hello" "▁world"],
+    :timestamps [0.0 0.5]}
+   1000],
+  :out
+  [{:start-ms 0, :end-ms 500, :text "hello", :confidence 1.0}
+   {:start-ms 500, :end-ms 1000, :text "world", :confidence 1.0}]}}

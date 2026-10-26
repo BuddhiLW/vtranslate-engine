@@ -1,0 +1,17 @@
+{:exhaust
+ {:in {:which :transcriber, :requested :a, :success :missing},
+  :out
+  {:result
+   {:error :error/no-transcriber-available,
+    :requested :a,
+    :tried [:a :b],
+    :errors [[:a :error/unavailable] [:b :error/unavailable]],
+    :hint
+    "configure an available ASR provider; ASR never falls back to a fake transcript"},
+   :tried [:a :b]}},
+ :fallback
+ {:in {:which :transcriber, :requested nil, :success :b},
+  :out {:result {:ok [:b {:fixture true}]}, :tried [:a :b]}},
+ :requested
+ {:in {:which :transcriber, :requested :c, :success :c},
+  :out {:result {:ok [:c {:fixture true}]}, :tried [:c]}}}

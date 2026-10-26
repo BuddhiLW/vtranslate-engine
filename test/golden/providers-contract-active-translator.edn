@@ -1,0 +1,15 @@
+{:exhaust
+ {:in {:which :translator, :requested :a, :success :missing},
+  :out
+  {:result
+   {:error :error/no-translator-available,
+    :requested :a,
+    :tried [:a :b],
+    :errors [[:a :error/unavailable] [:b :error/unavailable]]},
+   :tried [:a :b]}},
+ :fallback
+ {:in {:which :translator, :requested nil, :success :b},
+  :out {:result {:ok [:b {:fixture true}]}, :tried [:a :b]}},
+ :requested
+ {:in {:which :translator, :requested :c, :success :c},
+  :out {:result {:ok [:c {:fixture true}]}, :tried [:c]}}}

@@ -1,0 +1,7 @@
+{:disabled ["one two"],
+ :empty [""],
+ :fits [" hello "],
+ :long-word ["extraordinary"],
+ :nil [""],
+ :nonpositive ["one two"],
+ :wrap ["one two" "three" "four"]}

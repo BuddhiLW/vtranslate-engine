@@ -1,0 +1,4 @@
+{:downscale [1280 720],
+ :no-upscale [640 360],
+ :source [1922 1082],
+ :zero [0 0]}

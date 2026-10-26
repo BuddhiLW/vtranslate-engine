@@ -1,0 +1,16 @@
+{:duration
+ [{:confidence 0.9, :start 0, :end 1, :text "Hello."}
+  {:confidence 0.9, :start 2, :end 3, :text "world"}],
+ :invalid-words [{:start 0, :end 30, :text "coarse", :confidence 0.9}],
+ :length
+ [{:confidence 0.9, :start 0, :end 1, :text "Hello."}
+  {:confidence 0.9, :start 2, :end 3, :text "world"}],
+ :no-owner
+ [{:confidence 0.9, :start 0, :end 1, :text "Hello."}
+  {:confidence 0.9, :start 2, :end 3, :text "world"}
+  {:start 30, :end 40, :text "untouched"}],
+ :no-segments [],
+ :no-words [{:start 0, :end 30, :text "coarse", :confidence 0.9}],
+ :sentence
+ [{:confidence 0.9, :start 0, :end 1, :text "Hello."}
+  {:confidence 0.9, :start 2, :end 3, :text "world"}]}

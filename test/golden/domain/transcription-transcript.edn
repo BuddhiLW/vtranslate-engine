@@ -1,0 +1,8 @@
+{:invalid {:error :error/unsupported-language, :language "xx"},
+ :valid
+ {:ok
+  {:id nil,
+   :asset-id nil,
+   :language "en",
+   :segments [],
+   :status #:adt{:variant :transcript/empty, :type :TranscriptStatus}}}}

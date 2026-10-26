@@ -115,7 +115,10 @@
   ;; platforms swap the :classifier (macosx-arm64, windows-x86_64, ...) or use
   ;; org.bytedeco/ffmpeg-platform. javacv<->ffmpeg pairing CONFIRMED on linux:
   ;; javacv 1.5.14 ⟷ ffmpeg 8.1.2-1.5.14, kept on the same JavaCPP line as ONNX.
-  :ffmpeg {:extra-deps {org.bytedeco/javacv                {:mvn/version "1.5.14"}
+  ;; test-native/ holds the opt-in native contract suite (tests-native.edn);
+  ;; nothing under it is loaded unless kaocha is pointed at that config.
+  :ffmpeg {:extra-paths ["test-native"]
+           :extra-deps {org.bytedeco/javacv                {:mvn/version "1.5.14"}
                         org.bytedeco/ffmpeg$linux-x86_64   {:mvn/version "8.1.2-1.5.14"}
                         org.bytedeco/javacpp$linux-x86_64  {:mvn/version "1.5.14"}}}
 

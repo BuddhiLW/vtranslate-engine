@@ -1,0 +1,14 @@
+{:plain
+ {:in "out.mp4",
+  :out
+  {:result
+   {:ok {:output-uris {:soft "out.soft.mp4", :hard "out.hard.mp4"}}},
+   :calls ["out.soft.mp4" "out.hard.mp4"]}},
+ :spaces
+ {:in "out file.mp4",
+  :out
+  {:result
+   {:ok
+    {:output-uris
+     {:soft "out file.soft.mp4", :hard "out file.hard.mp4"}}},
+   :calls ["out file.soft.mp4" "out file.hard.mp4"]}}}

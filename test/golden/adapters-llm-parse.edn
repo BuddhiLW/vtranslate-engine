@@ -1,0 +1,3 @@
+{:array {:in [["a" "a"] false], :out {:ok ["a" "a"]}},
+ :empty {:in [[] false], :out {:ok []}},
+ :wrapped {:in [["שלום"] true], :out {:ok ["שלום"]}}}

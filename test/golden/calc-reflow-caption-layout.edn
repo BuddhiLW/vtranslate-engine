@@ -1,0 +1,13 @@
+{:empty {:font-size-px 45, :lines [], :widest-px 0, :max-line-px 1690},
+ :nil-line
+ {:font-size-px 26, :lines ["hello"], :widest-px 72, :max-line-px 316},
+ :normal
+ {:font-size-px 45,
+  :lines ["hello world"],
+  :widest-px 283,
+  :max-line-px 1690},
+ :shrink
+ {:font-size-px 3,
+  :lines ["WWWWWWWWWWWWWWWWWWWWWWWW"],
+  :widest-px 80,
+  :max-line-px 88}}

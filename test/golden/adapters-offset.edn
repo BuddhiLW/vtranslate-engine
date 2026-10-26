@@ -1,0 +1,6 @@
+{:milliseconds
+ {:in [50 [{:start-ms 0, :end-ms 100, :text "a"}]],
+  :out [{:start-ms 50, :end-ms 150, :text "a"}]},
+ :seconds
+ {:in [1000 [{:start 0.0, :end 1.0, :text "b"}]],
+  :out [{:start 1.0, :end 2.0, :text "b"}]}}

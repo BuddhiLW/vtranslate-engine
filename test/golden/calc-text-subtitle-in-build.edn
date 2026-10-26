@@ -1,0 +1,21 @@
+{:bad-format {:error :error/unsupported-format, :format :format/nope},
+ :bad-language {:error :error/unsupported-language, :language "xyz"},
+ :bad-time {:error :error/invalid-timecode, :ms -1},
+ :blank
+ {:error :error/render-failed,
+  :reason "cue has no non-blank text lines"},
+ :empty {:error :error/render-failed, :reason "no cues to render"},
+ :renumber
+ {:ok
+  {:id "track",
+   :source-id "source",
+   :language "en",
+   :format #:adt{:variant :format/srt, :type :SubtitleFormat},
+   :cues
+   [{:index 1,
+     :range {:start {:ms 0}, :end {:ms 100}},
+     :lines ["hello"]}
+    {:index 2,
+     :range {:start {:ms 0}, :end {:ms 100}},
+     :lines ["hello"]}],
+   :status #:adt{:variant :track/rendered, :type :TrackStatus}}}}

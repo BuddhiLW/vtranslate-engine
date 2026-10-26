@@ -1,0 +1,4 @@
+{:disabled {:in [["a"] 0], :out {:same? true, :result {:ok ["a"]}}},
+ :enabled
+ {:in [["a" "b" "a"] 2],
+  :out {:same? false, :result {:ok ["a" "b" "a"]}}}}

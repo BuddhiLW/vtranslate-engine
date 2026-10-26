@@ -1,0 +1,15 @@
+{:none
+ {:in {:orders [], :expected []},
+  :out {:contributed [], :phase [:base], :default []}},
+ :reverse
+ {:in {:orders [3 2 1], :expected [:m2 :m1 :m0]},
+  :out
+  {:contributed [:m2 :m1 :m0],
+   :phase [:base :m2 :m1 :m0],
+   :default []}},
+ :ties
+ {:in {:orders [2 0 0], :expected [:m1 :m2 :m0]},
+  :out
+  {:contributed [:m1 :m2 :m0],
+   :phase [:base :m1 :m2 :m0],
+   :default []}}}

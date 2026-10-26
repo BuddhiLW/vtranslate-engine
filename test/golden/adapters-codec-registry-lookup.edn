@@ -1,0 +1,4 @@
+{:absent
+ {:in [{} :srt],
+  :out {:error :error/unsupported-format, :format :srt}},
+ :found {:in [{:srt "codec"} :srt], :out {:ok "codec"}}}

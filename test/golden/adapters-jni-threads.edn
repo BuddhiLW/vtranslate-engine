@@ -1,0 +1,4 @@
+{:auto {:in [:auto 8], :out nil},
+ :nil {:in [nil 8], :out nil},
+ :oversubscribed {:in [100 8], :out 8},
+ :zero {:in [0 8], :out 1}}

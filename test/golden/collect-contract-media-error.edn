@@ -1,0 +1,12 @@
+{:extract
+ {:in {:error :collect/extract-failed, :message "broken", :marker 7},
+  :out {:error :error/audio-extract-failed, :reason "broken"}},
+ :missing
+ {:in {:error :collect/source-not-found, :message "gone", :marker 7},
+  :out {:error :error/source-unreadable, :source-uri "source"}},
+ :probe
+ {:in {:error :collect/probe-timeout, :message "late", :marker 7},
+  :out {:error :error/probe-failed, :reason "late"}},
+ :unknown
+ {:in {:error :unmapped/error, :message "retained", :marker 7},
+  :out {:error :unmapped/error, :message "retained", :marker 7}}}

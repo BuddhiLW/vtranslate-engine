@@ -1,0 +1,5 @@
+{:custom
+ {:in "/opt/ffmpeg",
+  :out {:bin "/opt/ffmpeg", :encoder :h264-nvenc, :path "out.mp4"}},
+ :default
+ {:in nil, :out {:bin "ffmpeg", :encoder :h264-nvenc, :path "out.mp4"}}}

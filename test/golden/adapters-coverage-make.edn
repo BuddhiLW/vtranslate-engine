@@ -1,0 +1,8 @@
+{:empty {:in [0 10], :out {:ok []}},
+ :tail
+ {:in [21 10],
+  :out
+  {:ok
+   [{:start-ms 0, :end-ms 10}
+    {:start-ms 10, :end-ms 20}
+    {:start-ms 20, :end-ms 21}]}}}

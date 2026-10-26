@@ -1,0 +1,12 @@
+{:budget
+ {:in {:budget-mib 4096},
+  :out
+  {:policy {:budget-mib 4096},
+   :host true,
+   :ledger {:resident {}, :lru []}}},
+ :zero
+ {:in {:budget-mib 0},
+  :out
+  {:policy {:budget-mib 0},
+   :host true,
+   :ledger {:resident {}, :lru []}}}}

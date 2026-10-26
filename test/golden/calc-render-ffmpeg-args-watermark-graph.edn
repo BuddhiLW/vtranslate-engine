@@ -1,0 +1,4 @@
+{:plain
+ "[0:v]subtitles=filename=a.ass[subbed];[subbed][1:v]overlay=W-w-12:12[vid]",
+ :suffix
+ "[0:v]subtitles=filename=a.ass[subbed];[subbed][1:v]overlay=W-w-12:12,hwupload[vid]"}

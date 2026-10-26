@@ -1,0 +1,2 @@
+{:bold {:in [30 true], :out {:size 30, :bold true}},
+ :small {:in [12 false], :out {:size 12, :bold false}}}

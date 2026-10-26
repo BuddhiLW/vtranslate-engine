@@ -1,0 +1,5 @@
+{:empty-suffix
+ {:in "/contract//config.edn", :out "/contract//config.edn"},
+ :plain
+ {:in "/contract/fixture/config.edn",
+  :out "/contract/fixture/config.edn"}}

@@ -1,0 +1,3 @@
+{:cpu {:filters ["subtitles"], :encoders ["libx264"]},
+ :custom {:filters ["subtitles"], :encoders ["mine"]},
+ :hardware {:filters ["subtitles"], :encoders ["h264_vaapi"]}}

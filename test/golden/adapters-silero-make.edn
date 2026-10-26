@@ -1,0 +1,44 @@
+{:defaults
+ {:in {},
+  :out
+  {:ok
+   {:model-path "models/silero_vad.onnx",
+    :threshold 0.5,
+    :neg-threshold 0.3499999940395355,
+    :min-speech-ms 250,
+    :min-silence-ms 100,
+    :speech-pad-ms 30,
+    :max-span-ms 30000,
+    :merge-to-ms 15000}}},
+ :knobs
+ {:in
+  {:segmenter-opts
+   {:threshold 0.6,
+    :neg-threshold 0.2,
+    :min-speech-ms 100,
+    :min-silence-ms 50,
+    :speech-pad-ms 10,
+    :max-span-ms 5000,
+    :merge-to-ms 0}},
+  :out
+  {:ok
+   {:model-path "models/silero_vad.onnx",
+    :threshold 0.6000000238418579,
+    :neg-threshold 0.20000000298023224,
+    :min-speech-ms 100,
+    :min-silence-ms 50,
+    :speech-pad-ms 10,
+    :max-span-ms 5000,
+    :merge-to-ms 0}}},
+ :model
+ {:in {:segmenter-opts {:model-path "models/custom.onnx"}},
+  :out
+  {:ok
+   {:model-path "models/custom.onnx",
+    :threshold 0.5,
+    :neg-threshold 0.3499999940395355,
+    :min-speech-ms 250,
+    :min-silence-ms 100,
+    :speech-pad-ms 30,
+    :max-span-ms 30000,
+    :merge-to-ms 15000}}}}

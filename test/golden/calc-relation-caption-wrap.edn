@@ -1,0 +1,9 @@
+{:empty {:in "", :rules {:chars 5, :px 5}, :out [""]},
+ :hard-word
+ {:in "extraordinary",
+  :rules {:chars 3, :px 3},
+  :out ["extraordinary"]},
+ :wrap
+ {:in "one two three",
+  :rules {:chars 5, :px 7},
+  :out ["one" "two" "three"]}}

@@ -1,0 +1,4 @@
+{:blank {:error :error/invalid-source, :source "  "},
+ :nil {:error :error/invalid-source, :source nil},
+ :not-string {:error :error/invalid-source, :source 42},
+ :valid {:ok {:uri "movie"}}}

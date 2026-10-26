@@ -1,0 +1,75 @@
+{:en-sibling
+ {:in
+  {:cues [{:start-ms 100, :end-ms 300, :lines ["hello world"]}],
+   :language "en",
+   :output? false},
+  :out
+  {:result {:ok {:output-uri "<tmp>/source.subbed.mp4"}},
+   :source
+   {:streams
+    [{:type 0, :codec "h264", :language "und"}
+     {:type 1, :codec "aac", :language "und"}],
+    :packets {1 17, 0 10},
+    :subtitles []},
+   :output
+   {:streams
+    [{:type 0, :codec "h264", :language "und"}
+     {:type 1, :codec "aac", :language "und"}
+     {:type 3, :codec "mov_text", :language "eng"}],
+    :packets {1 17, 0 10, 2 2},
+    :subtitles
+    [{:start-ms 0, :end-ms 100, :text ""}
+     {:start-ms 100, :end-ms 300, :text "hello world"}]},
+   :partials []}},
+ :pt-br-explicit
+ {:in
+  {:cues
+   [{:start-ms 0, :end-ms 400, :lines ["Olá"]}
+    {:start-ms 450, :end-ms 1000, :lines ["a" "über"]}],
+   :language "pt-BR",
+   :output? true},
+  :out
+  {:result {:ok {:output-uri "<tmp>/chosen.mp4"}},
+   :source
+   {:streams
+    [{:type 0, :codec "h264", :language "und"}
+     {:type 1, :codec "aac", :language "und"}],
+    :packets {1 17, 0 10},
+    :subtitles []},
+   :output
+   {:streams
+    [{:type 0, :codec "h264", :language "und"}
+     {:type 1, :codec "aac", :language "und"}
+     {:type 3, :codec "mov_text", :language "por"}],
+    :packets {1 17, 0 10, 2 3},
+    :subtitles
+    [{:start-ms 0, :end-ms 400, :text "Olá"}
+     {:start-ms 400, :end-ms 450, :text ""}
+     {:start-ms 450, :end-ms 1000, :text "a\nüber"}]},
+   :partials []}},
+ :zh-adjacent
+ {:in
+  {:cues
+   [{:start-ms 0, :end-ms 500, :lines ["一"]}
+    {:start-ms 500, :end-ms 900, :lines ["二"]}],
+   :language "zh-CN",
+   :output? true},
+  :out
+  {:result {:ok {:output-uri "<tmp>/chosen.mp4"}},
+   :source
+   {:streams
+    [{:type 0, :codec "h264", :language "und"}
+     {:type 1, :codec "aac", :language "und"}],
+    :packets {1 17, 0 10},
+    :subtitles []},
+   :output
+   {:streams
+    [{:type 0, :codec "h264", :language "und"}
+     {:type 1, :codec "aac", :language "und"}
+     {:type 3, :codec "mov_text", :language "zho"}],
+    :packets {1 17, 0 10, 2 3},
+    :subtitles
+    [{:start-ms 0, :end-ms 500, :text "一"}
+     {:start-ms 500, :end-ms 500, :text ""}
+     {:start-ms 500, :end-ms 900, :text "二"}]},
+   :partials []}}}

@@ -1,0 +1,3 @@
+{:annotation {:in ["silence" true], :out true},
+ :marker {:in ["BLANK_AUDIO" true], :out true},
+ :spoken {:in ["music" false], :out false}}

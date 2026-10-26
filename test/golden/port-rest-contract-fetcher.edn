@@ -1,0 +1,4 @@
+{:invalid
+ {:in false,
+  :out {:predicate false, :checked :error/invalid-source-fetcher}},
+ :valid {:in true, :out {:predicate true, :checked true}}}

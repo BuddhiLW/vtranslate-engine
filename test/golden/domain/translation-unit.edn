@@ -1,0 +1,26 @@
+{:annotation
+ {:ok
+  {:range {:start {:ms 0}, :end {:ms 10}},
+   :source-language "en",
+   :source-text "hello",
+   :target-text "ola",
+   :segment/omit? true}},
+ :bad-end {:error :error/invalid-timecode, :ms -1},
+ :bad-start {:error :error/invalid-timecode, :ms -1},
+ :blank
+ {:error :error/translation-failed,
+  :reason "translation unit has blank target-text"},
+ :inverted {:error :error/inverted-time-range, :start 20, :end 10},
+ :language {:error :error/unsupported-language, :language "xx"},
+ :optional
+ {:ok
+  {:range {:start {:ms 0}, :end {:ms 10}},
+   :source-language nil,
+   :source-text "hello",
+   :target-text "ola"}},
+ :valid
+ {:ok
+  {:range {:start {:ms 0}, :end {:ms 10}},
+   :source-language "en",
+   :source-text "hello",
+   :target-text "ola"}}}

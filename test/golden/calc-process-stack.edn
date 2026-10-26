@@ -1,0 +1,6 @@
+{:default 16777216,
+ :invalid 16777216,
+ :larger 33554432,
+ :missing 16777216,
+ :negative 16777216,
+ :too-small 8388608}

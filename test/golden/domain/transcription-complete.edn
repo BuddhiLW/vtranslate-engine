@@ -1,0 +1,18 @@
+{:complete
+ {:error :error/illegal-transition, :from :transcript/complete},
+ :empty {:error :error/asr-failed, :reason "no segments produced"},
+ :failed {:error :error/illegal-transition, :from :transcript/failed},
+ :silent {:error :error/illegal-transition, :from :transcript/silent},
+ :valid
+ {:ok
+  {:id "t",
+   :asset-id "a",
+   :language "en",
+   :segments
+   [{:index 1,
+     :range {:start {:ms 0}, :end {:ms 10}},
+     :text "hello",
+     :confidence {:score 0.5},
+     :language "en"}],
+   :status
+   #:adt{:variant :transcript/complete, :type :TranscriptStatus}}}}

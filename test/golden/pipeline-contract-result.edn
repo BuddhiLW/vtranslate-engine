@@ -1,0 +1,14 @@
+{:error
+ {:in {:error :error/pinned, :value 5},
+  :out
+  {:state {:result {:error :error/pinned, :value 5}},
+   :result {:error :error/pinned, :value 5},
+   :continue false,
+   :halted true}},
+ :ok
+ {:in {:ok 2},
+  :out
+  {:state {:result {:ok 2}},
+   :result {:ok 2},
+   :continue true,
+   :halted false}}}

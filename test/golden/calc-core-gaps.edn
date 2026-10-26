@@ -1,0 +1,3 @@
+{:covered [],
+ :none [{:start-ms 0, :end-ms 100}],
+ :overlap [{:start-ms 0, :end-ms 10} {:start-ms 80, :end-ms 100}]}

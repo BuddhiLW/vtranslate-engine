@@ -1,0 +1,14 @@
+{:empty {:in [[] 1.0], :out []},
+ :no-timestamps
+ {:in [[7 8 9] 2.0],
+  :out [{:start 0.0, :end 2.0, :text "Hello world again"}]},
+ :open-tail
+ {:in [[4 7 5 8] 1.5],
+  :out
+  [{:start 0.0, :end 0.5, :text "Hello"}
+   {:start 0.5, :end 1.5, :text "world"}]},
+ :scripted
+ {:in [[4 7 8 5 9 6] 1.0],
+  :out
+  [{:start 0.0, :end 0.5, :text "Hello world"}
+   {:start 0.5, :end 1.0, :text "again"}]}}

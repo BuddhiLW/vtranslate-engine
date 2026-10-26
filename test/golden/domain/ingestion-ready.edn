@@ -1,0 +1,32 @@
+{:audio
+ {:ok
+  {:id "a",
+   :source-ref {:uri "movie.mp4"},
+   :kind #:adt{:variant :media/video, :type :MediaKind},
+   :status #:adt{:variant :asset/ready, :type :AssetStatus},
+   :probe
+   {:container "mp4",
+    :duration-ms 10,
+    :has-audio? true,
+    :audio-codec "aac"}}},
+ :no-audio {:error :error/no-audio-stream, :source-id "a"},
+ :not-video {:error :error/no-audio-stream, :source-id "a"},
+ :silent-video
+ {:ok
+  {:id "a",
+   :source-ref {:uri "movie.mp4"},
+   :kind #:adt{:variant :media/video, :type :MediaKind},
+   :status #:adt{:variant :asset/ready, :type :AssetStatus},
+   :probe
+   {:container "mp4",
+    :duration-ms 10,
+    :has-audio? false,
+    :has-video? true,
+    :audio-codec nil}}},
+ :subtitle
+ {:ok
+  {:id "a",
+   :source-ref {:uri "movie.mp4"},
+   :kind #:adt{:variant :media/subtitle, :type :MediaKind},
+   :status #:adt{:variant :asset/ready, :type :AssetStatus},
+   :probe nil}}}

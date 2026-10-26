@@ -1,0 +1,4 @@
+{:custom "Noto Sans",
+ :default "sans-serif",
+ :dialog "sans-serif",
+ :logical "monospace"}

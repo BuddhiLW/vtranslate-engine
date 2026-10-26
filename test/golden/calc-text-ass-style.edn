@@ -1,0 +1,6 @@
+{:bold
+ "Style: Default,sans-serif,80,&H00FFFFFF,&H00FFFFFF,&H00000000,&H73000000,-1,0,0,0,100,100,0,0,4,5,0,2,43,43,116,1",
+ :default
+ "Style: Default,sans-serif,45,&H00FFFFFF,&H00FFFFFF,&H00000000,&H73000000,-1,0,0,0,100,100,0,0,4,3,0,2,77,77,65,1",
+ :no-plate
+ "Style: Default,sans-serif,18,&H00FFFFFF,&H00FFFFFF,&H00000000,&HFF000000,-1,0,0,0,100,100,0,0,1,1,0,2,26,26,22,1"}

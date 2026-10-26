@@ -1,0 +1,5 @@
+{:omit :vtranslate.engine.calc.translation/verbatim,
+ :same :vtranslate.engine.calc.translation/verbatim,
+ :translate "en",
+ :unknown "und",
+ :verbatim :vtranslate.engine.calc.translation/verbatim}

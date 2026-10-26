@@ -1,0 +1,8 @@
+{:disabled {:in [100 0], :out []},
+ :empty {:in [0 20], :out []},
+ :tail
+ {:in [21 10],
+  :out
+  [{:start-ms 0, :end-ms 10}
+   {:start-ms 10, :end-ms 20}
+   {:start-ms 20, :end-ms 21}]}}

@@ -1,0 +1,12 @@
+{:named
+ {:in [:named 7],
+  :out
+  {:id :named,
+   :actual {:resource :resource, :state 7},
+   :stub {:resource :resource, :state 7}}},
+ :start
+ {:in [:start 0],
+  :out
+  {:id :start,
+   :actual {:resource :resource, :state 0},
+   :stub {:resource :resource, :state 0}}}}

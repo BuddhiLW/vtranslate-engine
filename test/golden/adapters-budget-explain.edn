@@ -1,0 +1,11 @@
+{:oversize
+ {:in [{:budget-bytes 1, :resident {}} :b 2],
+  :out
+  "whisper: refusing to load :b (0 MiB needed, 0 MiB short of a 0 MiB budget, 0 MiB resident across 0 context(s)). These weights do not fit this device even with nothing else loaded. Loading it anyway would abort the JVM inside libggml rather than fail."},
+ :pinned
+ {:in
+  [{:budget-bytes 10, :resident {:a 10}, :pinned #{:a}, :lru [:a]}
+   :b
+   2],
+  :out
+  "whisper: refusing to load :b (0 MiB needed, 0 MiB short of a 0 MiB budget, 0 MiB resident across 1 context(s), 1 decoding). The contexts that would have been evicted are mid-decode: :a. Loading it anyway would abort the JVM inside libggml rather than fail."}}

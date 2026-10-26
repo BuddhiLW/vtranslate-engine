@@ -1,0 +1,2 @@
+{:custom {:in "/opt/ffmpeg", :out "/opt/ffmpeg"},
+ :default {:in nil, :out "ffmpeg"}}

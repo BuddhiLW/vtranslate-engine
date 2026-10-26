@@ -1,0 +1,31 @@
+{:evict
+ {:in
+  [{:budget-bytes 100, :resident {:a 80}, :lru [:a], :pinned #{}}
+   :b
+   50],
+  :out {:admit? true, :resident? false, :evict [:a], :shortfall 0}},
+ :oversize
+ {:in [{:budget-bytes 10, :resident {}} :b 11],
+  :out
+  {:admit? false,
+   :resident? false,
+   :evict [],
+   :shortfall 1,
+   :reason :budget/model-exceeds-device}},
+ :pinned
+ {:in
+  [{:budget-bytes 100, :resident {:a 80}, :lru [:a], :pinned #{:a}}
+   :b
+   50],
+  :out
+  {:admit? false,
+   :resident? false,
+   :evict [],
+   :shortfall 30,
+   :reason :budget/pinned-contexts-hold-the-device}},
+ :resident
+ {:in [{:budget-bytes 1, :resident {:a 80}} :a 500],
+  :out {:admit? true, :resident? true, :evict [], :shortfall 0}},
+ :unlimited
+ {:in [{:budget-bytes 0, :resident {}} :b 500],
+  :out {:admit? true, :resident? false, :evict [], :shortfall 0}}}

@@ -1,0 +1,4 @@
+{:absent {:in nil, :out [nil nil]},
+ :blank {:in " ", :out [nil nil]},
+ :regional {:in "en-US", :out ["English" "en"]},
+ :uppercase {:in "DE", :out ["German" "de"]}}

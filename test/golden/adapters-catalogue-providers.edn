@@ -1,0 +1,12 @@
+{:translate
+ {:in :translate,
+  :out
+  #:role{:openrouter
+         {:api-url "https://openrouter.ai/api/v1/chat/completions",
+          :secret-env "OPENROUTER_API_KEY",
+          :model "z-ai/glm-5.3"},
+         :venice
+         {:api-url "https://api.venice.ai/api/v1/chat/completions",
+          :secret-env "VENICE_API_KEY",
+          :model "z-ai-glm-5-3"}}},
+ :unknown {:in :unknown, :out {}}}

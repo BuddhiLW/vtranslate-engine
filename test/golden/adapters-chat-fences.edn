@@ -1,0 +1,3 @@
+{:bare {:in ["[]" false], :out "[]"},
+ :empty {:in ["" true], :out ""},
+ :fenced {:in ["[\"שלום\"]" true], :out "[\"שלום\"]"}}

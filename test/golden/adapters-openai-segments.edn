@@ -1,0 +1,7 @@
+{:speech
+ {:in [100 900 "hello"],
+  :out
+  [{:start-ms 100, :end-ms 1000, :text "hello", :confidence 1.0}]},
+ :unicode
+ {:in [0 100 "שלום"],
+  :out [{:start-ms 0, :end-ms 100, :text "שלום", :confidence 1.0}]}}

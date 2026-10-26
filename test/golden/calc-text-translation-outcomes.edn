@@ -1,0 +1,10 @@
+{:empty {:delivered [], :failed []},
+ :mixed
+ {:delivered [{:target-language "fr", :translated {:id "tr"}}],
+  :failed
+  [{:error :error/translation-failed,
+    :reason "bad",
+    :target-language "es"}
+   {:target-language "de",
+    :error :error/translation-failed,
+    :reason "translation timed out or threw"}]}}

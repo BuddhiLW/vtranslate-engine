@@ -1,0 +1,6 @@
+{:collapsed
+ [{:index 9, :start-ms 0, :end-ms 100, :lines ["hello world"]}],
+ :empty [],
+ :round
+ [{:index 9, :start-ms 0, :end-ms 1000, :lines ["hello world"]}
+  {:index 4, :start-ms 920, :end-ms 1800, :lines ["the café"]}]}

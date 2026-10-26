@@ -1,0 +1,25 @@
+{:complete
+ {:in [["tiny-encoder.onnx" "tiny-decoder.onnx" "tokens.txt"] {}],
+  :out
+  {:encoder "tiny-encoder.onnx",
+   :decoder "tiny-decoder.onnx",
+   :tokens "tokens.txt"}},
+ :empty {:in [[] {}], :out nil},
+ :missing-tokens
+ {:in [["tiny-encoder.onnx" "tiny-decoder.onnx"] {}], :out nil},
+ :pinned
+ {:in
+  [["a-encoder.onnx" "z-encoder.onnx" "x-decoder.onnx" "tokens.txt"]
+   {:encoder "z-encoder.onnx"}],
+  :out
+  {:encoder "z-encoder.onnx",
+   :decoder "x-decoder.onnx",
+   :tokens "tokens.txt"}},
+ :sorted
+ {:in
+  [["b-encoder.onnx" "a-encoder.onnx" "x-decoder.onnx" "tokens.txt"]
+   {}],
+  :out
+  {:encoder "a-encoder.onnx",
+   :decoder "x-decoder.onnx",
+   :tokens "tokens.txt"}}}

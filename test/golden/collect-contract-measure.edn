@@ -1,0 +1,6 @@
+{:large
+ {:in 24,
+  :out {:awt? true, :empty 0, :single 23, :double 46, :repeat true}},
+ :small
+ {:in 12,
+  :out {:awt? true, :empty 0, :single 11, :double 22, :repeat true}}}

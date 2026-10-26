@@ -1,0 +1,6 @@
+{:fraction {:error :error/invalid-timecode, :ms 0.5},
+ :negative {:error :error/invalid-timecode, :ms -1},
+ :nil {:error :error/invalid-timecode, :ms nil},
+ :string {:error :error/invalid-timecode, :ms "0"},
+ :valid {:ok {:ms 123}},
+ :zero {:ok {:ms 0}}}

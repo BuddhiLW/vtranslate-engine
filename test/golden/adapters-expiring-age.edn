@@ -1,0 +1,4 @@
+{:boundary {:in [10 5 15], :out false},
+ :disabled {:in [10 0 99], :out false},
+ :future {:in [20 5 10], :out false},
+ :past {:in [10 5 16], :out true}}

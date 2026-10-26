@@ -1,0 +1,15 @@
+{:empty
+ {:in ["model" [] 0.2],
+  :out {:model "model", :temperature 0.2, :messages []}},
+ :order
+ {:in
+  ["m"
+   [{:role "system", :content "static"}
+    {:role "user", :content "שלום"}]
+   0],
+  :out
+  {:model "m",
+   :temperature 0,
+   :messages
+   [{:role "system", :content "static"}
+    {:role "user", :content "שלום"}]}}}

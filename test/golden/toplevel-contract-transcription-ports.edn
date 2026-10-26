@@ -1,0 +1,14 @@
+{:fail
+ {:in {:area :transcription, :fail :transcriber},
+  :out
+  {:calls [:media :segmenter :transcriber],
+   :result {:error :error/pinned}}},
+ :success
+ {:in {:area :transcription, :fail nil},
+  :out
+  {:calls [:media :segmenter :transcriber],
+   :result
+   {:ok
+    {:media :media,
+     :segmenter :segmenter,
+     :transcriber :transcriber}}}}}

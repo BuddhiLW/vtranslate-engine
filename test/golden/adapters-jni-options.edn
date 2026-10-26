@@ -1,0 +1,4 @@
+{:default {:in {}, :out {:threads nil, :print-progress? true}},
+ :explicit
+ {:in {:threads 100, :print-progress? false, :beam-size 4},
+  :out {:beam-size 4, :threads 8, :print-progress? false}}}

@@ -1,0 +1,12 @@
+{:non-speech
+ {:in
+  [{:start-ms 0, :end-ms 100, :text "[BLANK_AUDIO]"}
+   {:start-ms 20, :end-ms 50, :text "speech"}],
+  :out [{:start-ms 20, :end-ms 50, :text "speech", :confidence 1.0}]},
+ :out-of-order
+ {:in
+  [{:start-ms 20, :end-ms 30, :text "second"}
+   {:start-ms 0, :end-ms 40, :text "first"}],
+  :out
+  [{:start-ms 0, :end-ms 20, :text "first", :confidence 1.0}
+   {:start-ms 20, :end-ms 30, :text "second", :confidence 1.0}]}}

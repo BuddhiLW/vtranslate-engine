@@ -1,0 +1,4 @@
+{:empty {:in 0, :out false},
+ :long {:in 8, :out true},
+ :one {:in 1, :out false},
+ :two {:in 2, :out true}}

@@ -1,0 +1,9 @@
+{:repair
+ {:in
+  [{:start-ms 20, :end-ms 80, :text " first "}
+   {:start-ms 10, :end-ms 40, :text "second"}],
+  :out
+  [{:start-ms 10, :end-ms 20, :text "second", :confidence 1.0}
+   {:start-ms 20, :end-ms 80, :text "first", :confidence 1.0}]},
+ :silence
+ {:in [{:start-ms 0, :end-ms 100, :text "[BLANK_AUDIO]"}], :out []}}

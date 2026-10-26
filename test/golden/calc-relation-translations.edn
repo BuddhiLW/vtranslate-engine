@@ -1,0 +1,18 @@
+{:empty {:in [], :rules [], :out {:ok []}},
+ :mismatch
+ {:in
+  [{:index 9, :start-ms 0, :end-ms 1000, :lines ["one two"]}
+   {:index 8, :start-ms 1100, :end-ms 2000, :lines ["café end."]}],
+  :rules [],
+  :out
+  {:error :error/translation-failed,
+   :reason "translation count 0 != cue count 2"}},
+ :multiline
+ {:in
+  [{:index 9, :start-ms 0, :end-ms 1000, :lines ["one two"]}
+   {:index 8, :start-ms 1100, :end-ms 2000, :lines ["café end."]}],
+  :rules ["new\r\ntext" "changed"],
+  :out
+  {:ok
+   [{:index 9, :start-ms 0, :end-ms 1000, :lines ["new" "text"]}
+    {:index 8, :start-ms 1100, :end-ms 2000, :lines ["changed"]}]}}}

@@ -1,0 +1,12 @@
+{:scaled
+ {:width 1280,
+  :height 720,
+  :rescaled? true,
+  :video-bitrate 400000,
+  :audio-bitrate 128000},
+ :source
+ {:width 1922,
+  :height 1082,
+  :rescaled? true,
+  :video-bitrate 6238812,
+  :audio-bitrate 128000}}
