@@ -126,21 +126,33 @@
            (and (m/validate c/Font out) (= in [(:size out) (:bold out)])))})
 
 (defn measure-observation [size]
-  (let [awt (fonts/awt-measure {}) measure (fonts/measure {})]
-    {:in size :out {:awt? (boolean awt)
-                   :empty (measure size "")
-                   :single (measure size "M")
-                   :double (measure size "MM")
-                   :repeat (= (measure size "fixture") (measure size "fixture"))}}))
+  ;; AWT resolves logical fonts on the host: snapshot relations, not pixels.
+  (let [awt (fonts/awt-measure {})
+        measure (fonts/measure {})
+        empty-width (measure size "")
+        single (measure size "M")
+        double-width (measure size "MM")
+        larger-single (measure (* 2 size) "M")]
+    {:in size
+     :out {:awt? (boolean awt)
+           :empty empty-width
+           :widths-valid? (m/validate [:tuple number? number? number? number?]
+                                      [empty-width single double-width larger-single])
+           :positive? (every? pos? [single double-width larger-single])
+           :double? (== double-width (* 2 single))
+           :larger? (> larger-single single)
+           :repeat (= (measure size "fixture") (measure size "fixture"))}}))
 
 (deftrifecta font-measure measure-observation
   {:golden-path "test/golden/collect-contract-measure.edn"
    :cases {:small 12 :large 24} :gen (gen/choose 8 64)
    :pred (fn [{:keys [out]}]
-           (and (m/validate [:map [:awt? :boolean] [:empty number?] [:single number?]
-                                [:double number?] [:repeat :boolean]] out)
-                (zero? (:empty out)) (pos? (:single out))
-                (>= (:double out) (:single out)) (:repeat out)))})
+           (and (m/validate [:map [:awt? :boolean] [:empty number?]
+                                [:widths-valid? :boolean] [:positive? :boolean]
+                                [:double? :boolean] [:larger? :boolean]
+                                [:repeat :boolean]] out)
+                (zero? (:empty out))
+                (every? true? ((juxt :widths-valid? :positive? :double? :larger? :repeat) out))))})
 
 (defn watermark-observation [size]
   (let [img (mark/render size 0 1.0)]
