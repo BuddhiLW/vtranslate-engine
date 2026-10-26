@@ -59,13 +59,15 @@
   "Build the chat-completions request body translating `texts` from `src` to
    `tgt`. The messages come from opts :prompt/messages — (fn [{:texts
    :source-language :target-language :opts}] => messages), contributed by a
-   translator decorator — else `default-messages`."
-  [model src tgt texts opts]
-  (let [build (or (:prompt/messages opts) default-messages)]
-    (chat/chat-body-messages
-     model
-     (build {:texts texts :source-language src :target-language tgt :opts opts})
-     {})))
+   translator decorator — else `default-messages`. `body-params` (a map or
+   nil) is merged into the body."
+  ([model src tgt texts opts] (chat-body model src tgt texts opts nil))
+  ([model src tgt texts opts body-params]
+   (let [build (or (:prompt/messages opts) default-messages)]
+     (chat/chat-body-messages
+      model
+      (build {:texts texts :source-language src :target-language tgt :opts opts})
+      {:body-params body-params}))))
 
 (defn- n-strings?
   "True when `v` is a sequential of exactly `n` strings."
@@ -141,7 +143,8 @@
              (r/let-ok [content (chat/post-chat
                                  :error/translation-failed api-url api-key
                                  (chat-body active-model source-language target-language
-                                            batch opts)
+                                            batch opts
+                                            (or (:body-params opts) (:body-params this)))
                                  {:on-attempt (:on-provider-attempt opts)
                                   :provider provider
                                   :model active-model
@@ -161,10 +164,11 @@
 
 (defn make-translator
   "Build an LLM translator for `provider-key`. Per-provider overrides (api-url /
-   model / secret-env / secret-pass) may be supplied under config
-   [:translator-opts] (a map); absent => the shared catalogue's defaults. NOTE:
-   the [:translator] key itself is the routing SELECTION (a provider keyword), not
-   an opts map — opts live under [:translator-opts] to avoid that collision.
+   model / secret-env / secret-pass / pricing / body-params) may be supplied
+   under config [:translator-opts] (a map); absent => the shared catalogue's
+   defaults. NOTE: the [:translator] key itself is the routing SELECTION (a
+   provider keyword), not an opts map — opts live under [:translator-opts] to
+   avoid that collision.
 
    :secret-pass has no code-level default. Where a key sits in a password store
    is a fact about the machine, so it comes from config: [:translator-opts
@@ -174,14 +178,15 @@
   [provider-key config]
   (let [d    (get provider-defaults provider-key)
         opts (get config :translator-opts)]
-    (->LlmTranslator provider-key
-                     (or (:api-url opts) (:api-url d))
-                     (or (:model opts) (:model d))
-                     (or (:secret-env opts) (:secret-env d))
-                     (if (and (map? opts) (contains? opts :secret-pass))
-                       (:secret-pass opts)
-                       (cat/secret-pass-for config provider-key))
-                     (:pricing opts))))
+    (cond-> (->LlmTranslator provider-key
+                             (or (:api-url opts) (:api-url d))
+                             (or (:model opts) (:model d))
+                             (or (:secret-env opts) (:secret-env d))
+                             (if (and (map? opts) (contains? opts :secret-pass))
+                               (:secret-pass opts)
+                               (cat/secret-pass-for config provider-key))
+                             (:pricing opts))
+      (map? (:body-params opts)) (assoc :body-params (:body-params opts)))))
 
 (defn resolved
   "Attach the API key AT BUILD TIME. Resolving lazily at first translate meant a
